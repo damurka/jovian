@@ -1,0 +1,48 @@
+# Build outputs
+dist/
+build/
+out/
+.cmake-js/
+
+# Dependencies
+node_modules/
+vcpkg_installed/
+
+# TypeScript
+*.tsbuildinfo
+*.js.map
+*.d.ts.map
+
+# IDE
+.vscode/.history/
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Package files
+*.tgz
+*.tar.gz
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*~
+
+# R
+.Rhistory
+.RData
+.Rproj.user
+
+# clang-format cache
+.clang-format-cache

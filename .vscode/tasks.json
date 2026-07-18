@@ -1,0 +1,37 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build Node Addon",
+      "type": "npm",
+      "script": "compile",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$gcc"],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "detail": "Compiles the C++ code into a Node.js addon using cmake-js"
+    },
+    {
+      "label": "Clean Build Folders",
+      "type": "npm",
+      "script": "clean",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent"
+      },
+      "detail": "Wipes the out/, build/, and .cmake-js/ directories"
+    },
+    {
+      "label": "Rebuild Addon (Clean & Build)",
+      "type": "npm",
+      "script": "rebuild",
+      "problemMatcher": ["$gcc"],
+      "detail": "Runs a fresh compile from scratch"
+    }
+  ]
+}
