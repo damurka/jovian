@@ -215,22 +215,6 @@ else()
 
 endif()
 
-# Tests
-# =====
-
-# We need to control from outside whether we enable testing or not. We cannot
-# rely on BUILD_TESTING since it doe snot exist until CTest is included.
-
-include(CTest)
-
-if(DATASUITE_BUILD_TESTS)
-    set(BUILD_TESTING ON)
-    message(STATUS "tests enabled")
-else ()
-    set(BUILD_TESTING OFF)
-    message(STATUS "tests disabled") 
-endif()
-
 if(BUILD_TESTING)
     add_subdirectory(test)
 endif()

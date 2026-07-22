@@ -13,7 +13,7 @@ namespace datasuite
         : m_publisher(context, zmq::socket_type::xpub)
         , m_listener(context, zmq::socket_type::sub)
         , m_controller(context, zmq::socket_type::rep)
-        , m_serialize_iopub_msg_cb(std::move(serialize_iopub_msg_cb))
+        , m_serializeIopubMsgCb(std::move(serialize_iopub_msg_cb))
     {
         init_socket(m_publisher, transport, ip, port);
         // Set xpub_verbose option to 1 to pass all subscription messages (not only unique ones).
@@ -30,12 +30,16 @@ namespace datasuite
 
     pub_message publisher::create_pub_message(const std::string& topic)
     {
-        message_base_data data;
-        data.m_header = datasuite::make_header("iopub_welcome", "", "");
-        data.m_content["subscription"] = topic;
-        pub_message p_msg("", std::move(data));
-
-        return p_msg;
+        json header = datasuite::make_header("iopub_welcome", "", "");
+        json content = json::object();
+        content["subscription"] = topic;
+        
+        return pub_message("", 
+            std::move(header), 
+            json::object(), 
+            json::object(), 
+            std::move(content), 
+            buffer_sequence());
     }
 
     std::string publisher::get_port() const
@@ -93,11 +97,11 @@ namespace datasuite
                 if (event[0] == 1)
                 {
                     std::string topic((char*)(event + 1), frame.size() - 1);
-                    if (m_serialize_iopub_msg_cb)
+                    if (m_serializeIopubMsgCb)
                     {
                         // Construct the `iopub_welcome` message
                         pub_message p_msg = create_pub_message(topic);
-                        zmq::multipart_t iopub_welcome_wire_msg = m_serialize_iopub_msg_cb(std::move(p_msg));
+                        zmq::multipart_t iopub_welcome_wire_msg = m_serializeIopubMsgCb(std::move(p_msg));
                         // Send the `iopub_welcome` message
                         iopub_welcome_wire_msg.send(m_publisher);
                     }

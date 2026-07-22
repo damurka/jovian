@@ -7,8 +7,6 @@
 #include "json.hpp"
 #include "message.hpp"
 
-namespace nl = nlohmann;
-
 namespace datasuite
 {
 
@@ -45,10 +43,10 @@ namespace datasuite
         void log_iopub_message(const pub_message& message) const;
 
         void log_message(const std::string& socket_info,
-            const nl::json& header,
-            const nl::json& parent_header,
-            const nl::json& metadata,
-            const nl::json& content) const;
+            const json& header,
+            const json& parent_header,
+            const json& metadata,
+            const json& content) const;
 
     protected:
 
@@ -61,10 +59,10 @@ namespace datasuite
         virtual void log_iopub_message_impl(const pub_message& message) const = 0;
 
         virtual void log_message_impl(const std::string& socket_info,
-            const nl::json& header,
-            const nl::json& parent_header,
-            const nl::json& metadata,
-            const nl::json& content) const = 0;
+            const json& header,
+            const json& parent_header,
+            const json& metadata,
+            const json& content) const = 0;
     };
 
     DATASUITE_API

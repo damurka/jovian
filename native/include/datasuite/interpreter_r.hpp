@@ -4,12 +4,9 @@
 #include <string>
 #include <memory>
 
-#include "nlohmann/json.hpp"
-
 #include "interpreter.hpp"
 #include "datasuite.hpp"
-
-namespace nl = nlohmann;
+#include "json.hpp"
 
 namespace datasuite
 {
@@ -34,21 +31,21 @@ namespace datasuite
             int execution_counter,
             const std::string& code,
             execute_request_config config,
-            nl::json user_expressions) override;
+            json user_expressions) override;
 
-        nl::json complete_request_impl(const std::string& code, int cursor_pos) override;
+        json complete_request_impl(const std::string& code, int cursor_pos) override;
 
-        nl::json inspect_request_impl(const std::string& code,
+        json inspect_request_impl(const std::string& code,
             int cursor_pos,
             int detail_level) override;
 
-        nl::json is_complete_request_impl(const std::string& code) override;
+        json is_complete_request_impl(const std::string& code) override;
 
-        nl::json kernel_info_request_impl() override;
+        json kernel_info_request_impl() override;
 
-        nl::json shutdown_request_impl(bool restart) override;
+        json shutdown_request_impl(bool restart) override;
 
-        nl::json interrupt_request_impl() override;
+        json interrupt_request_impl() override;
     };
 
     r_interpreter* get_r_interpreter();

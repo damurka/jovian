@@ -29,7 +29,7 @@ namespace datasuite
 
         server_zmq_impl(zmq::context_t& context,
             const configuration& initial_config,
-            kernel_configuration kernel_config,
+            KernelConfiguration kernel_config,
             nl::json::error_handler_t eh,
             internal_listener listener);
 
@@ -51,7 +51,7 @@ namespace datasuite
         void publish(pub_message message, channel c);
 
         void abort_queue(const listener& l, long polling_interval);
-        void update_config(kernel_configuration& config) const;
+        void update_config(KernelConfiguration& config) const;
 
         zmq::multipart_t serialize_iopub(pub_message&& msg);
 
@@ -60,9 +60,9 @@ namespace datasuite
         zmq::socket_t m_shell;
         zmq::socket_t m_controller;
         zmq::socket_t m_stdin;
-        zmq::socket_t m_publisher_pub;
-        zmq::socket_t m_publisher_controller;
-        zmq::socket_t m_heartbeat_controller;
+        zmq::socket_t m_publisherPub;
+        zmq::socket_t m_publisherController;
+        zmq::socket_t m_heartbeatController;
 
         using authentication_ptr = std::unique_ptr<authentication>;
         authentication_ptr p_auth;
@@ -70,14 +70,14 @@ namespace datasuite
         publisher m_publisher;
         heartbeat m_heartbeat;
 
-        thread m_iopub_thread;
-        thread m_hb_thread;
+        thread m_iopubThread;
+        thread m_hbThread;
 
         trivial_messenger m_messenger;
 
-        nl::json::error_handler_t m_error_handler;
+        nl::json::error_handler_t m_errorHandler;
 
-        bool m_request_stop;
+        bool m_requestStop;
     };
 }
 

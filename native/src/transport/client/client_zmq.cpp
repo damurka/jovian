@@ -3,90 +3,90 @@
 
 namespace datasuite
 {
-    client_zmq::client_zmq(std::unique_ptr<client_zmq_impl> impl)
-        : p_client_impl(std::move(impl))
+    ClientZmq::ClientZmq(std::unique_ptr<client_zmq_impl> impl)
+        : p_clientImpl(std::move(impl))
     {
     }
 
     // Has to be in the cpp because incomplete
     // types are used in unique_ptr in the header
-    client_zmq::~client_zmq() = default;
+    ClientZmq::~ClientZmq() = default;
 
-    void client_zmq::connect()
+    void ClientZmq::connect()
     {
-        p_client_impl->connect();
+        p_clientImpl->connect();
     }
 
-    void client_zmq::start()
+    void ClientZmq::start()
     {
-        p_client_impl->start();
+        p_clientImpl->start();
     }
 
-    void client_zmq::stop_channels()
+    void ClientZmq::stop_channels()
     {
-        p_client_impl->stop_channels();
+        p_clientImpl->stop_channels();
     }
 
-    void client_zmq::send_on_shell(message msg)
+    void ClientZmq::send_on_shell(message msg)
     {
-        p_client_impl->send_on_shell(std::move(msg));
+        p_clientImpl->send_on_shell(std::move(msg));
     }
 
-    void client_zmq::send_on_control(message msg)
+    void ClientZmq::send_on_control(message msg)
     {
-        p_client_impl->send_on_control(std::move(msg));
+        p_clientImpl->send_on_control(std::move(msg));
     }
 
-    std::optional<message> client_zmq::receive_on_shell(bool blocking)
+    std::optional<message> ClientZmq::receive_on_shell(bool blocking)
     {
-        return p_client_impl->receive_on_shell(blocking);
+        return p_clientImpl->receive_on_shell(blocking);
     }
 
-    std::optional<message> client_zmq::receive_on_control(bool blocking)
+    std::optional<message> ClientZmq::receive_on_control(bool blocking)
     {
-        return p_client_impl->receive_on_control(blocking);
+        return p_clientImpl->receive_on_control(blocking);
     }
 
-    std::size_t client_zmq::iopub_queue_size() const
+    std::size_t ClientZmq::iopub_queue_size() const
     {
-        return p_client_impl->iopub_queue_size();
+        return p_clientImpl->iopub_queue_size();
     }
 
-    std::optional<pub_message> client_zmq::pop_iopub_message()
+    std::optional<pub_message> ClientZmq::pop_iopub_message()
     {
-        return p_client_impl->pop_iopub_message();
+        return p_clientImpl->pop_iopub_message();
     }
 
-    void client_zmq::register_shell_listener(const listener& l)
+    void ClientZmq::register_shell_listener(const listener& l)
     {
-        p_client_impl->register_shell_listener(l);
+        p_clientImpl->register_shell_listener(l);
     }
 
-    void client_zmq::register_control_listener(const listener& l)
+    void ClientZmq::register_control_listener(const listener& l)
     {
-        p_client_impl->register_control_listener(l);
+        p_clientImpl->register_control_listener(l);
     }
 
-    void client_zmq::register_iopub_listener(const iopub_listener& l)
+    void ClientZmq::register_iopub_listener(const iopub_listener& l)
     {
-        p_client_impl->register_iopub_listener(l);
+        p_clientImpl->register_iopub_listener(l);
     }
 
-    void client_zmq::register_kernel_status_listener(const kernel_status_listener& l)
+    void ClientZmq::register_kernel_status_listener(const kernel_status_listener& l)
     {
-        p_client_impl->register_kernel_status_listener(l);
+        p_clientImpl->register_kernel_status_listener(l);
     }
 
-    void client_zmq::wait_for_message()
+    void ClientZmq::wait_for_message()
     {
-        p_client_impl->wait_for_message();
+        p_clientImpl->wait_for_message();
     }
 
-    std::unique_ptr<client_zmq> make_client_zmq(context& context,
-        const kernel_configuration& config,
+    std::unique_ptr<ClientZmq> make_client_zmq(context& context,
+        const KernelConfiguration& config,
         nl::json::error_handler_t eh)
     {
         auto impl = std::make_unique<client_zmq_impl>(context.get_wrapped_context<zmq::context_t>(), config, eh);
-        return std::make_unique<client_zmq>(std::move(impl));
+        return std::make_unique<ClientZmq>(std::move(impl));
     }
 }

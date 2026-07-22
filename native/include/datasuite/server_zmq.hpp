@@ -13,17 +13,17 @@ namespace datasuite
 {
     class server_zmq_impl;
 
-    class DATASUITE_API server_zmq : public server
+    class DATASUITE_API ServerZmq : public server
     {
     public:
 
-        ~server_zmq() override;
+        ~ServerZmq() override;
 
         using server::notify_internal_listener;
 
     protected:
 
-        server_zmq(context& context,
+        ServerZmq(context& context,
             const configuration& config,
             nl::json::error_handler_t eh);
 
@@ -52,7 +52,7 @@ namespace datasuite
         void publish_impl(pub_message msg, channel c) override;
 
         void abort_queue_impl(const listener& l, long polling_interval) override;
-        void update_config_impl(kernel_configuration& config) const override;
+        void update_config_impl(KernelConfiguration& config) const override;
 
         std::unique_ptr<server_zmq_impl> p_impl;
     };

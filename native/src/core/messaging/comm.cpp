@@ -1,8 +1,6 @@
-#include "nlohmann/json.hpp"
+#include "datasuite/json.hpp"
 #include "datasuite/comm.hpp"
 #include "core/kernel/kernel_core.hpp"
-
-namespace nl = nlohmann;
 
 namespace datasuite
 {
@@ -40,8 +38,8 @@ namespace datasuite
     }
 
     void comm_target::publish_message(const std::string& msg_type,
-        nl::json metadata,
-        nl::json content,
+        json metadata,
+        json content,
         buffer_sequence buffers) const
     {
         if (p_manager->p_kernel != nullptr)
@@ -65,38 +63,38 @@ namespace datasuite
 
     void comm::handle_close(message request)
     {
-        if (m_close_handler)
+        if (m_closeHandler)
         {
-            m_close_handler(std::move(request));
+            m_closeHandler(std::move(request));
         }
     }
 
     void comm::handle_message(message request)
     {
-        if (m_message_handler)
+        if (m_messageHandler)
         {
-            m_message_handler(std::move(request));
+            m_messageHandler(std::move(request));
         }
     }
 
     void comm::send_comm_message(const std::string& msg_type,
-        nl::json metadata,
-        nl::json data,
+        json metadata,
+        json data,
         buffer_sequence buffers) const
     {
-        nl::json content;
+        json content;
         content["comm_id"] = m_id;
         content["data"] = std::move(data);
         target().publish_message(msg_type, std::move(metadata), std::move(content), std::move(buffers));
     }
 
     void comm::send_comm_message(const std::string& msg_type,
-        nl::json metadata,
-        nl::json data,
+        json metadata,
+        json data,
         buffer_sequence buffers,
         const std::string& target_name) const
     {
-        nl::json content;
+        json content;
         content["comm_id"] = m_id;
         content["target_name"] = target_name;
         content["data"] = std::move(data);
@@ -104,33 +102,33 @@ namespace datasuite
     }
 
     comm::comm(comm&& other)
-        : m_close_handler(std::move(other.m_close_handler))
-        , m_message_handler(std::move(other.m_message_handler))
+        : m_closeHandler(std::move(other.m_closeHandler))
+        , m_messageHandler(std::move(other.m_messageHandler))
         , p_target(std::move(other.p_target))
         , m_id(std::move(other.m_id))
-        , m_moved_from(false)
+        , m_movedFrom(false)
     {
-        other.m_moved_from = true;
+        other.m_movedFrom = true;
         p_target->register_comm(m_id, this);
     }
 
     comm::comm(const comm& other)
         : p_target(other.p_target)
         , m_id(new_guid())
-        , m_moved_from(false)
+        , m_movedFrom(false)
     {
         p_target->register_comm(m_id, this);
     }
 
     comm& comm::operator=(comm&& other)
     {
-        m_close_handler = std::move(other.m_close_handler);
-        m_message_handler = std::move(other.m_message_handler);
+        m_closeHandler = std::move(other.m_closeHandler);
+        m_messageHandler = std::move(other.m_messageHandler);
         p_target = std::move(other.p_target);
         p_target->unregister_comm(m_id);
         m_id = std::move(other.m_id);
-        m_moved_from = false;
-        other.m_moved_from = true;
+        m_movedFrom = false;
+        other.m_movedFrom = true;
         p_target->register_comm(m_id, this);
         return *this;
     }
@@ -140,7 +138,7 @@ namespace datasuite
         p_target = other.p_target;
         p_target->unregister_comm(m_id);
         m_id = new_guid();
-        m_moved_from = false;
+        m_movedFrom = false;
         p_target->register_comm(m_id, this);
         return *this;
     }
@@ -156,23 +154,23 @@ namespace datasuite
 
     comm::~comm()
     {
-        if (!m_moved_from)
+        if (!m_movedFrom)
         {
             p_target->unregister_comm(m_id);
         }
     }
 
-    void comm::open(nl::json metadata, nl::json data, buffer_sequence buffers)
+    void comm::open(json metadata, json data, buffer_sequence buffers)
     {
         send_comm_message("comm_open", std::move(metadata), std::move(data), std::move(buffers), p_target->name());
     }
 
-    void comm::close(nl::json metadata, nl::json data, buffer_sequence buffers)
+    void comm::close(json metadata, json data, buffer_sequence buffers)
     {
         send_comm_message("comm_close", std::move(metadata), std::move(data), std::move(buffers));
     }
 
-    void comm::send(nl::json metadata, nl::json data, buffer_sequence buffers) const
+    void comm::send(json metadata, json data, buffer_sequence buffers) const
     {
         send_comm_message("comm_msg", std::move(metadata), std::move(data), std::move(buffers));
     }
@@ -186,14 +184,14 @@ namespace datasuite
      * comm_manager implementation *
      ********************************/
 
-    comm_manager::comm_manager(kernel_core* kernel)
+    comm_manager::comm_manager(KernelCore* kernel)
     {
         p_kernel = kernel;
     }
 
-    nl::json comm_manager::get_metadata() const
+    json comm_manager::get_metadata() const
     {
-        nl::json metadata;
+        json metadata;
         metadata["started"] = iso8601_now();
         return metadata;
     }
@@ -221,7 +219,7 @@ namespace datasuite
 
     void comm_manager::comm_open(message request)
     {
-        const nl::json& content = request.content();
+        const json& content = request.content();
         std::string target_name = content["target_name"];
         auto position = m_targets.find(target_name);
 
@@ -230,7 +228,7 @@ namespace datasuite
             if (p_kernel != nullptr)
             {
                 p_kernel->publish_message(
-                    "comm_close", request.header(), nl::json::object(), content, buffer_sequence(), channel::SHELL
+                    "comm_close", request.header(), json::object(), content, buffer_sequence(), channel::SHELL
                 );
             }
         }
@@ -245,7 +243,7 @@ namespace datasuite
 
     void comm_manager::comm_close(message request)
     {
-        const nl::json& content = request.content();
+        const json& content = request.content();
         guid id = content["comm_id"];
         auto position = m_comms.find(id);
         if (position == m_comms.end())
@@ -261,7 +259,7 @@ namespace datasuite
 
     void comm_manager::comm_msg(message request)
     {
-        const nl::json& content = request.content();
+        const json& content = request.content();
         guid id = content["comm_id"];
         auto position = m_comms.find(id);
         if (position == m_comms.end())

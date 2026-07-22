@@ -1,18 +1,19 @@
+#include "datasuite/json.hpp"
 #include "datasuite/request_context.hpp"
 
 namespace datasuite
 {
-    request_context::request_context(nl::json header, guid_list id)
+    RequestContext::RequestContext(json header, guid_list id)
         : m_header(std::move(header)), m_id(std::move(id))
     {
     }
 
-    const nl::json& request_context::header() const
+    const json& RequestContext::header() const
     {
         return m_header;
     }
 
-    const message::guid_list& request_context::id() const
+    const message::guid_list& RequestContext::id() const
     {
         return m_id;
     }

@@ -17,38 +17,40 @@ export class MessageRouter {
 
     async route(rawMessage: string): Promise<void> {
         const message = MessageParser.parse(rawMessage);
-        
+
         // Emit raw message event
-        this.emitter.emit('*', message.topic, message.content);
+        this.emitter.emit('*', message.msgType, message.content);
         this.emitter.emit('message', message);
-        
-        // Route to specific handler
-        const handler = this.findHandler(message.topic);
+
+        // Route to specific handler (dispatch on the plain msg_type, e.g.
+        // "stream" / "execute_result" — `topic` is a kernel-namespaced
+        // string like "kernel_core.<id>.stream" and isn't matched here)
+        const handler = this.findHandler(message.msgType);
         if (handler) {
             await handler.handle(message, this.emitter);
         }
-        
-        // Always emit topic-specific event
-        this.emitter.emit(message.topic, message.content);
+
+        // Always emit msg_type-specific event
+        this.emitter.emit(message.msgType, message.content);
     }
 
-    private findHandler(topic: string): MessageHandler | undefined {
+    private findHandler(msgType: string): MessageHandler | undefined {
         // Exact match
-        if (this.handlers.has(topic)) {
-            return this.handlers.get(topic);
+        if (this.handlers.has(msgType)) {
+            return this.handlers.get(msgType);
         }
-        
+
         // Prefix match (e.g., "stream" matches "stream.stdout")
         for (const [key, handler] of this.handlers) {
-            if (topic.startsWith(key)) {
+            if (msgType.startsWith(key)) {
                 return handler;
             }
         }
-        
+
         return undefined;
     }
 
-    registerHandler(topic: string, handler: MessageHandler): void {
-        this.handlers.set(topic, handler);
+    registerHandler(msgType: string, handler: MessageHandler): void {
+        this.handlers.set(msgType, handler);
     }
 }

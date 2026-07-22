@@ -42,8 +42,9 @@ export class DatasuiteEngine extends EventEmitter {
         this.router = new MessageRouter(this);
         this.registerDefaultHandlers();
         
-        // Initialize execution queue
-        this.queue = new ExecutionQueue(this.addon, options.queueSize);
+        // Initialize execution queue (listens to router 'message' events on
+        // `this` to correlate replies back to the execute() call that sent them)
+        this.queue = new ExecutionQueue(this.addon, this, options.queueSize);
         
         // Initialize middleware chain
         this.middleware = new MiddlewareChain();

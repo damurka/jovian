@@ -55,44 +55,7 @@ the <- NULL
 
     NAMESPACE$CommManager <- CommManagerClass$new()
 
-    init_options()
-
-    if(R.version$platform == "wasm32-unknown-emscripten") {
-
-        ###################################################
-        # download.file
-        ###################################################
-        utils_ns <- asNamespace("utils")
-        utils_pkg <- as.environment("package:utils")
-        for (env in list(utils_ns, utils_pkg)) {
-            get("unlockBinding", envir = baseenv())("download.file", env)
-            assign("download.file", datasuite_download_file, envir = env)
-            get("lockBinding", envir = baseenv())("download.file", env)
-        }
-
-        ###################################################
-        # url
-        ###################################################
-        base_ns <- asNamespace("base")
-        base_pkg <- as.environment("package:base")
-        for (env in list(base_ns, base_pkg)) {
-            get("unlockBinding", envir = baseenv())("url", env)
-            assign("url", datasuite_url, envir = env)
-            get("lockBinding", envir = baseenv())("url", env)
-        }
-
-        ###################################################
-        # file
-        ###################################################
-        base_ns <- asNamespace("base")
-        base_pkg <- as.environment("package:base")
-        for (env in list(base_ns, base_pkg)) {
-            get("unlockBinding", envir = baseenv())("file", env)
-            assign("file", datasuite_file, envir = env)
-            get("lockBinding", envir = baseenv())("file", env)
-        }
-    }
-   
+    init_options()   
 }
 
 init_options <- function() {
@@ -152,8 +115,8 @@ hera_dot_call <- function(fn, ..., error_call = caller_env()) {
 get_null_device <- function() {
   os <- get_os()
 
-  ok_device     <- switch(os, win = png,   osx = pdf,  unix = png, wasm = png)
-  null_filename <- switch(os, win = 'NUL', osx = NULL, unix = '/dev/null', wasm = '/tmp/null')
+  ok_device     <- switch(os, win = png,   osx = pdf,  unix = png)
+  null_filename <- switch(os, win = 'NUL', osx = NULL, unix = '/dev/null')
 
   null_device <- function(filename = null_filename, ...) ok_device(filename, ...)
   null_device

@@ -104,10 +104,6 @@ namespace datasuite
 
     r_interpreter::r_interpreter(int argc, char* argv[])
     {
-#ifdef __EMSCRIPTEN__
-        const char* argvNew[] = { "--no-readline", "--vanilla" };
-        Rf_initEmbeddedR(sizeof(argvNew) / sizeof(argvNew[0]), const_cast<char**>(argvNew));
-#else
 #ifdef _WIN32
         if (AllocConsole()) {
             HWND hwnd = GetConsoleWindow();
@@ -122,7 +118,7 @@ namespace datasuite
             freopen_s(&fp, "CONOUT$", "w", stderr);
             freopen_s(&fp, "CONIN$", "r", stdin);
         }
-#endif
+
         // Debug: Print environment before R init
         printf("[R Interpreter BEFORE Init] R_HOME=%s\n", getenv("R_HOME") ? getenv("R_HOME") : "NOT SET");
         printf("[R Interpreter BEFORE Init] R_LIBS=%s\n", getenv("R_LIBS") ? getenv("R_LIBS") : "NOT SET");
@@ -206,7 +202,7 @@ namespace datasuite
     )
     {
         if (config.store_history) {
-            const_cast<history_manager&>(get_history_manager()).store_inputs(0, execution_count, code);
+            const_cast<HistoryManager&>(get_history_manager()).store_inputs(0, execution_count, code);
         }
 
         SEXP code_ = PROTECT(Rf_mkString(code.c_str()));

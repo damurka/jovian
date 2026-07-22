@@ -141,10 +141,11 @@ Napi::Value Execute(const Napi::CallbackInfo& info) {
     // Convert JS String to C++ std::string
     std::string code = info[0].As<Napi::String>().Utf8Value();
 
-    // Beam it to the Client ZeroMQ Socket
-    engine->execute(code);
+    // Beam it to the Client ZeroMQ Socket, returning the msg_id so the
+    // TypeScript layer can correlate later execute_reply/iopub messages.
+    std::string msg_id = engine->execute(code);
 
-    return env.Null();
+    return Napi::String::New(env, msg_id);
 }
 
 // =========================================================================

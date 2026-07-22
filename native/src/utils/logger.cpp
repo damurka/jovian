@@ -1,8 +1,6 @@
 #include "datasuite/logger.hpp"
 
-#include "nlohmann/json.hpp"
-
-namespace nl = nlohmann;
+#include "datasuite/json.hpp"
 
 namespace datasuite
 {
@@ -22,10 +20,10 @@ namespace datasuite
     }
 
     void logger::log_message(const std::string& socket_info,
-        const nl::json& header,
-        const nl::json& parent_header,
-        const nl::json& metadata,
-        const nl::json& content_json) const
+        const json& header,
+        const json& parent_header,
+        const json& metadata,
+        const json& content_json) const
     {
         log_message_impl(socket_info,
             header,

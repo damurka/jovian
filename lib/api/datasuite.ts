@@ -1,5 +1,6 @@
 import { DatasuiteEngine } from '../core/engine.js';
 import type { EngineOptions } from '../types/index.js';
+import type { JupyterMessage } from '../types/messages.js';
 
 /**
  * Create and start a Datasuite R kernel
@@ -15,20 +16,33 @@ export async function createKernel(options: EngineOptions = {}): Promise<Datasui
  */
 export async function executeR(code: string, options?: EngineOptions): Promise<string> {
     const engine = await createKernel(options);
-    
-    return new Promise((resolve, reject) => {
-        let result = '';
-        
-        engine.on('result', (text: string) => {
-            result = text;
-        });
-        
-        engine.on('error', (error: Error) => {
-            reject(error);
-        });
-        
-        engine.execute(code).then(() => {
-            engine.stop().then(() => resolve(result));
-        });
-    });
+
+    try {
+        const result = await engine.execute(code);
+
+        if (!result.success) {
+            throw result.error ?? new Error('R execution failed');
+        }
+
+        return result.output
+            .map(extractText)
+            .filter((text): text is string => !!text)
+            .join('');
+    } finally {
+        await engine.stop();
+    }
+}
+
+function extractText(message: JupyterMessage): string | undefined {
+    if (message.msgType === 'stream') {
+        return message.content?.text;
+    }
+
+    const data = message.content?.data;
+    if (!data) {
+        return undefined;
+    }
+
+    const textPlain = data['text/plain'];
+    return Array.isArray(textPlain) ? textPlain.join('\n') : textPlain;
 }

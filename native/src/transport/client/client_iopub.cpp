@@ -9,37 +9,37 @@ namespace datasuite
 {
 
     client_iopub::client_iopub(zmq::context_t& context,
-        const kernel_configuration& config,
+        const KernelConfiguration& config,
         client_zmq_impl* client)
         : m_iopub(context, zmq::socket_type::sub)
         , m_controller(context, zmq::socket_type::rep)
-        , m_iopub_end_point("")
-        , p_client_impl(client)
+        , m_iopubEndPoint("")
+        , p_clientImpl(client)
     {
-        m_iopub_end_point = get_end_point(config.m_transport, config.m_ip, config.m_iopub_port);
-        m_iopub.connect(m_iopub_end_point);
+        m_iopubEndPoint = get_end_point(config.m_transport, config.m_ip, config.m_iopubPort);
+        m_iopub.connect(m_iopubEndPoint);
         m_iopub.set(zmq::sockopt::subscribe, "");
         init_socket(m_controller, get_controller_end_point("iopub"));
     }
 
     client_iopub::~client_iopub()
     {
-        m_iopub.disconnect(m_iopub_end_point);
+        m_iopub.disconnect(m_iopubEndPoint);
     }
 
     std::size_t client_iopub::iopub_queue_size() const
     {
-        std::lock_guard<std::mutex> guard(m_queue_mutex);
-        return m_message_queue.size();
+        std::lock_guard<std::mutex> guard(m_queueMutex);
+        return m_messageQueue.size();
     }
 
     std::optional<pub_message> client_iopub::pop_iopub_message()
     {
-        std::lock_guard<std::mutex> guard(m_queue_mutex);
-        if (!m_message_queue.empty())
+        std::lock_guard<std::mutex> guard(m_queueMutex);
+        if (!m_messageQueue.empty())
         {
-            pub_message msg = std::move(m_message_queue.front());
-            m_message_queue.pop();
+            pub_message msg = std::move(m_messageQueue.front());
+            m_messageQueue.pop();
             return msg;
         }
         else
@@ -63,10 +63,10 @@ namespace datasuite
                 {
                     zmq::multipart_t wire_msg;
                     wire_msg.recv(m_iopub);
-                    pub_message msg = p_client_impl->deserialize_iopub(wire_msg);
+                    pub_message msg = p_clientImpl->deserialize_iopub(wire_msg);
                     {
-                        std::lock_guard<std::mutex> guard(m_queue_mutex);
-                        m_message_queue.push(std::move(msg));
+                        std::lock_guard<std::mutex> guard(m_queueMutex);
+                        m_messageQueue.push(std::move(msg));
                     }
                 }
                 if (items[1].revents & ZMQ_POLLIN)

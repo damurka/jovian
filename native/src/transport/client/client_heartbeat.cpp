@@ -8,27 +8,27 @@ namespace datasuite
 {
 
     client_heartbeat::client_heartbeat(zmq::context_t& context,
-        const kernel_configuration& config,
+        const KernelConfiguration& config,
         const std::size_t max_retry,
         const long timeout)
         : m_heartbeat(context, zmq::socket_type::req)
         , m_controller(context, zmq::socket_type::rep)
-        , m_max_retry(max_retry)
-        , m_heartbeat_timeout(timeout)
-        , m_heartbeat_end_point("")
-        , m_request_stop(false)
+        , m_maxRetry(max_retry)
+        , m_heartbeatTimeout(timeout)
+        , m_heartbeatEndPoint("")
+        , m_requestStop(false)
     {
         m_heartbeat.set(zmq::sockopt::req_relaxed, 1);
         m_heartbeat.set(zmq::sockopt::req_correlate, 1);
 
-        m_heartbeat_end_point = get_end_point(config.m_transport, config.m_ip, config.m_hb_port);
-        m_heartbeat.connect(m_heartbeat_end_point);
+        m_heartbeatEndPoint = get_end_point(config.m_transport, config.m_ip, config.m_hbPort);
+        m_heartbeat.connect(m_heartbeatEndPoint);
         init_socket(m_controller, get_controller_end_point("heartbeat"));
     }
 
     client_heartbeat::~client_heartbeat()
     {
-        m_heartbeat.disconnect(m_heartbeat_end_point);
+        m_heartbeat.disconnect(m_heartbeatEndPoint);
     }
 
     void client_heartbeat::send_heartbeat_message()
@@ -58,7 +58,7 @@ namespace datasuite
                 zmq::multipart_t wire_msg;
                 wire_msg.recv(m_controller);
                 wire_msg.send(m_controller);
-                m_request_stop = true;
+                m_requestStop = true;
             }
 
             return true;
@@ -72,26 +72,26 @@ namespace datasuite
 
     void client_heartbeat::register_kernel_status_listener(const kernel_status_listener& l)
     {
-        m_kernel_status_listener = l;
+        m_kernelStatusListener = l;
     }
 
     void client_heartbeat::notify_kernel_dead(bool status)
     {
-        m_kernel_status_listener(status);
+        m_kernelStatusListener(status);
     }
 
     void client_heartbeat::run()
     {
         std::size_t retry_count = 0;
 
-        while (!m_request_stop)
+        while (!m_requestStop)
         {
             try
             {
                 send_heartbeat_message();
-                if (!wait_for_answer(m_heartbeat_timeout))
+                if (!wait_for_answer(m_heartbeatTimeout))
                 {
-                    if (retry_count < m_max_retry)
+                    if (retry_count < m_maxRetry)
                     {
                         ++retry_count;
                     }

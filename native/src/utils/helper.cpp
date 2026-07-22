@@ -1,15 +1,12 @@
 #include <string>
 #include <vector>
 
-#include "nlohmann/json.hpp"
-
+#include "datasuite/json.hpp"
 #include "datasuite/helper.hpp"
-
-namespace nl = nlohmann;
 
 namespace datasuite
 {
-    std::string get_start_message(const kernel_configuration& config)
+    std::string get_start_message(const KernelConfiguration& config)
     {
         std::string kernel_info;
         kernel_info = "Starting kernel...\n\n"
@@ -19,12 +16,12 @@ namespace datasuite
             "kernel.json\n```\n{\n"
             "    \"transport\": \"" + config.m_transport + "\",\n"
             "    \"ip\": \"" + config.m_ip + "\",\n"
-            "    \"control_port\": " + config.m_control_port + ",\n"
-            "    \"shell_port\": " + config.m_shell_port + ",\n"
-            "    \"stdin_port\": " + config.m_stdin_port + ",\n"
-            "    \"iopub_port\": " + config.m_iopub_port + ",\n"
-            "    \"hb_port\": " + config.m_hb_port + ",\n"
-            "    \"signature_scheme\": \"" + config.m_signature_scheme + "\",\n"
+            "    \"control_port\": " + config.m_controlPort + ",\n"
+            "    \"shell_port\": " + config.m_shellPort + ",\n"
+            "    \"stdin_port\": " + config.m_stdinPort + ",\n"
+            "    \"iopub_port\": " + config.m_iopubPort + ",\n"
+            "    \"hb_port\": " + config.m_hbPort + ",\n"
+            "    \"signature_scheme\": \"" + config.m_signatureScheme + "\",\n"
             "    \"key\": \"" + config.m_key + "\"\n"
             "}\n```";
         return kernel_info;
@@ -62,11 +59,11 @@ namespace datasuite
     }
 
     // Helpers that create replies to the server
-    nl::json create_error_reply(const std::string& ename,
+    json create_error_reply(const std::string& ename,
         const std::string& evalue,
-        const nl::json& trace_back)
+        const json& trace_back)
     {
-        nl::json kernel_res;
+        json kernel_res;
         kernel_res["status"] = "error";
         kernel_res["ename"] = ename;
         kernel_res["evalue"] = evalue;
@@ -74,22 +71,22 @@ namespace datasuite
         return kernel_res;
     }
 
-    nl::json create_successful_reply(const nl::json& payload,
-        const nl::json& user_expressions)
+    json create_successful_reply(const json& payload,
+        const json& user_expressions)
     {
-        nl::json kernel_res;
+        json kernel_res;
         kernel_res["status"] = "ok";
         kernel_res["payload"] = payload;
         kernel_res["user_expressions"] = user_expressions;
         return kernel_res;
     }
 
-    nl::json create_complete_reply(const nl::json& matches,
+    json create_complete_reply(const json& matches,
         const int& cursor_start,
         const int& cursor_end,
-        const nl::json& metadata)
+        const json& metadata)
     {
-        nl::json kernel_res;
+        json kernel_res;
         kernel_res["status"] = "ok";
         kernel_res["matches"] = matches;
         kernel_res["cursor_start"] = cursor_start;
@@ -98,11 +95,11 @@ namespace datasuite
         return kernel_res;
     }
 
-    nl::json create_inspect_reply(const bool found,
-        const nl::json& data,
-        const nl::json& metadata)
+    json create_inspect_reply(const bool found,
+        const json& data,
+        const json& metadata)
     {
-        nl::json kernel_res;
+        json kernel_res;
         kernel_res["status"] = "ok";
         kernel_res["found"] = found;
         kernel_res["data"] = data;
@@ -110,16 +107,16 @@ namespace datasuite
         return kernel_res;
     }
 
-    nl::json create_is_complete_reply(const std::string& status,
+    json create_is_complete_reply(const std::string& status,
         const std::string& indent)
     {
-        nl::json kernel_res;
+        json kernel_res;
         kernel_res["status"] = status;
         kernel_res["indent"] = indent;
         return kernel_res;
     }
 
-    nl::json create_info_reply(const std::string& implementation,
+    json create_info_reply(const std::string& implementation,
         const std::string& implementation_version,
         const std::string& language_name,
         const std::string& language_version,
@@ -129,11 +126,11 @@ namespace datasuite
         codemirror_mode_t language_codemirror_mode,
         const std::string& language_nbconvert_exporter,
         const std::string& banner,
-        const nl::json& help_links,
+        const json& help_links,
         const std::vector<std::string>& supported_features)
     {
-        nl::json kernel_res;
-        // kernel_res["protocol_version"] is set in kernel_core::kernel_info_request
+        json kernel_res;
+        // kernel_res["protocol_version"] is set in KernelCore::kernel_info_request
         // to ensure the same version for all the datasuite-based kernels
         kernel_res["status"] = "ok";
         kernel_res["implementation"] = implementation;
@@ -154,17 +151,17 @@ namespace datasuite
         return kernel_res;
     }
 
-    nl::json create_shutdown_reply(bool restart)
+    json create_shutdown_reply(bool restart)
     {
-        nl::json kernel_res;
+        json kernel_res;
         kernel_res["status"] = "ok";
         kernel_res["restart"] = restart;
         return kernel_res;
     }
 
-    nl::json create_interrupt_reply()
+    json create_interrupt_reply()
     {
-        nl::json kernel_res;
+        json kernel_res;
         kernel_res["status"] = "ok";
         return kernel_res;
     }

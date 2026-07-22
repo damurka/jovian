@@ -1,8 +1,5 @@
-#include "nlohmann/json.hpp"
-
+#include "datasuite/json.hpp"
 #include "datasuite/control_messenger.hpp"
-
-namespace nl = nlohmann;
 
 namespace datasuite
 {
@@ -10,7 +7,7 @@ namespace datasuite
     {
     }
 
-    nl::json control_messenger::send_to_shell(const nl::json& message)
+    json control_messenger::send_to_shell(const json& message)
     {
         return send_to_shell_impl(message);
     }

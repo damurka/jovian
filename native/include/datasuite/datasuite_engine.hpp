@@ -45,7 +45,7 @@ namespace datasuite
         explicit DatasuiteServer(const EnvironmentConfig& env) : env_config(env) {}
         ~DatasuiteServer() { stop(); }
 
-        void start(const kernel_configuration& config, std::function<void()> on_ready = nullptr);
+        void start(const KernelConfiguration& config, std::function<void()> on_ready = nullptr);
         void stop();
     private:
         void setup_environment();
@@ -57,18 +57,18 @@ namespace datasuite
     class DATASUITE_API DatasuiteClient {
     private:
         std::unique_ptr<context> client_context;
-        std::unique_ptr<client_zmq> zmq_client;
+        std::unique_ptr<ClientZmq> zmq_client;
 
     public:
         DatasuiteClient() = default;
         ~DatasuiteClient() { stop(); }
 
-        void start(const kernel_configuration& config);
-        void execute(const std::string& code);
+        void start(const KernelConfiguration& config);
+        std::string execute(const std::string& code);
         void stop();
 
         // Expose the underlying client for the Engine's polling thread
-        client_zmq* get_zmq_client() { return zmq_client.get(); }
+        ClientZmq* get_zmq_client() { return zmq_client.get(); }
     };
 
     // =========================================================================
@@ -83,11 +83,11 @@ namespace datasuite
 
 		void init();
         void start(std::function<void(std::string)> callback);
-        void execute(const std::string& code);
+        std::string execute(const std::string& code);
         void stop();
 
     private:
-        kernel_configuration config;
+        KernelConfiguration config;
         EnvironmentConfig env_config;
         DatasuiteServer server;
         DatasuiteClient client;
@@ -96,7 +96,8 @@ namespace datasuite
         std::atomic<bool> is_running{ false };
 		std::atomic<bool> is_initialized{ false };
 
-        // Callback used to send "topic|||json" back to TypeScript
+        // Callback used to send a JSON envelope back to TypeScript:
+        // {channel, topic, msg_type, parent_msg_id, content}
         std::function<void(std::string)> on_message_callback;
 
         void poll_messages();

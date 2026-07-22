@@ -2,6 +2,7 @@
 #include <string>
 #include <random>
 
+#include "datasuite/json.hpp"
 #include "datasuite/kernel.hpp"
 #include "datasuite/guid.hpp"
 #include "datasuite/history_manager.hpp"
@@ -30,9 +31,7 @@
 namespace datasuite
 {
     std::string get_user_name() {
-#if defined(DATASUITE_EMSCRIPTEN_WASM_BUILD)
-        return "unspecified user";
-#elif (defined(LINUX_PLATFORM) || defined(APPLE_PLATFORM))
+#if (defined(LINUX_PLATFORM) || defined(APPLE_PLATFORM))
         struct passwd* pws;
         pws = getpwuid(geteuid());
         if (pws != nullptr)
@@ -68,17 +67,17 @@ namespace datasuite
         context_ptr context,
         interpreter_ptr interpreter,
         server_builder sbuilder,
-        history_manager_ptr history_manager,
+        history_manager_ptr HistoryManager,
         logger_ptr logger,
-        nl::json::error_handler_t eh)
-        : m_kernel_id(new_guid())
-        , m_session_id(new_guid())
-        , m_user_name(user_name)
+        json::error_handler_t eh)
+        : m_kernelId(new_guid())
+        , m_sessionId(new_guid())
+        , m_userName(user_name)
         , p_context(std::move(context))
         , p_interpreter(std::move(interpreter))
-        , p_history_manager(std::move(history_manager))
+        , p_historyManager(std::move(HistoryManager))
         , p_logger(std::move(logger))
-        , m_error_handler(eh)
+        , m_errorHandler(eh)
     {
         std::visit([this](auto& arg)
             {
@@ -88,7 +87,7 @@ namespace datasuite
                 }
                 m_config.m_transport = arg.m_transport;
                 m_config.m_ip = arg.m_ip;
-                m_config.m_signature_scheme = arg.m_signature_scheme;
+                m_config.m_signatureScheme = arg.m_signatureScheme;
                 m_config.m_key = arg.m_key;
             }, config);
 
@@ -97,21 +96,21 @@ namespace datasuite
             p_logger = std::make_unique<logger_nolog>();
         }
 
-        p_server = sbuilder(*p_context, config, m_error_handler);
+        p_server = sbuilder(*p_context, config, m_errorHandler);
         p_server->update_config(m_config);
 
-        p_core = std::make_unique<kernel_core>(m_kernel_id,
-            m_user_name,
-            m_session_id,
+        p_core = std::make_unique<KernelCore>(m_kernelId,
+            m_userName,
+            m_sessionId,
             p_logger.get(),
             p_server.get(),
             p_interpreter.get(),
-            p_history_manager.get());
+            p_historyManager.get());
 
         control_messenger& messenger = p_server->get_control_messenger();
 
         p_interpreter->register_control_messenger(messenger);
-        p_interpreter->register_history_manager(*p_history_manager);
+        p_interpreter->register_history_manager(*p_historyManager);
         p_interpreter->configure();
     }
 
@@ -119,16 +118,16 @@ namespace datasuite
         context_ptr context,
         interpreter_ptr interpreter,
         server_builder sbuilder,
-        history_manager_ptr history_manager,
+        history_manager_ptr HistoryManager,
         logger_ptr logger,
-        nl::json::error_handler_t eh)
+        json::error_handler_t eh)
         : kernel(
-            kernel_configuration{},
+            KernelConfiguration{},
             user_name,
             std::move(context),
             std::move(interpreter),
             std::move(sbuilder),
-            std::move(history_manager),
+            std::move(HistoryManager),
             std::move(logger),
             eh)
     {
@@ -150,7 +149,7 @@ namespace datasuite
         p_server->stop();
     }
 
-    const kernel_configuration& kernel::get_config()
+    const KernelConfiguration& kernel::get_config()
     {
         return m_config;
     }

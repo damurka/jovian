@@ -11,8 +11,6 @@
 #include "json.hpp"
 #include "message.hpp"
 
-namespace nl = nlohmann;
-
 namespace datasuite
 {
     /*****************************
@@ -38,7 +36,7 @@ namespace datasuite
 
         void operator()(comm&& c, message request) const;
 
-        void publish_message(const std::string&, nl::json, nl::json, buffer_sequence) const;
+        void publish_message(const std::string&, json, json, buffer_sequence) const;
 
         void register_comm(guid, comm*) const;
         void unregister_comm(guid) const;
@@ -73,9 +71,9 @@ namespace datasuite
         comm& operator=(comm&&);
         comm& operator=(const comm&);
 
-        void open(nl::json metadata, nl::json data, buffer_sequence buffers);
-        void close(nl::json metadata, nl::json data, buffer_sequence buffers);
-        void send(nl::json metadata, nl::json data, buffer_sequence buffers) const;
+        void open(json metadata, json data, buffer_sequence buffers);
+        void close(json metadata, json data, buffer_sequence buffers);
+        void send(json metadata, json data, buffer_sequence buffers) const;
 
         const comm_target& target() const noexcept;
 
@@ -94,34 +92,34 @@ namespace datasuite
         friend class comm_manager;
 
         void send_comm_message(const std::string& msg_type,
-            nl::json metadata,
-            nl::json data,
+            json metadata,
+            json data,
             buffer_sequence) const;
 
         void send_comm_message(const std::string& msg_type,
-            nl::json metadata,
-            nl::json data,
+            json metadata,
+            json data,
             buffer_sequence,
             const std::string& target_name) const;
 
-        handler_type m_close_handler;
-        handler_type m_message_handler;
+        handler_type m_closeHandler;
+        handler_type m_messageHandler;
         const comm_target* p_target;
         guid m_id;
-        bool m_moved_from;
+        bool m_movedFrom;
     };
 
     /*****************************
      * comm_manager declaration *
      *****************************/
 
-    class kernel_core;
+    class KernelCore;
 
     class DATASUITE_API comm_manager
     {
     public:
 
-        comm_manager(kernel_core* kernel = nullptr);
+        comm_manager(KernelCore* kernel = nullptr);
 
         using target_function_type = comm_target::function_type;
 
@@ -144,11 +142,11 @@ namespace datasuite
         void register_comm(guid, comm*);
         void unregister_comm(guid);
 
-        nl::json get_metadata() const;
+        json get_metadata() const;
 
         std::map<guid, comm*> m_comms;
         std::map<std::string, comm_target> m_targets;
-        kernel_core* p_kernel;
+        KernelCore* p_kernel;
     };
 
     /************************
@@ -158,13 +156,13 @@ namespace datasuite
     template <class T>
     inline void comm::on_message(T&& handler)
     {
-        m_message_handler = std::forward<T>(handler);
+        m_messageHandler = std::forward<T>(handler);
     }
 
     template <class T>
     inline void comm::on_close(T&& handler)
     {
-        m_close_handler = std::forward<T>(handler);
+        m_closeHandler = std::forward<T>(handler);
     }
 }
 

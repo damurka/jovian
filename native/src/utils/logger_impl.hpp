@@ -2,11 +2,9 @@
 #include <mutex>
 #include <string>
 
-#include "nlohmann/json.hpp"
+#include "datasuite/json.hpp"
 
 #include "datasuite/logger.hpp"
-
-namespace nl = nlohmann;
 
 namespace datasuite
 {
@@ -29,10 +27,10 @@ namespace datasuite
         void log_iopub_message_impl(const pub_message& message) const override;
 
         void log_message_impl(const std::string& socket_info,
-            const nl::json& header,
-            const nl::json& parent_header,
-            const nl::json& metadata,
-            const nl::json& content) const override;
+            const json& header,
+            const json& parent_header,
+            const json& metadata,
+            const json& content) const override;
     };
 
     /******************
@@ -57,15 +55,15 @@ namespace datasuite
         void log_iopub_message_impl(const pub_message& message) const override;
 
         void log_message_impl(const std::string& socket_info,
-            const nl::json& header,
-            const nl::json& parent_header,
-            const nl::json& metadata,
-            const nl::json& content) const override;
+            const json& header,
+            const json& parent_header,
+            const json& metadata,
+            const json& content) const override;
 
         virtual void log_json_message(const std::string& socket_info,
-            const nl::json& json_message) const = 0;
+            const json& json_message) const = 0;
 
-        logger_ptr p_next_logger;
+        logger_ptr p_nextLogger;
         logger::level m_level;
     };
 
@@ -85,7 +83,7 @@ namespace datasuite
     private:
 
         void log_json_message(const std::string& socket_info,
-            const nl::json& json_message) const override;
+            const json& json_message) const override;
 
         mutable std::mutex m_mutex;
     };
@@ -108,9 +106,9 @@ namespace datasuite
     private:
 
         void log_json_message(const std::string& socket_info,
-            const nl::json& json_message) const override;
+            const json& json_message) const override;
 
-        std::string m_file_name;
+        std::string m_fileName;
         mutable std::mutex m_mutex;
     };
 }

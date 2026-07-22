@@ -26,7 +26,7 @@ namespace datasuite
     private:
 
         zmq::socket_t m_socket;
-        std::string m_dealer_end_point;
+        std::string m_dealerEndPoint;
     };
 }
 

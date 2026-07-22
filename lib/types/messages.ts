@@ -10,8 +10,13 @@ export type MessageTopic =
     | 'status'
     | string;
 
+export type MessageChannel = 'iopub' | 'shell';
+
 export interface JupyterMessage<T = any> {
     topic: MessageTopic;
+    msgType: string;
+    channel: MessageChannel;
+    parentMsgId: string;
     content: T;
     timestamp: number;
     raw: string;

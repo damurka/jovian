@@ -77,12 +77,12 @@ namespace datasuite
         const EVP_MD* m_evp;
         HMAC_CTX* m_hmac;
 #else
-        std::string m_hash_name;
-        OSSL_PARAM m_ossl_params[2];
-        EVP_MAC* m_evp_mac;
-        EVP_MAC_CTX* m_evp_mac_ctx;
+        std::string m_hashName;
+        OSSL_PARAM m_osslParams[2];
+        EVP_MAC* m_evpMac;
+        EVP_MAC_CTX* m_evpMacCtx;
 #endif
-        mutable std::mutex m_mac_mutex;
+        mutable std::mutex m_macMutex;
     };
 
     // Specialization of authentication without any signature checking.
@@ -177,8 +177,8 @@ namespace datasuite
 #if OPENSSL_VERSION_NUMBER < 0x30000000L
         , m_evp(asevp(scheme))
 #else
-        , m_evp_mac(nullptr)
-        , m_evp_mac_ctx(nullptr)
+        , m_evpMac(nullptr)
+        , m_evpMacCtx(nullptr)
 #endif
 
     {
@@ -189,18 +189,18 @@ namespace datasuite
 #elif OPENSSL_VERSION_NUMBER < 0x30000000L
         m_hmac = HMAC_CTX_new();
 #else
-        m_hash_name = scheme.substr(5);
-        std::transform(m_hash_name.begin(), m_hash_name.end(), m_hash_name.begin(),
+        m_hashName = scheme.substr(5);
+        std::transform(m_hashName.begin(), m_hashName.end(), m_hashName.begin(),
             [](unsigned char c) { return std::toupper(c); });
-        m_ossl_params[0] = OSSL_PARAM_construct_utf8_string("digest", const_cast<char*>(m_hash_name.c_str()), std::size_t(0));
-        m_ossl_params[1] = OSSL_PARAM_construct_end();
-        m_evp_mac = EVP_MAC_fetch(nullptr, "hmac", nullptr);
-        if (!m_evp_mac)
+        m_osslParams[0] = OSSL_PARAM_construct_utf8_string("digest", const_cast<char*>(m_hashName.c_str()), std::size_t(0));
+        m_osslParams[1] = OSSL_PARAM_construct_end();
+        m_evpMac = EVP_MAC_fetch(nullptr, "hmac", nullptr);
+        if (!m_evpMac)
         {
             throw std::runtime_error("Could not fetch evp_mac");
         }
-        m_evp_mac_ctx = EVP_MAC_CTX_new(m_evp_mac);
-        if (!m_evp_mac_ctx)
+        m_evpMacCtx = EVP_MAC_CTX_new(m_evpMac);
+        if (!m_evpMacCtx)
         {
             throw std::runtime_error("Could not allocate evp_mac_ctx");
         }
@@ -215,8 +215,8 @@ namespace datasuite
 #elif OPENSSL_VERSION_NUMBER < 0x30000000L
         HMAC_CTX_free(m_hmac);
 #else
-        EVP_MAC_CTX_free(m_evp_mac_ctx);
-        EVP_MAC_free(m_evp_mac);
+        EVP_MAC_CTX_free(m_evpMacCtx);
+        EVP_MAC_free(m_evpMac);
 #endif
     }
 
@@ -225,7 +225,7 @@ namespace datasuite
         const raw_buffer& meta_data,
         const raw_buffer& content) const
     {
-        std::lock_guard<std::mutex> lock(m_mac_mutex);
+        std::lock_guard<std::mutex> lock(m_macMutex);
         std::string hex_sig = compute_hex_signature(header, parent_header, meta_data, content);
         return hex_sig;
     }
@@ -236,7 +236,7 @@ namespace datasuite
         const raw_buffer& meta_data,
         const raw_buffer& content) const
     {
-        std::lock_guard<std::mutex> lock(m_mac_mutex);
+        std::lock_guard<std::mutex> lock(m_macMutex);
         std::string hex_sig = compute_hex_signature(header, parent_header, meta_data, content);
         auto cmp = CRYPTO_memcmp(reinterpret_cast<const void*>(hex_sig.c_str()), signature.data(), hex_sig.size());
         return cmp == 0;
@@ -254,24 +254,24 @@ namespace datasuite
         HMAC_Update(m_hmac, meta_data.data(), meta_data.size());
         HMAC_Update(m_hmac, content.data(), content.size());
 #else
-        EVP_MAC_update(m_evp_mac_ctx, header.data(), header.size());
-        EVP_MAC_update(m_evp_mac_ctx, parent_header.data(), parent_header.size());
-        EVP_MAC_update(m_evp_mac_ctx, meta_data.data(), meta_data.size());
-        EVP_MAC_update(m_evp_mac_ctx, content.data(), content.size());
+        EVP_MAC_update(m_evpMacCtx, header.data(), header.size());
+        EVP_MAC_update(m_evpMacCtx, parent_header.data(), parent_header.size());
+        EVP_MAC_update(m_evpMacCtx, meta_data.data(), meta_data.size());
+        EVP_MAC_update(m_evpMacCtx, content.data(), content.size());
 #endif
         return finalize_hex_signature();
     }
 
     std::string openssl_authentication::sign_impl(const raw_buffer& content) const
     {
-        std::lock_guard<std::mutex> lock(m_mac_mutex);
+        std::lock_guard<std::mutex> lock(m_macMutex);
         std::string hex_sig = compute_hex_signature(content);
         return hex_sig;
     }
 
     bool openssl_authentication::verify_impl(const raw_buffer& signature, const raw_buffer& content) const
     {
-        std::lock_guard<std::mutex> lock(m_mac_mutex);
+        std::lock_guard<std::mutex> lock(m_macMutex);
         std::string hex_sig = compute_hex_signature(content);
         auto cmp = CRYPTO_memcmp(reinterpret_cast<const void*>(hex_sig.c_str()), signature.data(), hex_sig.size());
         return cmp == 0;
@@ -283,7 +283,7 @@ namespace datasuite
 #if OPENSSL_VERSION_NUMBER < 0x30000000L
         HMAC_Update(m_hmac, content.data(), content.size());
 #else
-        EVP_MAC_update(m_evp_mac_ctx, content.data(), content.size());
+        EVP_MAC_update(m_evpMacCtx, content.data(), content.size());
 #endif
         return finalize_hex_signature();
     }
@@ -293,7 +293,7 @@ namespace datasuite
 #if OPENSSL_VERSION_NUMBER < 0x30000000L
         HMAC_Init_ex(m_hmac, m_key.c_str(), m_key.size(), m_evp, nullptr);
 #else
-        EVP_MAC_init(m_evp_mac_ctx, reinterpret_cast<const unsigned char*>(m_key.c_str()), m_key.size(), m_ossl_params);
+        EVP_MAC_init(m_evpMacCtx, reinterpret_cast<const unsigned char*>(m_key.c_str()), m_key.size(), m_osslParams);
 #endif
     }
 
@@ -305,9 +305,9 @@ namespace datasuite
 #else
         size_t final_size(0);
         // Computes the final size
-        EVP_MAC_final(m_evp_mac_ctx, nullptr, &final_size, size_t(0));
+        EVP_MAC_final(m_evpMacCtx, nullptr, &final_size, size_t(0));
         auto sig = std::vector<unsigned char>(final_size);
-        EVP_MAC_final(m_evp_mac_ctx, sig.data(), &final_size, sig.size());
+        EVP_MAC_final(m_evpMacCtx, sig.data(), &final_size, sig.size());
 #endif
         std::string hex_result;
         hex_result.reserve(sig.size() * 2); // Pre-allocate memory for exact size (2 hex chars per byte)

@@ -5,7 +5,7 @@
 
 namespace datasuite
 {
-    class server_zmq_default final : public server_zmq
+    class server_zmq_default final : public ServerZmq
     {
     public:
 

@@ -10,15 +10,15 @@ namespace datasuite
         const std::string& ip,
         const std::string& port)
         : m_socket(context, zmq::socket_type::dealer)
-        , m_dealer_end_point("")
+        , m_dealerEndPoint("")
     {
-        m_dealer_end_point = get_end_point(transport, ip, port);
-        m_socket.connect(m_dealer_end_point);
+        m_dealerEndPoint = get_end_point(transport, ip, port);
+        m_socket.connect(m_dealerEndPoint);
     }
 
     dealer_channel::~dealer_channel()
     {
-        m_socket.disconnect(m_dealer_end_point);
+        m_socket.disconnect(m_dealerEndPoint);
     }
 
     void dealer_channel::send_message(zmq::multipart_t& message)

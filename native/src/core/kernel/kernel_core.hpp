@@ -4,8 +4,7 @@
 #include <map>
 #include <string>
 
-#include "nlohmann/json.hpp"
-
+#include "datasuite/json.hpp"
 #include "datasuite/comm.hpp"
 #include "datasuite/server.hpp"
 #include "datasuite/interpreter.hpp"
@@ -13,55 +12,53 @@
 #include "datasuite/message.hpp"
 #include "datasuite/logger.hpp"
 
-namespace nl = nlohmann;
-
 namespace datasuite
 {
-    class kernel_core
+    class KernelCore
     {
     public:
 
         using logger_ptr = logger*;
         using server_ptr = server*;
         using interpreter_ptr = interpreter*;
-        using history_manager_ptr = history_manager*;
+        using history_manager_ptr = HistoryManager*;
         using guid_list = message::guid_list;
 
-        kernel_core(const std::string& kernel_id,
+        KernelCore(const std::string& kernel_id,
             const std::string& user_name,
             const std::string& session_id,
             logger_ptr logger,
             server_ptr server,
             interpreter_ptr p_interpreter,
-            history_manager_ptr p_history_manager);
+            history_manager_ptr p_historyManager);
 
-        ~kernel_core();
+        ~KernelCore();
 
         pub_message build_start_msg() const;
 
         void dispatch_shell(message msg);
         void dispatch_control(message msg);
         void dispatch_stdin(message msg);
-        nl::json dispatch_internal(nl::json msg);
+        json dispatch_internal(json msg);
 
         void publish_message(const std::string& msg_type,
-            nl::json parent_header,
-            nl::json metadata,
-            nl::json content,
+            json parent_header,
+            json metadata,
+            json content,
             buffer_sequence buffers,
             channel origin);
 
-        void send_stdin(const std::string& msg_type, const guid_list& id_list, nl::json parent_header, nl::json metadata, nl::json content);
+        void send_stdin(const std::string& msg_type, const guid_list& id_list, json parent_header, json metadata, json content);
 
         comm_manager& comm_manager() & noexcept;
         const datasuite::comm_manager& comm_manager() const& noexcept;
         datasuite::comm_manager comm_manager() const&& noexcept;
 
-        const nl::json& parent_header() const noexcept;
+        const json& parent_header() const noexcept;
 
     private:
 
-        using handler_fptr_type = void (kernel_core::*)(message, channel);
+        using handler_fptr_type = void (KernelCore::*)(message, channel);
 
         struct handler_type {
             handler_fptr_type fptr = nullptr;
@@ -88,32 +85,32 @@ namespace datasuite
         void interrupt_request(message request, channel c);
         void debug_request(message request, channel c);
 
-        void publish_status(nl::json parent_header, const std::string& status, channel c);
-        void publish_execute_input(nl::json parent_header, const std::string& code, int execution_count);
+        void publish_status(json parent_header, const std::string& status, channel c);
+        void publish_execute_input(json parent_header, const std::string& code, int execution_count);
 
         void send_reply(const guid_list& id_list,
             const std::string& reply_type,
-            nl::json parent_header,
-            nl::json metadata,
-            nl::json reply_content,
+            json parent_header,
+            json metadata,
+            json reply_content,
             channel c);
 
         void abort_request(message msg);
 
         std::string get_topic(const std::string& msg_type) const;
-        nl::json get_metadata() const;
+        json get_metadata() const;
 
 
-        std::string m_kernel_id;
-        std::string m_user_name;
-        std::string m_session_id;
+        std::string m_kernelId;
+        std::string m_userName;
+        std::string m_sessionId;
 
         std::map<std::string, handler_type> m_handler;
-        datasuite::comm_manager m_comm_manager;
+        datasuite::comm_manager m_commManager;
         logger_ptr p_logger;
         server_ptr p_server;
         interpreter_ptr p_interpreter;
-        history_manager_ptr p_history_manager;
+        history_manager_ptr p_historyManager;
     };
 }
 

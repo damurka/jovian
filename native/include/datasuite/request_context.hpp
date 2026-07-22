@@ -8,25 +8,23 @@
 #include "json.hpp" 
 #include "message.hpp" // for message::guid_list
 
-namespace nl = nlohmann;
-
 namespace datasuite
 {
-    class DATASUITE_API request_context
+    class DATASUITE_API RequestContext
     {
     public:
 
         using guid_list = message::guid_list;
 
-        request_context() = default;
-        request_context(nl::json header, guid_list id);
+        RequestContext() = default;
+        RequestContext(json header, guid_list id);
 
-        const nl::json& header() const;
+        const json& header() const;
         const guid_list& id() const;
 
     private:
 
-        nl::json m_header = nl::json::object();
+        json m_header = json::object();
         guid_list m_id;
     };
 }

@@ -22,11 +22,11 @@ namespace datasuite
 
         std::string get_registration_port() const;
 
-        kernel_configuration wait_for_configuration();
+        KernelConfiguration wait_for_configuration();
 
     private:
 
-        std::unique_ptr<client_handshake_zmq_impl> p_client_impl;
+        std::unique_ptr<client_handshake_zmq_impl> p_clientImpl;
     };
 }
 

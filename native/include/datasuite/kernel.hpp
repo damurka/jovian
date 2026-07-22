@@ -15,7 +15,7 @@
 
 namespace datasuite
 {
-    class kernel_core;
+    class KernelCore;
 
     DATASUITE_API
     std::string get_user_name();
@@ -25,9 +25,9 @@ namespace datasuite
     public:
 
         using context_ptr = std::unique_ptr<context>;
-        using history_manager_ptr = std::unique_ptr<history_manager>;
+        using history_manager_ptr = std::unique_ptr<HistoryManager>;
         using interpreter_ptr = std::unique_ptr<interpreter>;
-        using kernel_core_ptr = std::unique_ptr<kernel_core>;
+        using kernel_core_ptr = std::unique_ptr<KernelCore>;
         using logger_ptr = std::unique_ptr<logger>;
         using server_ptr = std::unique_ptr<server>;
         using server_builder = std::function<server_ptr(context& context,
@@ -39,7 +39,7 @@ namespace datasuite
             context_ptr context,
             interpreter_ptr interpreter,
             server_builder sbuilder,
-            history_manager_ptr history_manager = make_in_memory_history_manager(),
+            history_manager_ptr HistoryManager = make_in_memory_history_manager(),
             logger_ptr logger = nullptr,
             nl::json::error_handler_t eh = nl::json::error_handler_t::strict);
 
@@ -47,7 +47,7 @@ namespace datasuite
             context_ptr context,
             interpreter_ptr interpreter,
             server_builder sbuilder,
-            history_manager_ptr history_manager = make_in_memory_history_manager(),
+            history_manager_ptr HistoryManager = make_in_memory_history_manager(),
             logger_ptr logger = nullptr,
             nl::json::error_handler_t eh = nl::json::error_handler_t::strict);
 
@@ -56,25 +56,25 @@ namespace datasuite
         void start();
         void stop();
 
-        const kernel_configuration& get_config();
+        const KernelConfiguration& get_config();
         server& get_server();
 
     private:
 
-        kernel_configuration m_config;
-        std::string m_kernel_id;
-        std::string m_session_id;
-        std::string m_user_name;
+        KernelConfiguration m_config;
+        std::string m_kernelId;
+        std::string m_sessionId;
+        std::string m_userName;
         // The context must be declared before any other
         // middleware component since it must be destroyed
         // last
         context_ptr p_context;
         interpreter_ptr p_interpreter;
-        history_manager_ptr p_history_manager;
+        history_manager_ptr p_historyManager;
         logger_ptr p_logger;
         server_ptr p_server;
         kernel_core_ptr p_core;
-        nl::json::error_handler_t m_error_handler;
+        nl::json::error_handler_t m_errorHandler;
     };
 }
 

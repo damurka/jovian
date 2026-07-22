@@ -3,19 +3,17 @@
 
 #include <optional>
 
-#include <nlohmann/json.hpp>
-
+#include "datasuite/datasuite.hpp"
+#include "datasuite/json.hpp"
 #include "datasuite/context.hpp"
 #include "datasuite/kernel_configuration.hpp"
 #include "datasuite/message.hpp"
-
-#include "datasuite/datasuite.hpp"
 
 namespace datasuite
 {
     class client_zmq_impl;
 
-    class DATASUITE_API client_zmq
+    class DATASUITE_API ClientZmq
     {
     public:
 
@@ -23,8 +21,8 @@ namespace datasuite
         using iopub_listener = std::function<void(pub_message)>;
         using kernel_status_listener = std::function<void(bool)>;
 
-        explicit client_zmq(std::unique_ptr<client_zmq_impl> impl);
-        ~client_zmq();
+        explicit ClientZmq(std::unique_ptr<client_zmq_impl> impl);
+        ~ClientZmq();
 
         void connect();
         void start();
@@ -50,13 +48,13 @@ namespace datasuite
 
     private:
 
-        std::unique_ptr<client_zmq_impl> p_client_impl;
+        std::unique_ptr<client_zmq_impl> p_clientImpl;
     };
 
     DATASUITE_API
-    std::unique_ptr<client_zmq> make_client_zmq(context& context,
-            const kernel_configuration& config,
-            nl::json::error_handler_t eh = nl::json::error_handler_t::strict);
+    std::unique_ptr<ClientZmq> make_client_zmq(context& context,
+            const KernelConfiguration& config,
+            json::error_handler_t eh = json::error_handler_t::strict);
 }
 
 #endif

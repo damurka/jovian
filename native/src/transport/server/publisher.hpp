@@ -35,7 +35,7 @@ namespace datasuite
         zmq::socket_t m_listener;
         zmq::socket_t m_controller;
 
-        std::function<zmq::multipart_t(pub_message&&)> m_serialize_iopub_msg_cb;
+        std::function<zmq::multipart_t(pub_message&&)> m_serializeIopubMsgCb;
     };
 }
 

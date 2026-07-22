@@ -6,11 +6,16 @@
 #ifdef __GNUC__
 #   pragma GCC diagnostic push
 #   pragma GCC diagnostic ignored "-Wnull-dereference"
-#   include "nlohmann/json.hpp"
+#   include <nlohmann/json.hpp>
 #   pragma GCC diagnostic pop
 #else
-#   include "nlohmann/json.hpp"
+#   include <nlohmann/json.hpp>
 #endif
 
+namespace datasuite {
+    // Alias for convenience across the datasuite namespace
+    using json = nlohmann::json;
+    namespace nl = nlohmann;
+}
 
 #endif

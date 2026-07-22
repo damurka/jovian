@@ -81,18 +81,6 @@ option(DATASUITE_SANITIZE_ADDRESS "Enable address sanitizer" OFF)
 # Test options
 option(DATASUITE_BUILD_TESTS "datasuite test suite" OFF)
 
-# Emscripten wasm build configuration
-# ===================================
-
-if(EMSCRIPTEN)
-    if (DATASUITE_BUILD_SHARED_LIBS)
-        set_property(GLOBAL PROPERTY TARGET_SUPPORTS_SHARED_LIBS TRUE)
-        set(CMAKE_SHARED_LIBRARY_CREATE_C_FLAGS "-s SIDE_MODULE=1")
-        set(CMAKE_SHARED_LIBRARY_CREATE_CXX_FLAGS "-s SIDE_MODULE=1")
-        set(CMAKE_STRIP FALSE)
-    endif ()
-endif()
-
 # Dependencies
 # ============
 
@@ -151,3 +139,13 @@ message(STATUS "R_COMMAND        = ${R_COMMAND}")
 message(STATUS "R_SCRIPT_COMMAND = ${R_SCRIPT_COMMAND}")
 
 add_subdirectory(native)
+
+# Tests
+include(CTest)
+if(DATASUITE_BUILD_TESTS)
+    set(BUILD_TESTING ON)
+    message(STATUS "tests enabled")
+else ()
+    set(BUILD_TESTING OFF)
+    message(STATUS "tests disabled") 
+endif()

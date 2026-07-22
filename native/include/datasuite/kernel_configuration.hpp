@@ -12,27 +12,27 @@ namespace datasuite
     {
         std::string m_transport = "tcp";
         std::string m_ip = "127.0.0.1";
-        std::string m_signature_scheme = "hmac-sha256";
+        std::string m_signatureScheme = "hmac-sha256";
         std::string m_key;
     };
 
-    struct DATASUITE_API kernel_configuration : common_configuration
+    struct DATASUITE_API KernelConfiguration : common_configuration
     {
-        std::string m_control_port;
-        std::string m_shell_port;
-        std::string m_stdin_port;
-        std::string m_iopub_port;
-        std::string m_hb_port;
+        std::string m_controlPort;
+        std::string m_shellPort;
+        std::string m_stdinPort;
+        std::string m_iopubPort;
+        std::string m_hbPort;
     };
 
     struct DATASUITE_API registration_configuration : common_configuration
     {
-        std::string m_kernel_id;
-        std::string m_registration_ip;
-        std::string m_registration_port;
+        std::string m_kernelId;
+        std::string m_registrationIp;
+        std::string m_registrationPort;
     };
 
-    using configuration = std::variant<kernel_configuration, registration_configuration>;
+    using configuration = std::variant<KernelConfiguration, registration_configuration>;
 
     DATASUITE_API
     configuration load_configuration(const std::string& file_name);

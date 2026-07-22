@@ -41,7 +41,7 @@ namespace datasuite
         void configure();
 
         using send_reply_callback = std::function<void(nl::json)>;
-        void execute_request(request_context context,
+        void execute_request(RequestContext context,
             send_reply_callback callback,
             const std::string& code,
             execute_request_config config,
@@ -60,7 +60,7 @@ namespace datasuite
         nl::json internal_request(const nl::json& message);
 
         // publish(msg_type, metadata, content)
-        using publisher_type = std::function<void(request_context, const std::string&, nl::json, nl::json, buffer_sequence)>;
+        using publisher_type = std::function<void(RequestContext, const std::string&, nl::json, nl::json, buffer_sequence)>;
         void register_publisher(const publisher_type& publisher);
 
         void publish_stream(const std::string& name, const std::string& text);
@@ -74,7 +74,7 @@ namespace datasuite
         void clear_output(bool wait);
 
         // send_stdin(msg_type, metadata, content)
-        using stdin_sender_type = std::function<void(request_context, const std::string&, nl::json, nl::json)>;
+        using stdin_sender_type = std::function<void(RequestContext, const std::string&, nl::json, nl::json)>;
         void register_stdin_sender(const stdin_sender_type& sender);
         using input_reply_handler_type = std::function<void(const std::string&)>;
         void register_input_handler(const input_reply_handler_type& handler);
@@ -92,8 +92,8 @@ namespace datasuite
 
         void register_control_messenger(control_messenger& messenger);
 
-        void register_history_manager(const history_manager& history);
-        const history_manager& get_history_manager() const noexcept;
+        void register_history_manager(const HistoryManager& history);
+        const HistoryManager& get_history_manager() const noexcept;
 
     protected:
 
@@ -127,28 +127,28 @@ namespace datasuite
 
         nl::json build_display_content(nl::json data, nl::json metadata, nl::json transient);
 
-        virtual void set_request_context(request_context context);
-        virtual const request_context& get_request_context() const noexcept;
+        virtual void set_request_context(RequestContext context);
+        virtual const RequestContext& get_request_context() const noexcept;
 
         publisher_type m_publisher;
         stdin_sender_type m_stdin;
-        int m_execution_count;
-        datasuite::comm_manager* p_comm_manager;
-        input_reply_handler_type m_input_reply_handler;
+        int m_executionCount;
+        datasuite::comm_manager* p_commManager;
+        input_reply_handler_type m_inputReplyHandler;
         control_messenger* p_messenger;
-        const history_manager* p_history;
-        request_context m_request_context;
+        const HistoryManager* p_history;
+        RequestContext m_requestContext;
     };
 
     // --- FIXED INLINE DEFINITIONS HERE ---
     inline datasuite::comm_manager& interpreter::get_comm_manager() noexcept
     {
-        return *p_comm_manager;
+        return *p_commManager;
     }
 
     inline const datasuite::comm_manager& interpreter::get_comm_manager() const noexcept
     {
-        return *p_comm_manager;
+        return *p_commManager;
     }
 }
 

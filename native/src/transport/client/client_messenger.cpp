@@ -1,14 +1,12 @@
-#include "nlohmann/json.hpp"
+#include "datasuite/json.hpp"
 #include "datasuite/middleware.hpp"
 #include "client_messenger.hpp"
-
-namespace nl = nlohmann;
 
 namespace datasuite
 {
     client_messenger::client_messenger(zmq::context_t& context)
-        : m_iopub_controller(context, zmq::socket_type::req)
-        , m_heartbeat_controller(context, zmq::socket_type::req)
+        : m_iopubController(context, zmq::socket_type::req)
+        , m_heartbeatController(context, zmq::socket_type::req)
     {
     }
 
@@ -18,11 +16,11 @@ namespace datasuite
 
     void client_messenger::connect()
     {
-        m_iopub_controller.set(zmq::sockopt::linger, get_socket_linger());
-        m_iopub_controller.connect(get_controller_end_point("iopub"));
+        m_iopubController.set(zmq::sockopt::linger, get_socket_linger());
+        m_iopubController.connect(get_controller_end_point("iopub"));
 
-        m_heartbeat_controller.set(zmq::sockopt::linger, get_socket_linger());
-        m_heartbeat_controller.connect(get_controller_end_point("heartbeat"));
+        m_heartbeatController.set(zmq::sockopt::linger, get_socket_linger());
+        m_heartbeatController.connect(get_controller_end_point("heartbeat"));
     }
 
     void client_messenger::stop_channels()
@@ -31,11 +29,11 @@ namespace datasuite
         zmq::message_t response;
 
         // Wait for iopub answer
-        m_iopub_controller.send(stop_msg, zmq::send_flags::none);
-        (void)m_iopub_controller.recv(response);
+        m_iopubController.send(stop_msg, zmq::send_flags::none);
+        (void)m_iopubController.recv(response);
 
         // Wait for heartbeat answer
-        m_heartbeat_controller.send(stop_msg, zmq::send_flags::none);
-        (void)m_heartbeat_controller.recv(response);
+        m_heartbeatController.send(stop_msg, zmq::send_flags::none);
+        (void)m_heartbeatController.recv(response);
     }
 }

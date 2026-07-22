@@ -18,7 +18,7 @@ namespace datasuite
     public:
 
         client_iopub(zmq::context_t& context,
-            const kernel_configuration& config,
+            const KernelConfiguration& config,
             client_zmq_impl* client);
 
         ~client_iopub();
@@ -32,12 +32,12 @@ namespace datasuite
         zmq::socket_t m_iopub;
         zmq::socket_t m_controller;
 
-        std::string m_iopub_end_point;
+        std::string m_iopubEndPoint;
 
-        std::queue<pub_message> m_message_queue;
-        mutable std::mutex m_queue_mutex;
+        std::queue<pub_message> m_messageQueue;
+        mutable std::mutex m_queueMutex;
 
-        client_zmq_impl* p_client_impl;
+        client_zmq_impl* p_clientImpl;
     };
 }
 

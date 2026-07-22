@@ -1,27 +1,44 @@
-import type { JupyterMessage, MessageTopic } from '../types/messages.js';
+import type { JupyterMessage, MessageChannel, MessageTopic } from '../types/messages.js';
+
+interface RawEnvelope {
+    channel: MessageChannel;
+    topic: string;
+    msg_type: string;
+    parent_msg_id: string;
+    content: unknown;
+}
 
 export class MessageParser {
     static parse(raw: string): JupyterMessage {
-        const [topic, contentJson] = raw.split('|||');
-        
-        if (!topic || !contentJson) {
+        let envelope: RawEnvelope;
+        try {
+            envelope = JSON.parse(raw);
+        } catch (error) {
+            throw new Error(`Failed to parse message envelope: ${error}`);
+        }
+
+        if (!envelope || typeof envelope.msg_type !== 'string') {
             throw new Error(`Invalid message format: ${raw}`);
         }
 
-        try {
-            const content = JSON.parse(contentJson);
-            return {
-                topic: topic as MessageTopic,
-                content,
-                timestamp: Date.now(),
-                raw
-            };
-        } catch (error) {
-            throw new Error(`Failed to parse message content: ${error}`);
-        }
+        return {
+            topic: envelope.topic as MessageTopic,
+            msgType: envelope.msg_type,
+            channel: envelope.channel,
+            parentMsgId: envelope.parent_msg_id ?? '',
+            content: envelope.content,
+            timestamp: Date.now(),
+            raw
+        };
     }
 
     static stringify(message: JupyterMessage): string {
-        return `${message.topic}|||${JSON.stringify(message.content)}`;
+        return JSON.stringify({
+            channel: message.channel,
+            topic: message.topic,
+            msg_type: message.msgType,
+            parent_msg_id: message.parentMsgId,
+            content: message.content
+        });
     }
 }

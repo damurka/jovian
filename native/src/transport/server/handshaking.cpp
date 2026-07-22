@@ -1,29 +1,27 @@
 #include "zmq_addon.hpp"
-#include "nlohmann/json.hpp"
+#include "datasuite/json.hpp"
 
 #include "handshaking.hpp"
 #include "datasuite/middleware.hpp"
 
 #include "../common/zmq_serializer.hpp"
 
-namespace nl = nlohmann;
-
 namespace datasuite
 {
-    kernel_configuration get_kernel_configuration(const configuration& config)
+    KernelConfiguration get_kernel_configuration(const configuration& config)
     {
         return std::visit([](const auto& conf)
             {
-                if constexpr (std::is_same_v<std::decay_t<decltype(conf)>, kernel_configuration>)
+                if constexpr (std::is_same_v<std::decay_t<decltype(conf)>, KernelConfiguration>)
                 {
                     return conf;
                 }
                 else
                 {
-                    kernel_configuration res;
+                    KernelConfiguration res;
                     res.m_transport = conf.m_transport;
                     res.m_ip = conf.m_ip;
-                    res.m_signature_scheme = conf.m_signature_scheme;
+                    res.m_signatureScheme = conf.m_signatureScheme;
                     res.m_key = conf.m_key;
                     return res;
                 }
@@ -33,14 +31,14 @@ namespace datasuite
     void send_connection_info(
         zmq::context_t& context,
         const registration_configuration& regis_config,
-        const kernel_configuration& kernel_config,
+        const KernelConfiguration& kernel_config,
         const authentication& auth,
-        nl::json::error_handler_t error_handler)
+        json::error_handler_t error_handler)
     {
         std::string end_point = get_end_point(
             regis_config.m_transport,
-            regis_config.m_registration_ip,
-            regis_config.m_registration_port);
+            regis_config.m_registrationIp,
+            regis_config.m_registrationPort);
         zmq::socket_t socket(context, zmq::socket_type::dealer);
         socket.set(zmq::sockopt::linger, get_socket_linger());
         socket.set(zmq::sockopt::rcvtimeo, 5000);
@@ -49,13 +47,13 @@ namespace datasuite
         zmq::multipart_t wire_msg;
         zmq_serializer::serialize_zmq_id({}, wire_msg);
 
-        nl::json msg = {
-            { "kernel_id", regis_config.m_kernel_id },
-            { "control_port", kernel_config.m_control_port },
-            { "shell_port", kernel_config.m_shell_port },
-            { "stdin_port", kernel_config.m_stdin_port },
-            { "iopub_port", kernel_config.m_iopub_port },
-            { "hb_port", kernel_config.m_hb_port }
+        json msg = {
+            { "kernel_id", regis_config.m_kernelId },
+            { "control_port", kernel_config.m_controlPort },
+            { "shell_port", kernel_config.m_shellPort },
+            { "stdin_port", kernel_config.m_stdinPort },
+            { "iopub_port", kernel_config.m_iopubPort },
+            { "hb_port", kernel_config.m_hbPort }
         };
         std::string buffer = msg.dump(-1, ' ', false, error_handler);
         zmq::message_t content(buffer.c_str(), buffer.size());

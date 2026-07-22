@@ -40,7 +40,7 @@ namespace datasuite
         void start(pub_message message);
         void abort_queue(const listener& l, long polling_interval);
         void stop();
-        void update_config(kernel_configuration& config) const;
+        void update_config(KernelConfiguration& config) const;
 
         void register_shell_listener(const listener& l);
         void register_control_listener(const listener& l);
@@ -68,12 +68,12 @@ namespace datasuite
         virtual void start_impl(pub_message message) = 0;
         virtual void abort_queue_impl(const listener& l, long polling_interval) = 0;
         virtual void stop_impl() = 0;
-        virtual void update_config_impl(kernel_configuration& config) const = 0;
+        virtual void update_config_impl(KernelConfiguration& config) const = 0;
 
-        listener m_shell_listener;
-        listener m_control_listener;
-        listener m_stdin_listener;
-        internal_listener m_internal_listener;
+        listener m_shellListener;
+        listener m_controlListener;
+        listener m_stdinListener;
+        internal_listener m_internalListener;
     };
 }
 

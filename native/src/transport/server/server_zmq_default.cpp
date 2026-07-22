@@ -5,7 +5,7 @@ namespace datasuite
     server_zmq_default::server_zmq_default(context& context,
         const configuration& config,
         nl::json::error_handler_t eh)
-        : server_zmq(context, config, eh)
+        : ServerZmq(context, config, eh)
     {
     }
 

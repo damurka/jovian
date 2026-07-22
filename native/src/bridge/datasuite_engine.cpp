@@ -66,7 +66,7 @@ namespace datasuite
         fflush(stdout);
     }
 
-    void DatasuiteServer::start(const kernel_configuration& config, std::function<void()> on_ready) {
+    void DatasuiteServer::start(const KernelConfiguration& config, std::function<void()> on_ready) {
         server_thread = std::thread([this, config, on_ready]() {
             try {
                 // CRITICAL: Setup R environment BEFORE initializing R interpreter!
@@ -110,17 +110,18 @@ namespace datasuite
     // =========================================================================
     // DATASUITE CLIENT IMPLEMENTATION
     // =========================================================================
-    void DatasuiteClient::start(const kernel_configuration& config) {
+    void DatasuiteClient::start(const KernelConfiguration& config) {
         client_context = make_zmq_context();
         zmq_client = make_client_zmq(*client_context, config);
         zmq_client->connect();
         zmq_client->start();
     }
 
-    void DatasuiteClient::execute(const std::string& code) {
-        if (!zmq_client) return;
+    std::string DatasuiteClient::execute(const std::string& code) {
+        if (!zmq_client) return std::string();
 
         nl::json header = make_header("execute_request", "client_user", "session_1");
+        std::string msg_id = header.value("msg_id", "");
         nl::json content = {
             {"code", code},
             {"silent", false},
@@ -131,6 +132,8 @@ namespace datasuite
 
         message req({ "client_id" }, header, nl::json::object(), nl::json::object(), content, buffer_sequence());
         zmq_client->send_on_shell(std::move(req));
+
+        return msg_id;
     }
 
     void DatasuiteClient::stop() {
@@ -152,12 +155,12 @@ namespace datasuite
         // Generate standard Localhost configuration
         config.m_transport = "tcp";
         config.m_ip = "127.0.0.1";
-        config.m_shell_port = "50011";
-        config.m_control_port = "50012";
-        config.m_stdin_port = "50013";
-        config.m_iopub_port = "50004";
-        config.m_hb_port = "50015";
-        config.m_signature_scheme = "hmac-sha256";
+        config.m_shellPort = "50011";
+        config.m_controlPort = "50012";
+        config.m_stdinPort = "50013";
+        config.m_iopubPort = "50004";
+        config.m_hbPort = "50015";
+        config.m_signatureScheme = "hmac-sha256";
         config.m_key = "shared-secret-key";
     }
 
@@ -166,12 +169,12 @@ namespace datasuite
         // Generate standard Localhost configuration
         config.m_transport = "tcp";
         config.m_ip = "127.0.0.1";
-        config.m_shell_port = "50011";
-        config.m_control_port = "50012";
-        config.m_stdin_port = "50013";
-        config.m_iopub_port = "50004";
-        config.m_hb_port = "50015";
-        config.m_signature_scheme = "hmac-sha256";
+        config.m_shellPort = "50011";
+        config.m_controlPort = "50012";
+        config.m_stdinPort = "50013";
+        config.m_iopubPort = "50004";
+        config.m_hbPort = "50015";
+        config.m_signatureScheme = "hmac-sha256";
         config.m_key = "shared-secret-key";
     }
 
@@ -208,9 +211,9 @@ namespace datasuite
         polling_thread = std::thread(&DatasuiteEngine::poll_messages, this);
     }
 
-    void DatasuiteEngine::execute(const std::string& code) {
-        if (!is_running) return;
-        client.execute(code);
+    std::string DatasuiteEngine::execute(const std::string& code) {
+        if (!is_running) return std::string();
+        return client.execute(code);
     }
 
     void DatasuiteEngine::stop() {
@@ -238,17 +241,29 @@ namespace datasuite
                 if (auto pub_opt = zmq->pop_iopub_message()) {
                     auto& msg = pub_opt.value();
 
-                    // Format exactly as TypeScript expects: "topic|||{json}"
-                    std::string raw_payload = msg.topic() + "|||" + msg.content().dump();
-                    on_message_callback(raw_payload);
+                    nl::json envelope = {
+                        {"channel", "iopub"},
+                        {"topic", msg.topic()},
+                        {"msg_type", msg.header().value("msg_type", "")},
+                        {"parent_msg_id", msg.parent_header().value("msg_id", "")},
+                        {"content", msg.content()}
+                    };
+                    on_message_callback(envelope.dump());
                 }
             }
 
             // Check Shell messages (Execution Reply / Errors)
             if (auto shell_opt = zmq->receive_on_shell(false)) {
                 auto& msg = shell_opt.value();
-                std::string raw_payload = msg.header().value("msg_type", "") + "|||" + msg.content().dump();
-                on_message_callback(raw_payload);
+
+                nl::json envelope = {
+                    {"channel", "shell"},
+                    {"topic", msg.header().value("msg_type", "")},
+                    {"msg_type", msg.header().value("msg_type", "")},
+                    {"parent_msg_id", msg.parent_header().value("msg_id", "")},
+                    {"content", msg.content()}
+                };
+                on_message_callback(envelope.dump());
             }
 
             // Sleep to prevent 100% CPU utilization on the background thread

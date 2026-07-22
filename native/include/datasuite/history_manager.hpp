@@ -7,22 +7,20 @@
 #include "datasuite.hpp"
 #include "json.hpp"
 
-namespace nl = nlohmann;
-
 namespace datasuite
 {
-    class DATASUITE_API history_manager
+    class DATASUITE_API HistoryManager
     {
     public:
 
-        history_manager();
-        virtual ~history_manager() = default;
+        HistoryManager();
+        virtual ~HistoryManager() = default;
 
-        history_manager(const history_manager&) = delete;
-        history_manager& operator=(const history_manager&) = delete;
+        HistoryManager(const HistoryManager&) = delete;
+        HistoryManager& operator=(const HistoryManager&) = delete;
 
-        history_manager(history_manager&&) = delete;
-        history_manager& operator=(history_manager&&) = delete;
+        HistoryManager(HistoryManager&&) = delete;
+        HistoryManager& operator=(HistoryManager&&) = delete;
 
         void configure();
         void store_inputs(int session,
@@ -30,11 +28,11 @@ namespace datasuite
             const std::string& input,
             const std::string& output = "");
 
-        nl::json process_request(const nl::json& content) const;
+        json process_request(const json& content) const;
 
-        nl::json get_tail(int n, bool raw, bool output) const;
-        nl::json get_range(int session, int start, int stop, bool raw, bool output) const;
-        nl::json search(const std::string& pattern, bool raw, bool output, int n, bool unique) const;
+        json get_tail(int n, bool raw, bool output) const;
+        json get_range(int session, int start, int stop, bool raw, bool output) const;
+        json search(const std::string& pattern, bool raw, bool output, int n, bool unique) const;
 
     private:
 
@@ -44,13 +42,13 @@ namespace datasuite
             const std::string& input,
             const std::string& output) = 0;
 
-        virtual nl::json get_tail_impl(int n, bool raw, bool output) const = 0;
-        virtual nl::json get_range_impl(int session, int start, int stop, bool raw, bool output) const = 0;
-        virtual nl::json search_impl(const std::string& pattern, bool raw, bool output, int n, bool unique) const = 0;
+        virtual json get_tail_impl(int n, bool raw, bool output) const = 0;
+        virtual json get_range_impl(int session, int start, int stop, bool raw, bool output) const = 0;
+        virtual json search_impl(const std::string& pattern, bool raw, bool output, int n, bool unique) const = 0;
     };
 
     DATASUITE_API
-    std::unique_ptr<history_manager> make_in_memory_history_manager();
+    std::unique_ptr<HistoryManager> make_in_memory_history_manager();
 }
 
 #endif

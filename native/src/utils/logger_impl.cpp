@@ -1,13 +1,9 @@
 #include <fstream>
 #include <iostream>
 
-#include "nlohmann/json.hpp"
-
 #include "datasuite/json.hpp"
 #include "datasuite/message.hpp"
 #include "logger_impl.hpp"
-
-namespace nl = nlohmann;
 
 namespace datasuite
 {
@@ -29,10 +25,10 @@ namespace datasuite
     }
 
     void logger_nolog::log_message_impl(const std::string&,
-        const nl::json&,
-        const nl::json&,
-        const nl::json&,
-        const nl::json&) const
+        const json&,
+        const json&,
+        const json&,
+        const json&) const
     {
     }
 
@@ -98,7 +94,7 @@ namespace datasuite
     }
 
     logger_common::logger_common(logger::level l, logger_ptr next_logger)
-        : p_next_logger(next_logger != nullptr ? std::move(next_logger) : std::make_unique<logger_nolog>())
+        : p_nextLogger(next_logger != nullptr ? std::move(next_logger) : std::make_unique<logger_nolog>())
         , m_level(l)
     {
     }
@@ -145,12 +141,12 @@ namespace datasuite
     }
 
     void logger_common::log_message_impl(const std::string& socket_info,
-        const nl::json& header,
-        const nl::json& parent_header,
-        const nl::json& metadata,
-        const nl::json& json_content) const
+        const json& header,
+        const json& parent_header,
+        const json& metadata,
+        const json& json_content) const
     {
-        nl::json message;
+        json message;
         message["msg_type"] = header.value("msg_type", "");
         switch (m_level)
         {
@@ -171,7 +167,7 @@ namespace datasuite
         }
 
         log_json_message(socket_info, message);
-        p_next_logger->log_message(socket_info, header, parent_header, metadata, json_content);
+        p_nextLogger->log_message(socket_info, header, parent_header, metadata, json_content);
     }
 
     /**********************************
@@ -184,7 +180,7 @@ namespace datasuite
     }
 
     void logger_console::log_json_message(const std::string& socket_info,
-        const nl::json& json_message) const
+        const json& json_message) const
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         std::cout << socket_info << '\n' << json_message.dump(4) << std::endl;
@@ -198,18 +194,18 @@ namespace datasuite
         const std::string& file_name,
         logger_ptr next_logger)
         : logger_common(l, std::move(next_logger))
-        , m_file_name(file_name)
+        , m_fileName(file_name)
     {
     }
 
     void logger_file::log_json_message(const std::string& socket_info,
-        const nl::json& json_message) const
+        const json& json_message) const
     {
-        nl::json log;
+        json log;
         log["info"] = socket_info;
         log["message"] = json_message;
         std::lock_guard<std::mutex> lock(m_mutex);
-        std::ofstream out(m_file_name, std::ios_base::app);
+        std::ofstream out(m_fileName, std::ios_base::app);
         out << log.dump(4) << std::endl;
     }
 

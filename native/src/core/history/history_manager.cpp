@@ -4,20 +4,18 @@
 #include "datasuite/history_manager.hpp"
 #include "in_memory_history_manager.hpp"
 
-namespace nl = nlohmann;
-
 namespace datasuite
 {
-    history_manager::history_manager()
+    HistoryManager::HistoryManager()
     {
     }
 
-    void history_manager::configure()
+    void HistoryManager::configure()
     {
         configure_impl();
     }
 
-    void history_manager::store_inputs(int session,
+    void HistoryManager::store_inputs(int session,
         int line_num,
         const std::string& input,
         const std::string& output)
@@ -25,9 +23,9 @@ namespace datasuite
         store_inputs_impl(session, line_num, input, output);
     }
 
-    nl::json history_manager::process_request(const nl::json& content) const
+    json HistoryManager::process_request(const json& content) const
     {
-        nl::json history;
+        json history;
 
         std::string hist_access_type = content.value("hist_access_type", "tail");
 
@@ -65,23 +63,23 @@ namespace datasuite
         return history;
     }
 
-    nl::json history_manager::get_tail(int n, bool raw, bool output) const
+    json HistoryManager::get_tail(int n, bool raw, bool output) const
     {
         return get_tail_impl(n, raw, output);
     }
 
-    nl::json history_manager::get_range(int session, int start, int stop, bool raw, bool output) const
+    json HistoryManager::get_range(int session, int start, int stop, bool raw, bool output) const
     {
         return get_range_impl(session, start, stop, raw, output);
     }
 
-    nl::json history_manager::search(const std::string& pattern, bool raw, bool output, int n, bool unique) const
+    json HistoryManager::search(const std::string& pattern, bool raw, bool output, int n, bool unique) const
     {
         return search_impl(pattern, raw, output, n, unique);
     }
 
-    std::unique_ptr<history_manager> make_in_memory_history_manager()
+    std::unique_ptr<HistoryManager> make_in_memory_history_manager()
     {
-        return std::make_unique<in_memory_history_manager>();
+        return std::make_unique<InMemoryHistoryManager>();
     }
 }

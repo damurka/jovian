@@ -31,11 +31,6 @@ namespace datasuite
 
     void server::start(pub_message message)
     {
-#ifndef EMSCRIPTEN
-        std::clog << "Run with DATASUITE " << version::kernel_protocol_major << "."
-            << version::kernel_protocol_minor << "."
-            << version::kernel_protocol_minor << std::endl;
-#endif
         start_impl(std::move(message));
     }
 
@@ -49,35 +44,35 @@ namespace datasuite
         stop_impl();
     }
 
-    void server::update_config(kernel_configuration& config) const
+    void server::update_config(KernelConfiguration& config) const
     {
         update_config_impl(config);
     }
     
     void server::register_shell_listener(const listener& l)
     {
-        m_shell_listener = l;
+        m_shellListener = l;
     }
 
     void server::register_control_listener(const listener& l)
     {
-        m_control_listener = l;
+        m_controlListener = l;
     }
 
     void server::register_stdin_listener(const listener& l)
     {
-        m_stdin_listener = l;
+        m_stdinListener = l;
     }
 
     void server::register_internal_listener(const internal_listener& l)
     {
-        m_internal_listener = l;
+        m_internalListener = l;
     }
 
     void server::notify_shell_listener(message msg)
     {
-        if (m_shell_listener) {
-            m_shell_listener(std::move(msg));
+        if (m_shellListener) {
+            m_shellListener(std::move(msg));
         }
         else {
             std::clog << "[Warning] Shell message received but no listener is registered!\n";
@@ -86,22 +81,22 @@ namespace datasuite
 
     void server::notify_control_listener(message msg)
     {
-        if (m_control_listener) {
-            m_control_listener(std::move(msg));
+        if (m_controlListener) {
+            m_controlListener(std::move(msg));
         }
     }
 
     void server::notify_stdin_listener(message msg)
     {
-        if (m_stdin_listener) {
-            m_stdin_listener(std::move(msg));
+        if (m_stdinListener) {
+            m_stdinListener(std::move(msg));
         }
     }
 
     nl::json server::notify_internal_listener(nl::json msg)
     {
-        if (m_internal_listener) {
-            return m_internal_listener(std::move(msg));
+        if (m_internalListener) {
+            return m_internalListener(std::move(msg));
         }
         return nl::json::object(); // Return empty JSON if no listener is attached
     }

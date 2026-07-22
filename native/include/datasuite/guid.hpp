@@ -1,8 +1,8 @@
 #ifndef DATASUITE_GUID_HPP
 #define DATASUITE_GUID_HPP
 
-#include "nlohmann/json.hpp"
 #include "datasuite.hpp"
+#include "json.hpp"
 
 namespace datasuite
 {
@@ -54,12 +54,12 @@ namespace datasuite
 
     // 8. The nlohmann::json magic! (Serialization)
     // By defining this in the same namespace, nlohmann will automatically find it.
-    inline void to_json(nlohmann::json& j, const guid& g) {
+    inline void to_json(json& j, const guid& g) {
         j = g.to_string();
     }
 
     // 9. The nlohmann::json magic! (Deserialization)
-    inline void from_json(const nlohmann::json& j, guid& g) {
+    inline void from_json(const json& j, guid& g) {
         g = guid(j.get<std::string>());
     }
 

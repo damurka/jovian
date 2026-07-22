@@ -16,7 +16,7 @@ namespace datasuite
         using kernel_status_listener = std::function<void(bool)>;
 
         client_heartbeat(zmq::context_t& context,
-            const kernel_configuration& config,
+            const KernelConfiguration& config,
             const std::size_t max_retry,
             const long timeout);
 
@@ -34,12 +34,12 @@ namespace datasuite
         zmq::socket_t m_heartbeat;
         zmq::socket_t m_controller;
 
-        kernel_status_listener m_kernel_status_listener;
-        const std::size_t m_max_retry;
-        const long m_heartbeat_timeout;
+        kernel_status_listener m_kernelStatusListener;
+        const std::size_t m_maxRetry;
+        const long m_heartbeatTimeout;
 
-        std::string m_heartbeat_end_point;
-        bool m_request_stop;
+        std::string m_heartbeatEndPoint;
+        bool m_requestStop;
     };
 }
 

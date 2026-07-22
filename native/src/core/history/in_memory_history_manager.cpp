@@ -4,26 +4,23 @@
 #include <regex>
 
 #include "datasuite/json.hpp"
-
 #include "in_memory_history_manager.hpp"
-
-namespace nl = nlohmann;
 
 namespace datasuite
 {
-    in_memory_history_manager::in_memory_history_manager()
+    InMemoryHistoryManager::InMemoryHistoryManager()
     {
     }
 
-    in_memory_history_manager::~in_memory_history_manager()
+    InMemoryHistoryManager::~InMemoryHistoryManager()
     {
     }
 
-    void in_memory_history_manager::configure_impl()
+    void InMemoryHistoryManager::configure_impl()
     {
     }
 
-    void in_memory_history_manager::store_inputs_impl(int session,
+    void InMemoryHistoryManager::store_inputs_impl(int session,
         int line_num,
         const std::string& input,
         const std::string& output)
@@ -31,15 +28,15 @@ namespace datasuite
         m_history.push_back({ session, line_num, { input, output } });
     }
 
-    in_memory_history_manager::short_entry make_short_entry(const in_memory_history_manager::entry& in)
+    InMemoryHistoryManager::short_entry make_short_entry(const InMemoryHistoryManager::entry& in)
     {
-        in_memory_history_manager::short_entry res = { std::get<0>(in), std::get<1>(in), std::get<2>(in).first };
+        InMemoryHistoryManager::short_entry res = { std::get<0>(in), std::get<1>(in), std::get<2>(in).first };
         return res;
     }
 
-    nl::json in_memory_history_manager::get_tail_impl(int n, bool /*raw*/, bool output) const
+    json InMemoryHistoryManager::get_tail_impl(int n, bool /*raw*/, bool output) const
     {
-        nl::json reply;
+        json reply;
 
         int count = std::min(n, static_cast<int>(m_history.size()));
 
@@ -66,13 +63,13 @@ namespace datasuite
         return reply;
     }
 
-    nl::json in_memory_history_manager::get_range_impl(int /*session*/,
+    json InMemoryHistoryManager::get_range_impl(int /*session*/,
         int start,
         int stop,
         bool /*raw*/,
         bool output) const
     {
-        nl::json reply;
+        json reply;
 
         int hist_size = static_cast<int>(m_history.size());
         if (start > stop || start > hist_size)
@@ -139,13 +136,13 @@ namespace datasuite
         }
     }
 
-    nl::json in_memory_history_manager::search_impl(const std::string& pattern,
+    json InMemoryHistoryManager::search_impl(const std::string& pattern,
         bool /*raw*/,
         bool output,
         int n,
         bool unique) const
     {
-        nl::json reply;
+        json reply;
 
         // Sanitize the pattern from special regex characters
         std::regex special_chars(R"([-[\]{}()+.,\^$|#\s])");
