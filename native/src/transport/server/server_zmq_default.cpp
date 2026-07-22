@@ -2,14 +2,14 @@
 
 namespace datasuite
 {
-    server_zmq_default::server_zmq_default(context& context,
+    ServerZmqDefault::ServerZmqDefault(Context& context,
         const configuration& config,
-        nl::json::error_handler_t eh)
+        json::error_handler_t eh)
         : ServerZmq(context, config, eh)
     {
     }
 
-    void server_zmq_default::start_impl(pub_message msg)
+    void ServerZmqDefault::start_impl(PubMessage msg)
     {
         start_publisher_thread();
         start_heartbeat_thread();
@@ -35,15 +35,15 @@ namespace datasuite
         stop_channels();
     }
 
-    void server_zmq_default::stop_impl()
+    void ServerZmqDefault::stop_impl()
     {
         set_request_stop(true);
     }
 
-    std::unique_ptr<server> make_server_default(context& context,
+    std::unique_ptr<Server> make_server_default(Context& context,
         const configuration& config,
-        nl::json::error_handler_t eh)
+        json::error_handler_t eh)
     {
-        return std::make_unique<server_zmq_default>(context, config, eh);
+        return std::make_unique<ServerZmqDefault>(context, config, eh);
     }
 }

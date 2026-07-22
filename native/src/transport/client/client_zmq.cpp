@@ -3,7 +3,7 @@
 
 namespace datasuite
 {
-    ClientZmq::ClientZmq(std::unique_ptr<client_zmq_impl> impl)
+    ClientZmq::ClientZmq(std::unique_ptr<ClientZmqImpl> impl)
         : p_clientImpl(std::move(impl))
     {
     }
@@ -27,22 +27,22 @@ namespace datasuite
         p_clientImpl->stop_channels();
     }
 
-    void ClientZmq::send_on_shell(message msg)
+    void ClientZmq::send_on_shell(Message msg)
     {
         p_clientImpl->send_on_shell(std::move(msg));
     }
 
-    void ClientZmq::send_on_control(message msg)
+    void ClientZmq::send_on_control(Message msg)
     {
         p_clientImpl->send_on_control(std::move(msg));
     }
 
-    std::optional<message> ClientZmq::receive_on_shell(bool blocking)
+    std::optional<Message> ClientZmq::receive_on_shell(bool blocking)
     {
         return p_clientImpl->receive_on_shell(blocking);
     }
 
-    std::optional<message> ClientZmq::receive_on_control(bool blocking)
+    std::optional<Message> ClientZmq::receive_on_control(bool blocking)
     {
         return p_clientImpl->receive_on_control(blocking);
     }
@@ -52,7 +52,7 @@ namespace datasuite
         return p_clientImpl->iopub_queue_size();
     }
 
-    std::optional<pub_message> ClientZmq::pop_iopub_message()
+    std::optional<PubMessage> ClientZmq::pop_iopub_message()
     {
         return p_clientImpl->pop_iopub_message();
     }
@@ -82,11 +82,11 @@ namespace datasuite
         p_clientImpl->wait_for_message();
     }
 
-    std::unique_ptr<ClientZmq> make_client_zmq(context& context,
+    std::unique_ptr<ClientZmq> make_client_zmq(Context& context,
         const KernelConfiguration& config,
-        nl::json::error_handler_t eh)
+        json::error_handler_t eh)
     {
-        auto impl = std::make_unique<client_zmq_impl>(context.get_wrapped_context<zmq::context_t>(), config, eh);
+        auto impl = std::make_unique<ClientZmqImpl>(context.get_wrapped_context<zmq::context_t>(), config, eh);
         return std::make_unique<ClientZmq>(std::move(impl));
     }
 }

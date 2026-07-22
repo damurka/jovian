@@ -14,73 +14,73 @@
 namespace datasuite
 {
     /*****************************
-     * comm_target declaration *
+     * CommTarget declaration *
      *****************************/
 
-    class comm;
-    class comm_manager;
+    class Comm;
+    class CommManager;
 
     /**
-     * @class comm_target
+     * @class CommTarget
      * @brief Comm target.
      */
-    class DATASUITE_API comm_target
+    class DATASUITE_API CommTarget
     {
     public:
 
-        using function_type = std::function<void(comm&&, message)>;
+        using function_type = std::function<void(Comm&&, Message)>;
 
-        comm_target(const std::string& name, const function_type& callback, comm_manager* manager);
+        CommTarget(const std::string& name, const function_type& callback, CommManager* manager);
 
         const std::string& name() const noexcept;
 
-        void operator()(comm&& c, message request) const;
+        void operator()(Comm&& c, Message request) const;
 
         void publish_message(const std::string&, json, json, buffer_sequence) const;
 
-        void register_comm(guid, comm*) const;
-        void unregister_comm(guid) const;
+        void register_comm(Guid, Comm*) const;
+        void unregister_comm(Guid) const;
 
     private:
 
         std::string m_name;
         function_type m_callback;
-        comm_manager* p_manager;
+        CommManager* p_manager;
     };
 
     /*********************
-     * comm declaration *
+     * Comm declaration *
      *********************/
 
      /**
-      * @class comm
+      * @class Comm
       * @brief Comm object.
       *
       */
-    class DATASUITE_API comm
+    class DATASUITE_API Comm
     {
     public:
 
-        using handler_type = std::function<void(message)>;
+        using handler_type = std::function<void(Message)>;
 
-        explicit comm(const comm_target* target, guid id = datasuite::new_guid());
-        ~comm();
-        comm(comm&&);
-        comm(const comm&);
+        explicit Comm(const CommTarget* target, Guid id = datasuite::new_guid());
+        ~Comm();
+        Comm(Comm&&);
+        Comm(const Comm&);
 
-        comm& operator=(comm&&);
-        comm& operator=(const comm&);
+        Comm& operator=(Comm&&);
+        Comm& operator=(const Comm&);
 
         void open(json metadata, json data, buffer_sequence buffers);
         void close(json metadata, json data, buffer_sequence buffers);
         void send(json metadata, json data, buffer_sequence buffers) const;
 
-        const comm_target& target() const noexcept;
+        const CommTarget& target() const noexcept;
 
-        void handle_message(message request);
-        void handle_close(message request);
+        void handle_message(Message request);
+        void handle_close(Message request);
 
-        guid id() const noexcept;
+        Guid id() const noexcept;
 
         template <class T>
         void on_message(T&& handler);
@@ -89,7 +89,7 @@ namespace datasuite
 
     private:
 
-        friend class comm_manager;
+        friend class CommManager;
 
         void send_comm_message(const std::string& msg_type,
             json metadata,
@@ -104,63 +104,63 @@ namespace datasuite
 
         handler_type m_closeHandler;
         handler_type m_messageHandler;
-        const comm_target* p_target;
-        guid m_id;
+        const CommTarget* p_target;
+        Guid m_id;
         bool m_movedFrom;
     };
 
     /*****************************
-     * comm_manager declaration *
+     * CommManager declaration *
      *****************************/
 
     class KernelCore;
 
-    class DATASUITE_API comm_manager
+    class DATASUITE_API CommManager
     {
     public:
 
-        comm_manager(KernelCore* kernel = nullptr);
+        CommManager(KernelCore* kernel = nullptr);
 
-        using target_function_type = comm_target::function_type;
+        using target_function_type = CommTarget::function_type;
 
         void register_comm_target(const std::string& target_name,
             const target_function_type& callback);
         void unregister_comm_target(const std::string& target_name);
 
-        void comm_open(message request);
-        void comm_close(message request);
-        void comm_msg(message request);
+        void comm_open(Message request);
+        void comm_close(Message request);
+        void comm_msg(Message request);
 
-        const std::map<guid, comm*>& comms() const noexcept;
+        const std::map<Guid, Comm*>& comms() const noexcept;
 
-        const comm_target* target(const std::string& target_name) const;
+        const CommTarget* target(const std::string& target_name) const;
 
     private:
 
-        friend class comm_target;
+        friend class CommTarget;
 
-        void register_comm(guid, comm*);
-        void unregister_comm(guid);
+        void register_comm(Guid, Comm*);
+        void unregister_comm(Guid);
 
         json get_metadata() const;
 
-        std::map<guid, comm*> m_comms;
-        std::map<std::string, comm_target> m_targets;
+        std::map<Guid, Comm*> m_comms;
+        std::map<std::string, CommTarget> m_targets;
         KernelCore* p_kernel;
     };
 
     /************************
-     * comm implementation *
+     * Comm implementation *
      ************************/
 
     template <class T>
-    inline void comm::on_message(T&& handler)
+    inline void Comm::on_message(T&& handler)
     {
         m_messageHandler = std::forward<T>(handler);
     }
 
     template <class T>
-    inline void comm::on_close(T&& handler)
+    inline void Comm::on_close(T&& handler)
     {
         m_closeHandler = std::forward<T>(handler);
     }

@@ -14,7 +14,7 @@ namespace datasuite
     {
     public:
 
-        using guid_list = message::guid_list;
+        using guid_list = Message::guid_list;
 
         RequestContext() = default;
         RequestContext(json header, guid_list id);

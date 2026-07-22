@@ -17,7 +17,7 @@
 
 namespace datasuite
 {
-    guid new_guid()
+    Guid new_guid()
     {
         static constexpr std::size_t GUID_SIZE = 16;
         std::array<unsigned char, GUID_SIZE> raw_bytes;
@@ -63,7 +63,7 @@ namespace datasuite
         // --- THE MODERN STRING BIT ---
         
         // Create our zero-initialized, 64-byte aligned stack array
-        guid buffer{}; 
+        Guid buffer{};
 
         // Write the 16 bytes directly into the stack array formatted as standard UUID hex.
         // {:02x} ensures each byte is printed as exactly 2 lowercase hex characters.

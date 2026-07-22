@@ -5,7 +5,7 @@
 namespace datasuite
 {
 
-    dealer_channel::dealer_channel(zmq::context_t& context,
+    DealerChannel::DealerChannel(zmq::context_t& context,
         const std::string& transport,
         const std::string& ip,
         const std::string& port)
@@ -16,17 +16,17 @@ namespace datasuite
         m_socket.connect(m_dealerEndPoint);
     }
 
-    dealer_channel::~dealer_channel()
+    DealerChannel::~DealerChannel()
     {
         m_socket.disconnect(m_dealerEndPoint);
     }
 
-    void dealer_channel::send_message(zmq::multipart_t& message)
+    void DealerChannel::send_message(zmq::multipart_t& message)
     {
         message.send(m_socket);
     }
 
-    std::optional<zmq::multipart_t> dealer_channel::receive_message(bool blocking)
+    std::optional<zmq::multipart_t> DealerChannel::receive_message(bool blocking)
     {
         zmq::multipart_t wire_msg;
         zmq::recv_flags flags = zmq::recv_flags::none;
@@ -46,7 +46,7 @@ namespace datasuite
         }
     }
 
-    zmq::socket_t& dealer_channel::get_socket()
+    zmq::socket_t& DealerChannel::get_socket()
     {
         return m_socket;
     }

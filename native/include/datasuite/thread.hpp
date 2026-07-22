@@ -10,27 +10,27 @@ namespace datasuite
     /**
      * Joining std::thread
      */
-    class thread
+    class Thread
     {
     public:
 
         using id = std::thread::id;
         using native_handle_type = std::thread::native_handle_type;
 
-        thread() noexcept = default;
+        Thread() noexcept = default;
 
         // Last arguments SFINAE out copy constructor
         template <class Function, class... Args,
-            typename = std::enable_if_t<!std::is_same<std::decay_t<Function>, thread>::value>>
-            explicit thread(Function&& f, Args&&... args);
+            typename = std::enable_if_t<!std::is_same<std::decay_t<Function>, Thread>::value>>
+            explicit Thread(Function&& f, Args&&... args);
 
-        ~thread();
+        ~Thread();
 
-        thread(const thread&) = delete;
-        thread& operator=(const thread&) = delete;
+        Thread(const Thread&) = delete;
+        Thread& operator=(const Thread&) = delete;
 
-        thread(thread&&) = default;
-        thread& operator=(thread&&);
+        Thread(Thread&&) = default;
+        Thread& operator=(Thread&&);
 
         bool joinable() const noexcept;
         id get_id() const noexcept;
@@ -39,7 +39,7 @@ namespace datasuite
 
         void join();
         void detach();
-        void swap(thread& other) noexcept;
+        void swap(Thread& other) noexcept;
 
     private:
 
@@ -48,10 +48,10 @@ namespace datasuite
     };
 
     /**************************
-     * thread implementation *
+     * Thread implementation *
      **************************/
     template <class Function, class... Args, typename>
-    inline thread::thread(Function&& func, Args&&... args)
+    inline Thread::Thread(Function&& func, Args&&... args)
         : m_thread{
             std::forward<Function>(func),
             std::forward<Args>(args)...
@@ -60,7 +60,7 @@ namespace datasuite
     {
     }
 
-    inline thread::~thread()
+    inline Thread::~Thread()
     {
         if (joinable())
         {
@@ -68,7 +68,7 @@ namespace datasuite
         }
     }
 
-    inline thread& thread::operator=(thread&& rhs)
+    inline Thread& Thread::operator=(Thread&& rhs)
     {
         if (joinable())
         {
@@ -78,37 +78,37 @@ namespace datasuite
         return *this;
     }
 
-    inline bool thread::joinable() const noexcept
+    inline bool Thread::joinable() const noexcept
     {
         return m_thread.joinable();
     }
 
-    inline thread::id thread::get_id() const noexcept
+    inline Thread::id Thread::get_id() const noexcept
     {
         return m_thread.get_id();
     }
 
-    inline thread::native_handle_type thread::native_handle()
+    inline Thread::native_handle_type Thread::native_handle()
     {
         return m_thread.native_handle();
     }
 
-    inline unsigned int thread::hardware_concurrency() noexcept
+    inline unsigned int Thread::hardware_concurrency() noexcept
     {
         return std::thread::hardware_concurrency();
     }
 
-    inline void thread::join()
+    inline void Thread::join()
     {
         m_thread.join();
     }
 
-    inline void thread::detach()
+    inline void Thread::detach()
     {
         m_thread.detach();
     }
 
-    inline void thread::swap(thread& other) noexcept
+    inline void Thread::swap(Thread& other) noexcept
     {
         m_thread.swap(other.m_thread);
     }

@@ -12,14 +12,14 @@
 namespace datasuite
 {
     /******************************
-     * client_handshake_zmq_impl *
+     * ClientHandshakeZmqImpl *
      ******************************/
 
-    class client_handshake_zmq_impl
+    class ClientHandshakeZmqImpl
     {
     public:
 
-        client_handshake_zmq_impl(zmq::context_t& context, const registration_configuration& config);
+        ClientHandshakeZmqImpl(zmq::context_t& context, const RegistrationConfiguration& config);
 
         std::string get_registration_port() const;
 
@@ -30,15 +30,15 @@ namespace datasuite
         zmq::context_t* p_context;
         std::string m_key;
         zmq::socket_t m_handshake;
-        using authentication_ptr = std::unique_ptr<authentication>;
+        using authentication_ptr = std::unique_ptr<Authentication>;
         authentication_ptr p_auth;
     };
 
 
-    client_handshake_zmq_impl::client_handshake_zmq_impl
+    ClientHandshakeZmqImpl::ClientHandshakeZmqImpl
     (
         zmq::context_t& context,
-        const registration_configuration& config
+        const RegistrationConfiguration& config
     )
         : p_context(&context)
         , m_key(config.m_key)
@@ -48,21 +48,21 @@ namespace datasuite
         init_socket(m_handshake, config.m_transport, config.m_registrationIp, config.m_registrationPort);
     }
 
-    std::string client_handshake_zmq_impl::get_registration_port() const
+    std::string ClientHandshakeZmqImpl::get_registration_port() const
     {
         return get_socket_port(m_handshake);
     }
 
     KernelConfiguration wait_for_configuration();
 
-    KernelConfiguration client_handshake_zmq_impl::wait_for_configuration()
+    KernelConfiguration ClientHandshakeZmqImpl::wait_for_configuration()
     {
         zmq::multipart_t wire_msg;
         if (!wire_msg.recv(m_handshake))
         {
             throw std::runtime_error("Did not receive kernel configuration");
         }
-        auto routing_ids = zmq_serializer::deserialize_zmq_id(wire_msg);
+        auto routing_ids = ZmqSerializer::deserialize_zmq_id(wire_msg);
         // TODO: check signature
         wire_msg.pop(); // signature
         zmq::message_t content = wire_msg.pop();
@@ -82,9 +82,9 @@ namespace datasuite
         std::string rep_buffer = "ACK";
         zmq::message_t rep_content(rep_buffer.c_str(), rep_buffer.size());
         auto auth = make_authentication("hmac-sha256", m_key);
-        std::string sig = auth->sign(zmq_serializer::make_raw_buffer(rep_content));
+        std::string sig = auth->sign(ZmqSerializer::make_raw_buffer(rep_content));
         zmq::message_t signature(sig.begin(), sig.end());
-        zmq_serializer::serialize_zmq_id(routing_ids, wire_rep);
+        ZmqSerializer::serialize_zmq_id(routing_ids, wire_rep);
         wire_rep.add(std::move(signature));
         wire_rep.add(std::move(rep_content));
         wire_rep.send(m_handshake);
@@ -92,26 +92,26 @@ namespace datasuite
     }
 
     /*************************
-     * client_handshake_zmq *
+     * ClientHandshakeZmq *
      *************************/
 
-    client_handshake_zmq::client_handshake_zmq
+    ClientHandshakeZmq::ClientHandshakeZmq
     (
-        context& context,
-        const registration_configuration& config
+        Context& context,
+        const RegistrationConfiguration& config
     )
-        : p_clientImpl(new client_handshake_zmq_impl(context.get_wrapped_context<zmq::context_t>(), config))
+        : p_clientImpl(new ClientHandshakeZmqImpl(context.get_wrapped_context<zmq::context_t>(), config))
     {
     }
 
-    client_handshake_zmq::~client_handshake_zmq() = default;
+    ClientHandshakeZmq::~ClientHandshakeZmq() = default;
 
-    std::string client_handshake_zmq::get_registration_port() const
+    std::string ClientHandshakeZmq::get_registration_port() const
     {
         return p_clientImpl->get_registration_port();
     }
 
-    KernelConfiguration client_handshake_zmq::wait_for_configuration()
+    KernelConfiguration ClientHandshakeZmq::wait_for_configuration()
     {
         return p_clientImpl->wait_for_configuration();
     }

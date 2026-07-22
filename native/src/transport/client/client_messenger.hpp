@@ -5,11 +5,11 @@
 
 namespace datasuite
 {
-    class client_messenger
+    class ClientMessenger
     {
     public:
-        explicit client_messenger(zmq::context_t& context);
-        virtual ~client_messenger();
+        explicit ClientMessenger(zmq::context_t& context);
+        virtual ~ClientMessenger();
 
         void connect();
         void stop_channels();

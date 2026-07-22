@@ -10,7 +10,7 @@
 namespace datasuite
 {
 
-    class DATASUITE_API logger
+    class DATASUITE_API Logger
     {
     public:
 
@@ -30,17 +30,17 @@ namespace datasuite
             full
         };
 
-        virtual ~logger() = default;
+        virtual ~Logger() = default;
 
-        logger(const logger&) = delete;
-        logger& operator=(const logger&) = delete;
+        Logger(const Logger&) = delete;
+        Logger& operator=(const Logger&) = delete;
 
-        logger(logger&&) = delete;
-        logger& operator=(logger&&) = delete;
+        Logger(Logger&&) = delete;
+        Logger& operator=(Logger&&) = delete;
 
-        void log_received_message(const message& message, channel c) const;
-        void log_sent_message(const message& message, channel c) const;
-        void log_iopub_message(const pub_message& message) const;
+        void log_received_message(const Message& message, channel c) const;
+        void log_sent_message(const Message& message, channel c) const;
+        void log_iopub_message(const PubMessage& message) const;
 
         void log_message(const std::string& socket_info,
             const json& header,
@@ -50,13 +50,13 @@ namespace datasuite
 
     protected:
 
-        logger() = default;
+        Logger() = default;
 
     private:
 
-        virtual void log_received_message_impl(const message& message, channel c) const = 0;
-        virtual void log_sent_message_impl(const message& message, channel c) const = 0;
-        virtual void log_iopub_message_impl(const pub_message& message) const = 0;
+        virtual void log_received_message_impl(const Message& message, channel c) const = 0;
+        virtual void log_sent_message_impl(const Message& message, channel c) const = 0;
+        virtual void log_iopub_message_impl(const PubMessage& message) const = 0;
 
         virtual void log_message_impl(const std::string& socket_info,
             const json& header,
@@ -66,13 +66,13 @@ namespace datasuite
     };
 
     DATASUITE_API
-    std::unique_ptr<logger> make_console_logger(logger::level log_level,
-            std::unique_ptr<logger> next_logger = nullptr);
+    std::unique_ptr<Logger> make_console_logger(Logger::level log_level,
+            std::unique_ptr<Logger> next_logger = nullptr);
 
     DATASUITE_API
-    std::unique_ptr<logger> make_file_logger(logger::level log_level,
+    std::unique_ptr<Logger> make_file_logger(Logger::level log_level,
             const std::string& file_name,
-            std::unique_ptr<logger> next_logger = nullptr);
+            std::unique_ptr<Logger> next_logger = nullptr);
 }
 
 #endif

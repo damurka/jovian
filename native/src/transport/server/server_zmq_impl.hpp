@@ -20,17 +20,17 @@
 
 namespace datasuite
 {
-    class server_zmq_impl
+    class ServerZmqImpl
     {
     public:
 
-        using listener = std::function<void(message)>;
-        using internal_listener = trivial_messenger::listener;
+        using listener = std::function<void(Message)>;
+        using internal_listener = TrivialMessenger::listener;
 
-        server_zmq_impl(zmq::context_t& context,
+        ServerZmqImpl(zmq::context_t& context,
             const configuration& initial_config,
             KernelConfiguration kernel_config,
-            nl::json::error_handler_t eh,
+            json::error_handler_t eh,
             internal_listener listener);
 
         void start_publisher_thread();
@@ -40,20 +40,20 @@ namespace datasuite
         void set_request_stop(bool stop);
         bool is_stopped() const;
 
-        using message_channel = std::pair<message, channel>;
+        using message_channel = std::pair<Message, channel>;
         std::optional<message_channel> poll_channels(long timeout);
 
-        control_messenger& get_control_messenger();
+        ControlMessenger& get_control_messenger();
 
-        void send_shell(message message);
-        void send_control(message message);
-        std::optional<message> send_stdin(message message);
-        void publish(pub_message message, channel c);
+        void send_shell(Message message);
+        void send_control(Message message);
+        std::optional<Message> send_stdin(Message message);
+        void publish(PubMessage message, channel c);
 
         void abort_queue(const listener& l, long polling_interval);
         void update_config(KernelConfiguration& config) const;
 
-        zmq::multipart_t serialize_iopub(pub_message&& msg);
+        zmq::multipart_t serialize_iopub(PubMessage&& msg);
 
     private:
 
@@ -64,18 +64,18 @@ namespace datasuite
         zmq::socket_t m_publisherController;
         zmq::socket_t m_heartbeatController;
 
-        using authentication_ptr = std::unique_ptr<authentication>;
+        using authentication_ptr = std::unique_ptr<Authentication>;
         authentication_ptr p_auth;
 
-        publisher m_publisher;
-        heartbeat m_heartbeat;
+        Publisher m_publisher;
+        Heartbeat m_heartbeat;
 
-        thread m_iopubThread;
-        thread m_hbThread;
+        Thread m_iopubThread;
+        Thread m_hbThread;
 
-        trivial_messenger m_messenger;
+        TrivialMessenger m_messenger;
 
-        nl::json::error_handler_t m_errorHandler;
+        json::error_handler_t m_errorHandler;
 
         bool m_requestStop;
     };

@@ -11,20 +11,20 @@
 
 namespace datasuite
 {
-    class client_zmq_impl;
+    class ClientZmqImpl;
 
-    class client_iopub
+    class ClientIopub
     {
     public:
 
-        client_iopub(zmq::context_t& context,
+        ClientIopub(zmq::context_t& context,
             const KernelConfiguration& config,
-            client_zmq_impl* client);
+            ClientZmqImpl* client);
 
-        ~client_iopub();
+        ~ClientIopub();
 
         std::size_t iopub_queue_size() const;
-        std::optional<pub_message> pop_iopub_message();
+        std::optional<PubMessage> pop_iopub_message();
 
         void run();
 
@@ -34,10 +34,10 @@ namespace datasuite
 
         std::string m_iopubEndPoint;
 
-        std::queue<pub_message> m_messageQueue;
+        std::queue<PubMessage> m_messageQueue;
         mutable std::mutex m_queueMutex;
 
-        client_zmq_impl* p_clientImpl;
+        ClientZmqImpl* p_clientImpl;
     };
 }
 

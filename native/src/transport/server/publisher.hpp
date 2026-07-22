@@ -11,17 +11,17 @@
 
 namespace datasuite
 {
-    class publisher
+    class Publisher
     {
     public:
 
-        publisher(zmq::context_t& context,
-            std::function<zmq::multipart_t(pub_message&&)> serialize_iopub_msg_cb,
+        Publisher(zmq::context_t& context,
+            std::function<zmq::multipart_t(PubMessage&&)> serialize_iopub_msg_cb,
             const std::string& transport,
             const std::string& ip,
             const std::string& port);
 
-        ~publisher();
+        ~Publisher();
 
         std::string get_port() const;
 
@@ -29,13 +29,13 @@ namespace datasuite
 
     private:
 
-        pub_message create_pub_message(const std::string& topic);
+        PubMessage create_pub_message(const std::string& topic);
 
         zmq::socket_t m_publisher;
         zmq::socket_t m_listener;
         zmq::socket_t m_controller;
 
-        std::function<zmq::multipart_t(pub_message&&)> m_serializeIopubMsgCb;
+        std::function<zmq::multipart_t(PubMessage&&)> m_serializeIopubMsgCb;
     };
 }
 

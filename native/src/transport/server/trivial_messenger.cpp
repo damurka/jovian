@@ -2,12 +2,12 @@
 
 namespace datasuite
 {
-    trivial_messenger::trivial_messenger(listener l)
+    TrivialMessenger::TrivialMessenger(listener l)
         : m_listener(std::move(l))
     {
     }
 
-    nl::json trivial_messenger::send_to_shell_impl(const nl::json& message)
+    json TrivialMessenger::send_to_shell_impl(const json& message)
     {
         return m_listener(message);
     }

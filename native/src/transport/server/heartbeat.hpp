@@ -7,16 +7,16 @@
 
 namespace datasuite
 {
-    class heartbeat
+    class Heartbeat
     {
     public:
 
-        heartbeat(zmq::context_t& context,
+        Heartbeat(zmq::context_t& context,
             const std::string& transport,
             const std::string& ip,
             const std::string& port);
 
-        ~heartbeat();
+        ~Heartbeat();
 
         std::string get_port() const;
 

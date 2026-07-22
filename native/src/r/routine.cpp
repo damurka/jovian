@@ -105,22 +105,22 @@ namespace datasuite
         {
             std::string name = CHAR(STRING_ELT(name_, 0));
 
-            auto callback = [name](comm &&comm, message request)
+            auto callback = [name](Comm &&comm, Message request)
             {
                 // comm
-                auto ptr_comm = new datasuite::comm(std::move(comm));
+                auto ptr_comm = new datasuite::Comm(std::move(comm));
                 SEXP xp_comm = PROTECT(R_MakeExternalPtr(
                     reinterpret_cast<void *>(ptr_comm), R_NilValue, R_NilValue));
                 R_RegisterCFinalizerEx(xp_comm, [](SEXP xp)
-                                       { delete reinterpret_cast<datasuite::comm *>(R_ExternalPtrAddr(xp)); }, FALSE);
+                                       { delete reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp)); }, FALSE);
                 SEXP r6_comm = PROTECT(r::new_hera_r6("Comm", xp_comm));
 
                 // request
-                auto ptr_request = new message(std::move(request));
+                auto ptr_request = new Message(std::move(request));
                 SEXP xptr_request = PROTECT(R_MakeExternalPtr(
                     reinterpret_cast<void *>(ptr_request), R_NilValue, R_NilValue));
                 R_RegisterCFinalizerEx(xptr_request, [](SEXP xp)
-                                       { delete reinterpret_cast<message *>(R_ExternalPtrAddr(xp)); }, FALSE);
+                                       { delete reinterpret_cast<Message *>(R_ExternalPtrAddr(xp)); }, FALSE);
                 SEXP r6_request = PROTECT(r::new_hera_r6("Message", xptr_request));
 
                 // callback
@@ -150,11 +150,11 @@ namespace datasuite
             }
 
             auto id = new_guid();
-            auto comm = new datasuite::comm(target, id);
+            auto comm = new datasuite::Comm(target, id);
             SEXP xp_comm = PROTECT(R_MakeExternalPtr(
                 reinterpret_cast<void *>(comm), R_NilValue, R_NilValue));
             R_RegisterCFinalizerEx(xp_comm, [](SEXP xp)
-                                   { delete reinterpret_cast<datasuite::comm *>(R_ExternalPtrAddr(xp)); }, FALSE);
+                                   { delete reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp)); }, FALSE);
             SEXP r6_comm = PROTECT(r::new_hera_r6("Comm", xp_comm, s_description));
 
             UNPROTECT(2);
@@ -215,13 +215,13 @@ namespace datasuite
 
         SEXP Comm__id(SEXP xp_comm)
         {
-            auto comm = reinterpret_cast<datasuite::comm *>(R_ExternalPtrAddr(xp_comm));
+            auto comm = reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm));
             return Rf_mkString(comm->id().to_string().c_str());
         }
 
         SEXP Comm__target_name(SEXP xp_comm)
         {
-            auto comm = reinterpret_cast<datasuite::comm *>(R_ExternalPtrAddr(xp_comm));
+            auto comm = reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm));
             return Rf_mkString(comm->target().name().c_str());
         }
 
@@ -251,7 +251,7 @@ namespace datasuite
             auto metadata = json::parse(CHAR(STRING_ELT(js_metadata, 0)));
             auto data = json::parse(CHAR(STRING_ELT(js_data, 0)));
 
-            auto *comm = reinterpret_cast<datasuite::comm *>(R_ExternalPtrAddr(xp_comm));
+            auto *comm = reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm));
             comm->open(metadata, data, to_buffer_sequence(r_buffers));
 
             return R_NilValue;
@@ -262,7 +262,7 @@ namespace datasuite
             auto metadata = json::parse(CHAR(STRING_ELT(js_metadata, 0)));
             auto data = json::parse(CHAR(STRING_ELT(js_data, 0)));
 
-            auto *comm = reinterpret_cast<datasuite::comm *>(R_ExternalPtrAddr(xp_comm));
+            auto *comm = reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm));
             comm->close(metadata, data, to_buffer_sequence(r_buffers));
 
             return R_NilValue;
@@ -273,24 +273,24 @@ namespace datasuite
             auto metadata = json::parse(CHAR(STRING_ELT(js_metadata, 0)));
             auto data = json::parse(CHAR(STRING_ELT(js_data, 0)));
 
-            auto *comm = reinterpret_cast<datasuite::comm *>(R_ExternalPtrAddr(xp_comm));
+            auto *comm = reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm));
             comm->send(metadata, data, to_buffer_sequence(r_buffers));
 
             return R_NilValue;
         }
 
-        class Comm_Message_handler
+        class CommMessageHandler
         {
         public:
-            Comm_Message_handler(SEXP handler) : m_handler(handler) {}
+            CommMessageHandler(SEXP handler) : m_handler(handler) {}
 
-            inline void operator()(message message)
+            inline void operator()(Message message)
             {
-                auto ptr_message = new datasuite::message(std::move(message));
+                auto ptr_message = new datasuite::Message(std::move(message));
                 SEXP xptr_message = PROTECT(R_MakeExternalPtr(
                     reinterpret_cast<void *>(ptr_message), R_NilValue, R_NilValue));
                 R_RegisterCFinalizerEx(xptr_message, [](SEXP xp)
-                                       { delete reinterpret_cast<datasuite::message *>(R_ExternalPtrAddr(xp)); }, FALSE);
+                                       { delete reinterpret_cast<datasuite::Message *>(R_ExternalPtrAddr(xp)); }, FALSE);
 
                 SEXP call = PROTECT(r::r_call(
                     m_handler,
@@ -307,43 +307,43 @@ namespace datasuite
 
         SEXP Comm__on_close(SEXP xp_comm, SEXP handler)
         {
-            reinterpret_cast<datasuite::comm *>(R_ExternalPtrAddr(xp_comm))->on_close(Comm_Message_handler(handler));
+            reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm))->on_close(CommMessageHandler(handler));
             return R_NilValue;
         }
 
         SEXP Comm__on_message(SEXP xp_comm, SEXP handler)
         {
-            reinterpret_cast<datasuite::comm *>(R_ExternalPtrAddr(xp_comm))->on_message(Comm_Message_handler(handler));
+            reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm))->on_message(CommMessageHandler(handler));
             return R_NilValue;
         }
 
         SEXP Message__get_content(SEXP xptr_msg)
         {
-            auto ptr_msg = reinterpret_cast<message *>(R_ExternalPtrAddr(xptr_msg));
+            auto ptr_msg = reinterpret_cast<Message *>(R_ExternalPtrAddr(xptr_msg));
             return to_r_json(ptr_msg->content());
         }
 
         SEXP Message__get_header(SEXP xptr_msg)
         {
-            auto ptr_msg = reinterpret_cast<message *>(R_ExternalPtrAddr(xptr_msg));
+            auto ptr_msg = reinterpret_cast<Message *>(R_ExternalPtrAddr(xptr_msg));
             return to_r_json(ptr_msg->header());
         }
 
         SEXP Message__get_parent_header(SEXP xptr_msg)
         {
-            auto ptr_msg = reinterpret_cast<message *>(R_ExternalPtrAddr(xptr_msg));
+            auto ptr_msg = reinterpret_cast<Message *>(R_ExternalPtrAddr(xptr_msg));
             return to_r_json(ptr_msg->parent_header());
         }
 
         SEXP Message__get_metadata(SEXP xptr_msg)
         {
-            auto ptr_msg = reinterpret_cast<message *>(R_ExternalPtrAddr(xptr_msg));
+            auto ptr_msg = reinterpret_cast<Message *>(R_ExternalPtrAddr(xptr_msg));
             return to_r_json(ptr_msg->metadata());
         }
 
         SEXP Message__get_buffers(SEXP xptr_msg)
         {
-            auto *msg = reinterpret_cast<message *>(R_ExternalPtrAddr(xptr_msg));
+            auto *msg = reinterpret_cast<Message *>(R_ExternalPtrAddr(xptr_msg));
             const auto &bufs = msg->buffers();
             SEXP out = PROTECT(Rf_allocVector(VECSXP, bufs.size()));
             for (size_t i = 0; i < bufs.size(); ++i)

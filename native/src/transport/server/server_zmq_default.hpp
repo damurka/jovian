@@ -5,19 +5,19 @@
 
 namespace datasuite
 {
-    class server_zmq_default final : public ServerZmq
+    class ServerZmqDefault final : public ServerZmq
     {
     public:
 
-        server_zmq_default(context& context,
+        ServerZmqDefault(Context& context,
             const configuration& config,
-            nl::json::error_handler_t eh);
+            json::error_handler_t eh);
 
-        ~server_zmq_default() override = default;
+        ~ServerZmqDefault() override = default;
 
     private:
 
-        void start_impl(pub_message msg) override;
+        void start_impl(PubMessage msg) override;
         void stop_impl() override;
     };
 }

@@ -4,17 +4,17 @@
 
 namespace datasuite
 {
-    client_messenger::client_messenger(zmq::context_t& context)
+    ClientMessenger::ClientMessenger(zmq::context_t& context)
         : m_iopubController(context, zmq::socket_type::req)
         , m_heartbeatController(context, zmq::socket_type::req)
     {
     }
 
-    client_messenger::~client_messenger()
+    ClientMessenger::~ClientMessenger()
     {
     }
 
-    void client_messenger::connect()
+    void ClientMessenger::connect()
     {
         m_iopubController.set(zmq::sockopt::linger, get_socket_linger());
         m_iopubController.connect(get_controller_end_point("iopub"));
@@ -23,7 +23,7 @@ namespace datasuite
         m_heartbeatController.connect(get_controller_end_point("heartbeat"));
     }
 
-    void client_messenger::stop_channels()
+    void ClientMessenger::stop_channels()
     {
         zmq::message_t stop_msg("stop", 4);
         zmq::message_t response;

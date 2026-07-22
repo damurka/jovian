@@ -6,11 +6,11 @@
 
 namespace datasuite
 {
-    class raw_buffer
+    class RawBuffer
     {
     public:
 
-        raw_buffer(const unsigned char* data,
+        RawBuffer(const unsigned char* data,
             size_t size);
 
         const unsigned char* data() const;
@@ -22,54 +22,54 @@ namespace datasuite
         size_t m_size;
     };
 
-    class authentication
+    class Authentication
     {
     public:
 
-        virtual ~authentication() = default;
+        virtual ~Authentication() = default;
 
-        authentication(const authentication&) = delete;
-        authentication& operator=(const authentication&) = delete;
+        Authentication(const Authentication&) = delete;
+        Authentication& operator=(const Authentication&) = delete;
 
-        authentication(authentication&&) = delete;
-        authentication& operator=(authentication&&) = delete;
+        Authentication(Authentication&&) = delete;
+        Authentication& operator=(Authentication&&) = delete;
 
-        std::string sign(const raw_buffer& header,
-            const raw_buffer& parent_header,
-            const raw_buffer& meta_data,
-            const raw_buffer& content) const;
+        std::string sign(const RawBuffer& header,
+            const RawBuffer& parent_header,
+            const RawBuffer& meta_data,
+            const RawBuffer& content) const;
 
-        bool verify(const raw_buffer& signature,
-            const raw_buffer& header,
-            const raw_buffer& parent_header,
-            const raw_buffer& meta_data,
-            const raw_buffer& content) const;
+        bool verify(const RawBuffer& signature,
+            const RawBuffer& header,
+            const RawBuffer& parent_header,
+            const RawBuffer& meta_data,
+            const RawBuffer& content) const;
 
-        std::string sign(const raw_buffer& content) const;
-        bool verify(const raw_buffer& signature, const raw_buffer& content) const;
+        std::string sign(const RawBuffer& content) const;
+        bool verify(const RawBuffer& signature, const RawBuffer& content) const;
 
     protected:
 
-        authentication() = default;
+        Authentication() = default;
 
     private:
 
-        virtual std::string sign_impl(const raw_buffer& header,
-            const raw_buffer& parent_header,
-            const raw_buffer& meta_data,
-            const raw_buffer& content) const = 0;
+        virtual std::string sign_impl(const RawBuffer& header,
+            const RawBuffer& parent_header,
+            const RawBuffer& meta_data,
+            const RawBuffer& content) const = 0;
 
-        virtual bool verify_impl(const raw_buffer& signature,
-            const raw_buffer& header,
-            const raw_buffer& parent_header,
-            const raw_buffer& meta_data,
-            const raw_buffer& content) const = 0;
+        virtual bool verify_impl(const RawBuffer& signature,
+            const RawBuffer& header,
+            const RawBuffer& parent_header,
+            const RawBuffer& meta_data,
+            const RawBuffer& content) const = 0;
 
-        virtual std::string sign_impl(const raw_buffer& content) const = 0;
-        virtual bool verify_impl(const raw_buffer& signature, const raw_buffer& content) const = 0;
+        virtual std::string sign_impl(const RawBuffer& content) const = 0;
+        virtual bool verify_impl(const RawBuffer& signature, const RawBuffer& content) const = 0;
     };
 
-    std::unique_ptr<authentication> make_authentication(const std::string& scheme,
+    std::unique_ptr<Authentication> make_authentication(const std::string& scheme,
         const std::string& key);
 }
 

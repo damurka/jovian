@@ -9,7 +9,7 @@ namespace datasuite
     void DatasuiteServer::setup_environment() {
         printf("[DatasuiteServer] setup_environment() called\n");
         fflush(stdout);
-        
+
         // Set R_HOME
         if (!env_config.r_home.empty()) {
             #ifdef _WIN32
@@ -26,7 +26,7 @@ namespace datasuite
             printf("[DatasuiteServer] WARNING: R_HOME is empty!\n");
             fflush(stdout);
         }
-        
+
         // Add R bin path to PATH
         if (!env_config.r_path.empty()) {
             #ifdef _WIN32
@@ -43,7 +43,7 @@ namespace datasuite
             setenv("PATH", new_path.c_str(), 1);
             #endif
         }
-        
+
         // Set R_LIBS - this controls where R looks for packages
         if (!env_config.r_libs.empty()) {
             #ifdef _WIN32
@@ -61,7 +61,7 @@ namespace datasuite
             setenv("R_LIBS_USER", env_config.r_libs.c_str(), 1);
             #endif
         }
-        
+
         printf("[DatasuiteServer] setup_environment() completed\n");
         fflush(stdout);
     }
@@ -71,19 +71,19 @@ namespace datasuite
             try {
                 // CRITICAL: Setup R environment BEFORE initializing R interpreter!
                 this->setup_environment();
-                
+
                 auto context = make_zmq_context();
                 // Don't use --vanilla, it prevents loading default packages
                 char* r_argv[] = { (char*)"R", (char*)"--quiet", (char*)"--no-save", (char*)"--no-restore" };
                 int r_argc = sizeof(r_argv) / sizeof(r_argv[0]);
 
-                using interpreter_ptr = std::unique_ptr<r_interpreter>;
-                interpreter_ptr interpreter = interpreter_ptr(new r_interpreter(r_argc, r_argv));
+                using interpreter_ptr = std::unique_ptr<RInterpreter>;
+                interpreter_ptr interpreter = interpreter_ptr(new RInterpreter(r_argc, r_argv));
 
                 auto history = make_in_memory_history_manager();
-                auto logger = make_console_logger(logger::level::msg_type);
+                auto logger = make_console_logger(Logger::level::msg_type);
 
-                kernel engine(config, get_user_name(), std::move(context), std::move(interpreter), make_server_default, std::move(history), std::move(logger));
+                Kernel engine(config, get_user_name(), std::move(context), std::move(interpreter), make_server_default, std::move(history), std::move(logger));
 
                 if (on_ready) {
 					on_ready();
@@ -120,17 +120,17 @@ namespace datasuite
     std::string DatasuiteClient::execute(const std::string& code) {
         if (!zmq_client) return std::string();
 
-        nl::json header = make_header("execute_request", "client_user", "session_1");
+        json header = make_header("execute_request", "client_user", "session_1");
         std::string msg_id = header.value("msg_id", "");
-        nl::json content = {
+        json content = {
             {"code", code},
             {"silent", false},
             {"store_history", true},
-            {"user_expressions", nl::json::object()},
+            {"user_expressions", json::object()},
             {"allow_stdin", false}
         };
 
-        message req({ "client_id" }, header, nl::json::object(), nl::json::object(), content, buffer_sequence());
+        Message req({ "client_id" }, header, json::object(), json::object(), content, buffer_sequence());
         zmq_client->send_on_shell(std::move(req));
 
         return msg_id;
@@ -139,9 +139,9 @@ namespace datasuite
     void DatasuiteClient::stop() {
         if (!zmq_client) return;
 
-        nl::json shut_header = make_header("shutdown_request", "client_user", "session_1");
-        nl::json shut_content = { {"restart", false} };
-        message shut_req({ "client_id" }, shut_header, nl::json::object(), nl::json::object(), shut_content, buffer_sequence());
+        json shut_header = make_header("shutdown_request", "client_user", "session_1");
+        json shut_content = { {"restart", false} };
+        Message shut_req({ "client_id" }, shut_header, json::object(), json::object(), shut_content, buffer_sequence());
 
         // Send shutdown command on the Control channel
         zmq_client->send_on_control(std::move(shut_req));
@@ -241,7 +241,7 @@ namespace datasuite
                 if (auto pub_opt = zmq->pop_iopub_message()) {
                     auto& msg = pub_opt.value();
 
-                    nl::json envelope = {
+                    json envelope = {
                         {"channel", "iopub"},
                         {"topic", msg.topic()},
                         {"msg_type", msg.header().value("msg_type", "")},
@@ -256,7 +256,7 @@ namespace datasuite
             if (auto shell_opt = zmq->receive_on_shell(false)) {
                 auto& msg = shell_opt.value();
 
-                nl::json envelope = {
+                json envelope = {
                     {"channel", "shell"},
                     {"topic", msg.header().value("msg_type", "")},
                     {"msg_type", msg.header().value("msg_type", "")},

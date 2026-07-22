@@ -7,20 +7,20 @@
 
 namespace datasuite
 {
-    interpreter::interpreter()
+    Interpreter::Interpreter()
         : m_executionCount(0)
     {
     }
 
-    void interpreter::configure()
+    void Interpreter::configure()
     {
         configure_impl();
     }
 
-    void interpreter::execute_request(RequestContext context,
+    void Interpreter::execute_request(RequestContext context,
         send_reply_callback callback,
         const std::string& code,
-        execute_request_config config,
+        ExecuteRequestConfig config,
         json user_expressions)
     {
         set_request_context(std::move(context));
@@ -47,47 +47,47 @@ namespace datasuite
         );
     }
 
-    json interpreter::complete_request(const std::string& code, int cursor_pos)
+    json Interpreter::complete_request(const std::string& code, int cursor_pos)
     {
         return complete_request_impl(code, cursor_pos);
     }
 
-    json interpreter::inspect_request(const std::string& code, int cursor_pos, int detail_level)
+    json Interpreter::inspect_request(const std::string& code, int cursor_pos, int detail_level)
     {
         return inspect_request_impl(code, cursor_pos, detail_level);
     }
 
-    json interpreter::is_complete_request(const std::string& code)
+    json Interpreter::is_complete_request(const std::string& code)
     {
         return is_complete_request_impl(code);
     }
 
-    json interpreter::kernel_info_request()
+    json Interpreter::kernel_info_request()
     {
         return kernel_info_request_impl();
     }
 
-    json interpreter::shutdown_request(bool restart)
+    json Interpreter::shutdown_request(bool restart)
     {
         return shutdown_request_impl(restart);
     }
 
-    json interpreter::interrupt_request()
+    json Interpreter::interrupt_request()
     {
         return interrupt_request_impl();
     }
 
-    json interpreter::internal_request(const json& message)
+    json Interpreter::internal_request(const json& message)
     {
         return internal_request_impl(message);
     }
 
-    void interpreter::register_publisher(const publisher_type& publisher)
+    void Interpreter::register_publisher(const publisher_type& publisher)
     {
         m_publisher = publisher;
     }
 
-    void interpreter::publish_stream(const std::string& name, const std::string& text)
+    void Interpreter::publish_stream(const std::string& name, const std::string& text)
     {
         if (m_publisher)
         {
@@ -104,7 +104,7 @@ namespace datasuite
         }
     }
 
-    void interpreter::display_data(json data, json metadata, json transient)
+    void Interpreter::display_data(json data, json metadata, json transient)
     {
         if (m_publisher)
         {
@@ -118,7 +118,7 @@ namespace datasuite
         }
     }
 
-    void interpreter::update_display_data(json data, json metadata, json transient)
+    void Interpreter::update_display_data(json data, json metadata, json transient)
     {
         if (m_publisher)
         {
@@ -132,7 +132,7 @@ namespace datasuite
         }
     }
 
-    void interpreter::publish_execution_input(const std::string& code, int execution_count)
+    void Interpreter::publish_execution_input(const std::string& code, int execution_count)
     {
         if (m_publisher)
         {
@@ -149,7 +149,7 @@ namespace datasuite
         }
     }
 
-    void interpreter::publish_execution_result(int execution_count, json data, json metadata)
+    void Interpreter::publish_execution_result(int execution_count, json data, json metadata)
     {
         if (m_publisher)
         {
@@ -167,7 +167,7 @@ namespace datasuite
         }
     }
 
-    void interpreter::publish_execution_error(const std::string& ename,
+    void Interpreter::publish_execution_error(const std::string& ename,
         const std::string& evalue,
         const std::vector<std::string>& trace_back)
     {
@@ -187,7 +187,7 @@ namespace datasuite
         }
     }
 
-    void interpreter::clear_output(bool wait)
+    void Interpreter::clear_output(bool wait)
     {
         if (m_publisher)
         {
@@ -203,48 +203,48 @@ namespace datasuite
         }
     }
 
-    void interpreter::register_stdin_sender(const stdin_sender_type& sender)
+    void Interpreter::register_stdin_sender(const stdin_sender_type& sender)
     {
         m_stdin = sender;
     }
 
-    void interpreter::register_input_handler(const input_reply_handler_type& handler)
+    void Interpreter::register_input_handler(const input_reply_handler_type& handler)
     {
         m_inputReplyHandler = handler;
     }
 
-    void interpreter::register_comm_manager(datasuite::comm_manager* manager)
+    void Interpreter::register_comm_manager(datasuite::CommManager* manager)
     {
         p_commManager = manager;
     }
 
-    const json& interpreter::parent_header() const noexcept
+    const json& Interpreter::parent_header() const noexcept
     {
 
         return get_request_context().header();
     }
 
-    void interpreter::register_control_messenger(control_messenger& messenger)
+    void Interpreter::register_control_messenger(ControlMessenger& messenger)
     {
         p_messenger = &messenger;
     }
 
-    void interpreter::register_history_manager(const HistoryManager& history)
+    void Interpreter::register_history_manager(const HistoryManager& history)
     {
         p_history = &history;
     }
 
-    const HistoryManager& interpreter::get_history_manager() const noexcept
+    const HistoryManager& Interpreter::get_history_manager() const noexcept
     {
         return *p_history;
     }
 
-    control_messenger& interpreter::get_control_messenger()
+    ControlMessenger& Interpreter::get_control_messenger()
     {
         return *p_messenger;
     }
 
-    void interpreter::input_request(const std::string& prompt, bool pwd)
+    void Interpreter::input_request(const std::string& prompt, bool pwd)
     {
         if (m_stdin)
         {
@@ -260,7 +260,7 @@ namespace datasuite
         }
     }
 
-    void interpreter::input_reply(const std::string& value)
+    void Interpreter::input_reply(const std::string& value)
     {
         if (m_inputReplyHandler)
         {
@@ -268,7 +268,7 @@ namespace datasuite
         }
     }
 
-    json interpreter::internal_request_impl(const json&)
+    json Interpreter::internal_request_impl(const json&)
     {
         json res;
         res["status"] = "error";
@@ -276,7 +276,7 @@ namespace datasuite
         return res;
     }
 
-    json interpreter::build_display_content(json data, json metadata, json transient)
+    json Interpreter::build_display_content(json data, json metadata, json transient)
     {
         json res;
         res["data"] = std::move(data);
@@ -285,12 +285,12 @@ namespace datasuite
         return res;
     }
 
-    void interpreter::set_request_context(RequestContext context)
+    void Interpreter::set_request_context(RequestContext context)
     {
         m_requestContext = std::move(context);
     }
 
-    const RequestContext& interpreter::get_request_context() const noexcept
+    const RequestContext& Interpreter::get_request_context() const noexcept
     {
         return m_requestContext;
     }

@@ -7,16 +7,16 @@
 namespace datasuite
 {
 
-    class dealer_channel
+    class DealerChannel
     {
     public:
 
-        dealer_channel(zmq::context_t& context,
+        DealerChannel(zmq::context_t& context,
             const std::string& transport,
             const std::string& ip,
             const std::string& port);
 
-        ~dealer_channel();
+        ~DealerChannel();
 
         void send_message(zmq::multipart_t& message);
         std::optional<zmq::multipart_t> receive_message(bool blocking);

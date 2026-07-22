@@ -12,12 +12,12 @@ namespace datasuite
 	using binary_buffer = std::vector<char>;
 	using buffer_sequence = std::vector<binary_buffer>;
 
-	class DATASUITE_API message_base
+	class DATASUITE_API MessageBase
 	{
 	public:
 
-		message_base(const message_base&) = delete;
-		message_base& operator=(const message_base&) = delete;
+		MessageBase(const MessageBase&) = delete;
+		MessageBase& operator=(const MessageBase&) = delete;
 
 		const json& header() const { return m_header; }
 		const json& parent_header() const { return m_parentHeader; }
@@ -28,16 +28,16 @@ namespace datasuite
 		buffer_sequence&& buffers()&& { return std::move(m_buffers); }
 
 	protected:
-		message_base() = default;
-		message_base(json header,
+		MessageBase() = default;
+		MessageBase(json header,
 					json parent_header,
 					json metadata,
 					json content,
 					buffer_sequence buffers);
-		~message_base() = default;
+		~MessageBase() = default;
 
-		message_base(message_base&&) = default;
-		message_base& operator=(message_base&&) = default;
+		MessageBase(MessageBase&&) = default;
+		MessageBase& operator=(MessageBase&&) = default;
 
 	private:
 
@@ -48,26 +48,26 @@ namespace datasuite
 		buffer_sequence m_buffers;
 	};
 
-	class DATASUITE_API message : public message_base
+	class DATASUITE_API Message : public MessageBase
 	{
 	public:
 		using guid_list = std::vector<std::string>;
 
-		message() = default;
-		message(const guid_list& zmq_id,
+		Message() = default;
+		Message(const guid_list& zmq_id,
 				json header,
 				json parent_header,
 				json metadata,
 				json content,
 				buffer_sequence buffers);
 
-		~message() = default;
+		~Message() = default;
 
-		message(message&&) = default;
-		message& operator=(message&&) = default;
+		Message(Message&&) = default;
+		Message& operator=(Message&&) = default;
 
-		message(const message&) = delete;
-		message& operator=(const message&) = delete;
+		Message(const Message&) = delete;
+		Message& operator=(const Message&) = delete;
 
 		const guid_list& identities() const { return m_zmqId; }
 
@@ -75,27 +75,27 @@ namespace datasuite
 		guid_list m_zmqId;
 	};
 
-	class DATASUITE_API pub_message : public message_base
+	class DATASUITE_API PubMessage : public MessageBase
 	{
 	public:
 
-		using base_type = message_base;
+		using base_type = MessageBase;
 
-		pub_message() = default;
-		pub_message(const std::string& topic,
+		PubMessage() = default;
+		PubMessage(const std::string& topic,
 					json header,
 					json parent_header,
 					json metadata,
 					json content,
 					buffer_sequence buffers);
 
-		~pub_message() = default;
+		~PubMessage() = default;
 
-		pub_message(pub_message&&) = default;
-		pub_message& operator=(pub_message&&) = default;
+		PubMessage(PubMessage&&) = default;
+		PubMessage& operator=(PubMessage&&) = default;
 
-		pub_message(const pub_message&) = delete;
-		pub_message& operator=(const pub_message&) = delete;
+		PubMessage(const PubMessage&) = delete;
+		PubMessage& operator=(const PubMessage&) = delete;
 
 		const std::string& topic() const { return m_topic; }
 

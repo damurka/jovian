@@ -22,52 +22,52 @@
 
 namespace datasuite
 {
-    // raw_buffer implementation
-    raw_buffer::raw_buffer(const unsigned char* data, size_t size)
+    // RawBuffer implementation
+    RawBuffer::RawBuffer(const unsigned char* data, size_t size)
         : m_data(data), m_size(size)
     {
     }
 
-    const unsigned char* raw_buffer::data() const
+    const unsigned char* RawBuffer::data() const
     {
         return m_data;
     }
 
-    size_t raw_buffer::size() const
+    size_t RawBuffer::size() const
     {
         return m_size;
     }
 
-    // Specialization of authentication using OpenSSL.
-    class openssl_authentication : public authentication
+    // Specialization of Authentication using OpenSSL.
+    class OpensslAuthentication : public Authentication
     {
     public:
 
-        openssl_authentication(const std::string& scheme,
+        OpensslAuthentication(const std::string& scheme,
             const std::string& key);
-        virtual ~openssl_authentication();
+        virtual ~OpensslAuthentication();
 
     private:
 
-        std::string sign_impl(const raw_buffer& header,
-            const raw_buffer& parent_header,
-            const raw_buffer& meta_data,
-            const raw_buffer& content) const override;
+        std::string sign_impl(const RawBuffer& header,
+            const RawBuffer& parent_header,
+            const RawBuffer& meta_data,
+            const RawBuffer& content) const override;
 
-        bool verify_impl(const raw_buffer& signature,
-            const raw_buffer& header,
-            const raw_buffer& parent_header,
-            const raw_buffer& meta_data,
-            const raw_buffer& content) const override;
+        bool verify_impl(const RawBuffer& signature,
+            const RawBuffer& header,
+            const RawBuffer& parent_header,
+            const RawBuffer& meta_data,
+            const RawBuffer& content) const override;
 
-        std::string compute_hex_signature(const raw_buffer& header,
-            const raw_buffer& parent_header,
-            const raw_buffer& meta_data,
-            const raw_buffer& content) const;
+        std::string compute_hex_signature(const RawBuffer& header,
+            const RawBuffer& parent_header,
+            const RawBuffer& meta_data,
+            const RawBuffer& content) const;
 
-        std::string sign_impl(const raw_buffer& content) const override;
-        bool verify_impl(const raw_buffer& signature, const raw_buffer& content) const override;
-        std::string compute_hex_signature(const raw_buffer& content) const;
+        std::string sign_impl(const RawBuffer& content) const override;
+        bool verify_impl(const RawBuffer& signature, const RawBuffer& content) const override;
+        std::string compute_hex_signature(const RawBuffer& content) const;
 
         void init_hex_signature() const;
         std::string finalize_hex_signature() const;
@@ -85,68 +85,68 @@ namespace datasuite
         mutable std::mutex m_macMutex;
     };
 
-    // Specialization of authentication without any signature checking.
-    class no_authentication : public authentication
+    // Specialization of Authentication without any signature checking.
+    class NoAuthentication : public Authentication
     {
     public:
 
-        no_authentication() = default;
-        virtual ~no_authentication() = default;
+        NoAuthentication() = default;
+        virtual ~NoAuthentication() = default;
 
     private:
 
-        std::string sign_impl(const raw_buffer& header,
-            const raw_buffer& parent_header,
-            const raw_buffer& meta_data,
-            const raw_buffer& content) const override;
+        std::string sign_impl(const RawBuffer& header,
+            const RawBuffer& parent_header,
+            const RawBuffer& meta_data,
+            const RawBuffer& content) const override;
 
-        bool verify_impl(const raw_buffer& signature,
-            const raw_buffer& header,
-            const raw_buffer& parent_header,
-            const raw_buffer& meta_data,
-            const raw_buffer& content) const override;
+        bool verify_impl(const RawBuffer& signature,
+            const RawBuffer& header,
+            const RawBuffer& parent_header,
+            const RawBuffer& meta_data,
+            const RawBuffer& content) const override;
 
-        std::string sign_impl(const raw_buffer& content) const override;
-        bool verify_impl(const raw_buffer& signature, const raw_buffer& content) const override;
+        std::string sign_impl(const RawBuffer& content) const override;
+        bool verify_impl(const RawBuffer& signature, const RawBuffer& content) const override;
     };
 
-    std::string authentication::sign(const raw_buffer& header,
-        const raw_buffer& parent_header,
-        const raw_buffer& meta_data,
-        const raw_buffer& content) const
+    std::string Authentication::sign(const RawBuffer& header,
+        const RawBuffer& parent_header,
+        const RawBuffer& meta_data,
+        const RawBuffer& content) const
     {
         return sign_impl(header, parent_header, meta_data, content);
     }
 
-    bool authentication::verify(const raw_buffer& signature,
-        const raw_buffer& header,
-        const raw_buffer& parent_header,
-        const raw_buffer& meta_data,
-        const raw_buffer& content) const
+    bool Authentication::verify(const RawBuffer& signature,
+        const RawBuffer& header,
+        const RawBuffer& parent_header,
+        const RawBuffer& meta_data,
+        const RawBuffer& content) const
     {
         return verify_impl(signature, header, parent_header, meta_data, content);
     }
 
-    std::string authentication::sign(const raw_buffer& content) const
+    std::string Authentication::sign(const RawBuffer& content) const
     {
         return sign_impl(content);
     }
 
-    bool authentication::verify(const raw_buffer& signature, const raw_buffer& content) const
+    bool Authentication::verify(const RawBuffer& signature, const RawBuffer& content) const
     {
         return verify_impl(signature, content);
     }
 
-    std::unique_ptr<authentication> make_authentication(const std::string& scheme,
+    std::unique_ptr<Authentication> make_authentication(const std::string& scheme,
         const std::string& key)
     {
         if (scheme == "none")
         {
-            return std::make_unique<no_authentication>();
+            return std::make_unique<NoAuthentication>();
         }
         else
         {
-            return std::make_unique<openssl_authentication>(scheme, key);
+            return std::make_unique<OpensslAuthentication>(scheme, key);
         }
     }
 
@@ -172,7 +172,7 @@ namespace datasuite
     }
 #endif
 
-    openssl_authentication::openssl_authentication(const std::string& scheme, const std::string& key)
+    OpensslAuthentication::OpensslAuthentication(const std::string& scheme, const std::string& key)
         : m_key(key)
 #if OPENSSL_VERSION_NUMBER < 0x30000000L
         , m_evp(asevp(scheme))
@@ -207,7 +207,7 @@ namespace datasuite
 #endif
     }
 
-    openssl_authentication::~openssl_authentication()
+    OpensslAuthentication::~OpensslAuthentication()
     {
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
         // OpenSSL 1.0.x
@@ -220,21 +220,21 @@ namespace datasuite
 #endif
     }
 
-    std::string openssl_authentication::sign_impl(const raw_buffer& header,
-        const raw_buffer& parent_header,
-        const raw_buffer& meta_data,
-        const raw_buffer& content) const
+    std::string OpensslAuthentication::sign_impl(const RawBuffer& header,
+        const RawBuffer& parent_header,
+        const RawBuffer& meta_data,
+        const RawBuffer& content) const
     {
         std::lock_guard<std::mutex> lock(m_macMutex);
         std::string hex_sig = compute_hex_signature(header, parent_header, meta_data, content);
         return hex_sig;
     }
 
-    bool openssl_authentication::verify_impl(const raw_buffer& signature,
-        const raw_buffer& header,
-        const raw_buffer& parent_header,
-        const raw_buffer& meta_data,
-        const raw_buffer& content) const
+    bool OpensslAuthentication::verify_impl(const RawBuffer& signature,
+        const RawBuffer& header,
+        const RawBuffer& parent_header,
+        const RawBuffer& meta_data,
+        const RawBuffer& content) const
     {
         std::lock_guard<std::mutex> lock(m_macMutex);
         std::string hex_sig = compute_hex_signature(header, parent_header, meta_data, content);
@@ -242,10 +242,10 @@ namespace datasuite
         return cmp == 0;
     }
 
-    std::string openssl_authentication::compute_hex_signature(const raw_buffer& header,
-        const raw_buffer& parent_header,
-        const raw_buffer& meta_data,
-        const raw_buffer& content) const
+    std::string OpensslAuthentication::compute_hex_signature(const RawBuffer& header,
+        const RawBuffer& parent_header,
+        const RawBuffer& meta_data,
+        const RawBuffer& content) const
     {
         init_hex_signature();
 #if OPENSSL_VERSION_NUMBER < 0x30000000L
@@ -262,14 +262,14 @@ namespace datasuite
         return finalize_hex_signature();
     }
 
-    std::string openssl_authentication::sign_impl(const raw_buffer& content) const
+    std::string OpensslAuthentication::sign_impl(const RawBuffer& content) const
     {
         std::lock_guard<std::mutex> lock(m_macMutex);
         std::string hex_sig = compute_hex_signature(content);
         return hex_sig;
     }
 
-    bool openssl_authentication::verify_impl(const raw_buffer& signature, const raw_buffer& content) const
+    bool OpensslAuthentication::verify_impl(const RawBuffer& signature, const RawBuffer& content) const
     {
         std::lock_guard<std::mutex> lock(m_macMutex);
         std::string hex_sig = compute_hex_signature(content);
@@ -277,7 +277,7 @@ namespace datasuite
         return cmp == 0;
     }
 
-    std::string openssl_authentication::compute_hex_signature(const raw_buffer& content) const
+    std::string OpensslAuthentication::compute_hex_signature(const RawBuffer& content) const
     {
         init_hex_signature();
 #if OPENSSL_VERSION_NUMBER < 0x30000000L
@@ -288,7 +288,7 @@ namespace datasuite
         return finalize_hex_signature();
     }
 
-    void openssl_authentication::init_hex_signature() const
+    void OpensslAuthentication::init_hex_signature() const
     {
 #if OPENSSL_VERSION_NUMBER < 0x30000000L
         HMAC_Init_ex(m_hmac, m_key.c_str(), m_key.size(), m_evp, nullptr);
@@ -297,7 +297,7 @@ namespace datasuite
 #endif
     }
 
-    std::string openssl_authentication::finalize_hex_signature() const
+    std::string OpensslAuthentication::finalize_hex_signature() const
     {
 #if OPENSSL_VERSION_NUMBER < 0x30000000L
         auto sig = std::vector<unsigned char>(EVP_MD_size(m_evp));
@@ -320,29 +320,29 @@ namespace datasuite
         return hex_result;
     }
 
-    std::string no_authentication::sign_impl(const raw_buffer& /*header*/,
-        const raw_buffer& /*parent_header*/,
-        const raw_buffer& /*meta_data*/,
-        const raw_buffer& /*content*/) const
+    std::string NoAuthentication::sign_impl(const RawBuffer& /*header*/,
+        const RawBuffer& /*parent_header*/,
+        const RawBuffer& /*meta_data*/,
+        const RawBuffer& /*content*/) const
     {
         return {};
     }
 
-    bool no_authentication::verify_impl(const raw_buffer& /*signature*/,
-        const raw_buffer& /*header*/,
-        const raw_buffer& /*parent_header*/,
-        const raw_buffer& /*meta_data*/,
-        const raw_buffer& /*content*/) const
+    bool NoAuthentication::verify_impl(const RawBuffer& /*signature*/,
+        const RawBuffer& /*header*/,
+        const RawBuffer& /*parent_header*/,
+        const RawBuffer& /*meta_data*/,
+        const RawBuffer& /*content*/) const
     {
         return true;
     }
 
-    std::string no_authentication::sign_impl(const raw_buffer&) const
+    std::string NoAuthentication::sign_impl(const RawBuffer&) const
     {
         return {};
     }
 
-    bool no_authentication::verify_impl(const raw_buffer&, const raw_buffer&) const
+    bool NoAuthentication::verify_impl(const RawBuffer&, const RawBuffer&) const
     {
         return true;
     }

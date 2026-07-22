@@ -9,54 +9,54 @@ namespace datasuite
 {
 
     template <class T>
-    class context_impl;
+    class ContextImpl;
 
-    class DATASUITE_API context
+    class DATASUITE_API Context
     {
     public:
 
-        virtual ~context() = default;
+        virtual ~Context() = default;
 
-        context(const context&) = delete;
-        context& operator=(const context&) = delete;
+        Context(const Context&) = delete;
+        Context& operator=(const Context&) = delete;
 
-        context(context&&) = delete;
-        context& operator=(context&&) = delete;
+        Context(Context&&) = delete;
+        Context& operator=(Context&&) = delete;
 
         template <class T>
         T& get_wrapped_context();
 
     protected:
 
-        context() = default;
+        Context() = default;
     };
 
     template <class T>
-    class context_impl : public context
+    class ContextImpl : public Context
     {
 
     public:
 
         template <class... U>
-        context_impl(U&&... u)
+        ContextImpl(U&&... u)
             : m_context(std::forward<U>(u)...)
         {
         }
 
-        virtual ~context_impl() = default;
+        virtual ~ContextImpl() = default;
 
         T m_context;
     };
 
     template <class T>
-    T& context::get_wrapped_context()
+    T& Context::get_wrapped_context()
     {
-        auto* impl = static_cast<context_impl<T>*>(this);
+        auto* impl = static_cast<ContextImpl<T>*>(this);
         return impl->m_context;
     };
 
     DATASUITE_API
-    std::unique_ptr<context> make_zmq_context();
+    std::unique_ptr<Context> make_zmq_context();
 
 }
 

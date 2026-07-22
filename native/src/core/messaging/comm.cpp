@@ -5,39 +5,39 @@
 namespace datasuite
 {
     /*******************************
-     * comm_target implementation *
+     * CommTarget implementation *
      *******************************/
 
-    comm_target::comm_target(const std::string& name,
+    CommTarget::CommTarget(const std::string& name,
         const function_type& callback,
-        comm_manager* manager)
+        CommManager* manager)
         : m_name(name)
         , m_callback(callback)
         , p_manager(manager)
     {
     }
 
-    const std::string& comm_target::name() const noexcept
+    const std::string& CommTarget::name() const noexcept
     {
         return m_name;
     }
 
-    void comm_target::operator()(comm&& c, message request) const
+    void CommTarget::operator()(Comm&& c, Message request) const
     {
         return m_callback(std::move(c), std::move(request));
     }
 
-    void comm_target::register_comm(guid id, comm* c) const
+    void CommTarget::register_comm(Guid id, Comm* c) const
     {
         p_manager->register_comm(id, c);
     }
 
-    void comm_target::unregister_comm(guid id) const
+    void CommTarget::unregister_comm(Guid id) const
     {
         p_manager->unregister_comm(id);
     }
 
-    void comm_target::publish_message(const std::string& msg_type,
+    void CommTarget::publish_message(const std::string& msg_type,
         json metadata,
         json content,
         buffer_sequence buffers) const
@@ -53,15 +53,15 @@ namespace datasuite
     }
 
     /************************
-     * comm implementation *
+     * Comm implementation *
      ************************/
 
-    const comm_target& comm::target() const noexcept
+    const CommTarget& Comm::target() const noexcept
     {
         return *p_target;
     }
 
-    void comm::handle_close(message request)
+    void Comm::handle_close(Message request)
     {
         if (m_closeHandler)
         {
@@ -69,7 +69,7 @@ namespace datasuite
         }
     }
 
-    void comm::handle_message(message request)
+    void Comm::handle_message(Message request)
     {
         if (m_messageHandler)
         {
@@ -77,7 +77,7 @@ namespace datasuite
         }
     }
 
-    void comm::send_comm_message(const std::string& msg_type,
+    void Comm::send_comm_message(const std::string& msg_type,
         json metadata,
         json data,
         buffer_sequence buffers) const
@@ -88,7 +88,7 @@ namespace datasuite
         target().publish_message(msg_type, std::move(metadata), std::move(content), std::move(buffers));
     }
 
-    void comm::send_comm_message(const std::string& msg_type,
+    void Comm::send_comm_message(const std::string& msg_type,
         json metadata,
         json data,
         buffer_sequence buffers,
@@ -101,7 +101,7 @@ namespace datasuite
         target().publish_message(msg_type, std::move(metadata), std::move(content), std::move(buffers));
     }
 
-    comm::comm(comm&& other)
+    Comm::Comm(Comm&& other)
         : m_closeHandler(std::move(other.m_closeHandler))
         , m_messageHandler(std::move(other.m_messageHandler))
         , p_target(std::move(other.p_target))
@@ -112,7 +112,7 @@ namespace datasuite
         p_target->register_comm(m_id, this);
     }
 
-    comm::comm(const comm& other)
+    Comm::Comm(const Comm& other)
         : p_target(other.p_target)
         , m_id(new_guid())
         , m_movedFrom(false)
@@ -120,7 +120,7 @@ namespace datasuite
         p_target->register_comm(m_id, this);
     }
 
-    comm& comm::operator=(comm&& other)
+    Comm& Comm::operator=(Comm&& other)
     {
         m_closeHandler = std::move(other.m_closeHandler);
         m_messageHandler = std::move(other.m_messageHandler);
@@ -133,7 +133,7 @@ namespace datasuite
         return *this;
     }
 
-    comm& comm::operator=(const comm& other)
+    Comm& Comm::operator=(const Comm& other)
     {
         p_target = other.p_target;
         p_target->unregister_comm(m_id);
@@ -143,7 +143,7 @@ namespace datasuite
         return *this;
     }
 
-    comm::comm(const comm_target* target, guid id)
+    Comm::Comm(const CommTarget* target, Guid id)
         : p_target(target)
         , m_id(id)
     {
@@ -152,7 +152,7 @@ namespace datasuite
         p_target->register_comm(m_id, this);
     }
 
-    comm::~comm()
+    Comm::~Comm()
     {
         if (!m_movedFrom)
         {
@@ -160,64 +160,64 @@ namespace datasuite
         }
     }
 
-    void comm::open(json metadata, json data, buffer_sequence buffers)
+    void Comm::open(json metadata, json data, buffer_sequence buffers)
     {
         send_comm_message("comm_open", std::move(metadata), std::move(data), std::move(buffers), p_target->name());
     }
 
-    void comm::close(json metadata, json data, buffer_sequence buffers)
+    void Comm::close(json metadata, json data, buffer_sequence buffers)
     {
         send_comm_message("comm_close", std::move(metadata), std::move(data), std::move(buffers));
     }
 
-    void comm::send(json metadata, json data, buffer_sequence buffers) const
+    void Comm::send(json metadata, json data, buffer_sequence buffers) const
     {
         send_comm_message("comm_msg", std::move(metadata), std::move(data), std::move(buffers));
     }
 
-    guid comm::id() const noexcept
+    Guid Comm::id() const noexcept
     {
         return m_id;
     }
 
     /********************************
-     * comm_manager implementation *
+     * CommManager implementation *
      ********************************/
 
-    comm_manager::comm_manager(KernelCore* kernel)
+    CommManager::CommManager(KernelCore* kernel)
     {
         p_kernel = kernel;
     }
 
-    json comm_manager::get_metadata() const
+    json CommManager::get_metadata() const
     {
         json metadata;
         metadata["started"] = iso8601_now();
         return metadata;
     }
 
-    void comm_manager::register_comm_target(const std::string& target_name,
+    void CommManager::register_comm_target(const std::string& target_name,
         const target_function_type& callback)
     {
-        m_targets.insert_or_assign(target_name, comm_target(target_name, callback, this));
+        m_targets.insert_or_assign(target_name, CommTarget(target_name, callback, this));
     }
 
-    void comm_manager::unregister_comm_target(const std::string& target_name)
+    void CommManager::unregister_comm_target(const std::string& target_name)
     {
         m_targets.erase(target_name);
     }
 
-    void comm_manager::register_comm(guid id, comm* c)
+    void CommManager::register_comm(Guid id, Comm* c)
     {
         m_comms[id] = c;
     }
 
-    void comm_manager::unregister_comm(guid id)
+    void CommManager::unregister_comm(Guid id)
     {
         m_comms.erase(id);
     }
 
-    void comm_manager::comm_open(message request)
+    void CommManager::comm_open(Message request)
     {
         const json& content = request.content();
         std::string target_name = content["target_name"];
@@ -234,17 +234,17 @@ namespace datasuite
         }
         else
         {
-            comm_target& trg = position->second;
-            guid id = content["comm_id"];
-            comm new_comm(&trg, id);
+            CommTarget& trg = position->second;
+            Guid id = content["comm_id"];
+            Comm new_comm(&trg, id);
             trg(std::move(new_comm), std::move(request));
         }
     }
 
-    void comm_manager::comm_close(message request)
+    void CommManager::comm_close(Message request)
     {
         const json& content = request.content();
-        guid id = content["comm_id"];
+        Guid id = content["comm_id"];
         auto position = m_comms.find(id);
         if (position == m_comms.end())
         {
@@ -257,10 +257,10 @@ namespace datasuite
         m_comms.erase(id);
     }
 
-    void comm_manager::comm_msg(message request)
+    void CommManager::comm_msg(Message request)
     {
         const json& content = request.content();
-        guid id = content["comm_id"];
+        Guid id = content["comm_id"];
         auto position = m_comms.find(id);
         if (position == m_comms.end())
         {
@@ -272,13 +272,13 @@ namespace datasuite
         }
     }
 
-    const comm_target* comm_manager::target(const std::string& target_name) const
+    const CommTarget* CommManager::target(const std::string& target_name) const
     {
         auto iter = m_targets.find(target_name);
         return iter == m_targets.end() ? nullptr : &(iter->second);
     }
 
-    const std::map<guid, comm*>& comm_manager::comms() const noexcept
+    const std::map<Guid, Comm*>& CommManager::comms() const noexcept
     {
         return m_comms;
     }
