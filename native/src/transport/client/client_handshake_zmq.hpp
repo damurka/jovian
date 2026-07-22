@@ -11,14 +11,14 @@
 namespace datasuite
 {
 
-    class client_handshake_zmq_impl;
+    class ClientHandshakeZmqImpl;
 
-    class DATASUITE_API client_handshake_zmq
+    class DATASUITE_API ClientHandshakeZmq
     {
     public:
 
-        client_handshake_zmq(context& context, const registration_configuration& config);
-        ~client_handshake_zmq();
+        ClientHandshakeZmq(Context& context, const RegistrationConfiguration& config);
+        ~ClientHandshakeZmq();
 
         std::string get_registration_port() const;
 
@@ -26,7 +26,7 @@ namespace datasuite
 
     private:
 
-        std::unique_ptr<client_handshake_zmq_impl> p_clientImpl;
+        std::unique_ptr<ClientHandshakeZmqImpl> p_clientImpl;
     };
 }
 

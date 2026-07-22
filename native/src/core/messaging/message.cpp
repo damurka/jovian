@@ -12,11 +12,11 @@
 
 namespace datasuite
 {
-    message_base::message_base(
-        json header, 
+    MessageBase::MessageBase(
+        json header,
         json parent_header,
-        json metadata, 
-        json content, 
+        json metadata,
+        json content,
         buffer_sequence buffers)
         : m_header(std::move(header))
         , m_parentHeader(std::move(parent_header))
@@ -26,14 +26,14 @@ namespace datasuite
     {
     }
 
-    message::message(
+    Message::Message(
         const guid_list& zmq_id,
         json header,
         json parent_header,
         json metadata,
         json content,
         buffer_sequence buffers)
-        : message_base(std::move(header),
+        : MessageBase(std::move(header),
                         std::move(parent_header),
                         std::move(metadata),
                         std::move(content),
@@ -42,13 +42,13 @@ namespace datasuite
     {
     }
 
-    pub_message::pub_message(const std::string& topic,
+    PubMessage::PubMessage(const std::string& topic,
         json header,
         json parent_header,
         json metadata,
         json content,
         buffer_sequence buffers)
-        : message_base(std::move(header),
+        : MessageBase(std::move(header),
             std::move(parent_header),
             std::move(metadata),
             std::move(content),

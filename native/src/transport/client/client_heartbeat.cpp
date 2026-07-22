@@ -7,7 +7,7 @@
 namespace datasuite
 {
 
-    client_heartbeat::client_heartbeat(zmq::context_t& context,
+    ClientHeartbeat::ClientHeartbeat(zmq::context_t& context,
         const KernelConfiguration& config,
         const std::size_t max_retry,
         const long timeout)
@@ -26,18 +26,18 @@ namespace datasuite
         init_socket(m_controller, get_controller_end_point("heartbeat"));
     }
 
-    client_heartbeat::~client_heartbeat()
+    ClientHeartbeat::~ClientHeartbeat()
     {
         m_heartbeat.disconnect(m_heartbeatEndPoint);
     }
 
-    void client_heartbeat::send_heartbeat_message()
+    void ClientHeartbeat::send_heartbeat_message()
     {
         zmq::message_t ping_msg("ping", 4);
         m_heartbeat.send(ping_msg, zmq::send_flags::none);
     }
 
-    bool client_heartbeat::wait_for_answer(long timeout)
+    bool ClientHeartbeat::wait_for_answer(long timeout)
     {
         zmq::pollitem_t items[] = {
             { m_heartbeat, 0, ZMQ_POLLIN, 0 }, { m_controller, 0, ZMQ_POLLIN, 0 }
@@ -70,17 +70,17 @@ namespace datasuite
         return false;
     }
 
-    void client_heartbeat::register_kernel_status_listener(const kernel_status_listener& l)
+    void ClientHeartbeat::register_kernel_status_listener(const kernel_status_listener& l)
     {
         m_kernelStatusListener = l;
     }
 
-    void client_heartbeat::notify_kernel_dead(bool status)
+    void ClientHeartbeat::notify_kernel_dead(bool status)
     {
         m_kernelStatusListener(status);
     }
 
-    void client_heartbeat::run()
+    void ClientHeartbeat::run()
     {
         std::size_t retry_count = 0;
 

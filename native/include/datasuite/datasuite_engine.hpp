@@ -56,7 +56,7 @@ namespace datasuite
     // =========================================================================
     class DATASUITE_API DatasuiteClient {
     private:
-        std::unique_ptr<context> client_context;
+        std::unique_ptr<Context> client_context;
         std::unique_ptr<ClientZmq> zmq_client;
 
     public:
@@ -74,7 +74,7 @@ namespace datasuite
     // =========================================================================
     // 3. THE COMBINED ENGINE (Facade for Node.js)
     // =========================================================================
-    class DATASUITE_API DatasuiteEngine 
+    class DATASUITE_API DatasuiteEngine
     {
     public:
         DatasuiteEngine();

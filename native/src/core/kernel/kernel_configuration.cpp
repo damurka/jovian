@@ -8,7 +8,7 @@ namespace datasuite
 {
     namespace
     {
-        void load_common_configuration(const json& doc, common_configuration& res)
+        void load_common_configuration(const json& doc, CommonConfiguration& res)
         {
             res.m_transport = doc["transport"].get<std::string>();
             res.m_ip = doc["ip"].get<std::string>();
@@ -35,9 +35,9 @@ namespace datasuite
             return res;
         }
 
-        registration_configuration load_registration_configuration(const json& doc)
+        RegistrationConfiguration load_registration_configuration(const json& doc)
         {
-            registration_configuration res;
+            RegistrationConfiguration res;
             load_common_configuration(doc, res);
             res.m_kernelId = doc["kernel_id"].get<std::string>();
             res.m_registrationIp = doc["registration_ip"].get<std::string>();

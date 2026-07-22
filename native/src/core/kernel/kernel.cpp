@@ -62,7 +62,7 @@ namespace datasuite
 #endif
     }
 
-    kernel::kernel(configuration config,
+    Kernel::Kernel(configuration config,
         const std::string& user_name,
         context_ptr context,
         interpreter_ptr interpreter,
@@ -93,7 +93,7 @@ namespace datasuite
 
         if (p_logger == nullptr || std::getenv("DATASUITE_LOG") == nullptr)
         {
-            p_logger = std::make_unique<logger_nolog>();
+            p_logger = std::make_unique<LoggerNolog>();
         }
 
         p_server = sbuilder(*p_context, config, m_errorHandler);
@@ -107,21 +107,21 @@ namespace datasuite
             p_interpreter.get(),
             p_historyManager.get());
 
-        control_messenger& messenger = p_server->get_control_messenger();
+        ControlMessenger& messenger = p_server->get_control_messenger();
 
         p_interpreter->register_control_messenger(messenger);
         p_interpreter->register_history_manager(*p_historyManager);
         p_interpreter->configure();
     }
 
-    kernel::kernel(const std::string& user_name,
+    Kernel::Kernel(const std::string& user_name,
         context_ptr context,
         interpreter_ptr interpreter,
         server_builder sbuilder,
         history_manager_ptr HistoryManager,
         logger_ptr logger,
         json::error_handler_t eh)
-        : kernel(
+        : Kernel(
             KernelConfiguration{},
             user_name,
             std::move(context),
@@ -133,28 +133,28 @@ namespace datasuite
     {
     }
 
-    kernel::~kernel()
+    Kernel::~Kernel()
     {
     }
 
-    void kernel::start()
+    void Kernel::start()
     {
-        pub_message start_msg = p_core->build_start_msg();
+        PubMessage start_msg = p_core->build_start_msg();
         p_server->start(std::move(start_msg));
     }
 
-    void kernel::stop()
+    void Kernel::stop()
     {
         p_interpreter->shutdown_request(false);
         p_server->stop();
     }
 
-    const KernelConfiguration& kernel::get_config()
+    const KernelConfiguration& Kernel::get_config()
     {
         return m_config;
     }
 
-    server& kernel::get_server()
+    Server& Kernel::get_server()
     {
         return *p_server;
     }

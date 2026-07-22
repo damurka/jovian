@@ -12,9 +12,9 @@ namespace datasuite
         constexpr long heartbeat_timeout = std::chrono::milliseconds(20000).count();
     }
 
-    client_zmq_impl::client_zmq_impl(zmq::context_t& context,
+    ClientZmqImpl::ClientZmqImpl(zmq::context_t& context,
         const KernelConfiguration& config,
-        nl::json::error_handler_t eh)
+        json::error_handler_t eh)
         : p_auth(make_authentication(config.m_signatureScheme, config.m_key))
         , m_shellClient(context, config.m_transport, config.m_ip, config.m_shellPort)
         , m_controlClient(context, config.m_transport, config.m_ip, config.m_controlPort)
@@ -27,21 +27,21 @@ namespace datasuite
 
     // Has to be in the cpp because incomplete
     // types are used in unique_ptr in the header
-    client_zmq_impl::~client_zmq_impl() = default;
+    ClientZmqImpl::~ClientZmqImpl() = default;
 
-    void client_zmq_impl::send_on_shell(message msg)
+    void ClientZmqImpl::send_on_shell(Message msg)
     {
-        zmq::multipart_t wire_msg = zmq_serializer::serialize(std::move(msg), *p_auth, m_errorHandler);
+        zmq::multipart_t wire_msg = ZmqSerializer::serialize(std::move(msg), *p_auth, m_errorHandler);
         m_shellClient.send_message(wire_msg);
     }
 
-    void client_zmq_impl::send_on_control(message msg)
+    void ClientZmqImpl::send_on_control(Message msg)
     {
-        zmq::multipart_t wire_msg = zmq_serializer::serialize(std::move(msg), *p_auth, m_errorHandler);
+        zmq::multipart_t wire_msg = ZmqSerializer::serialize(std::move(msg), *p_auth, m_errorHandler);
         m_controlClient.send_message(wire_msg);
     }
 
-    std::optional<message> client_zmq_impl::receive_on_shell(bool blocking)
+    std::optional<Message> ClientZmqImpl::receive_on_shell(bool blocking)
     {
         std::optional<zmq::multipart_t> wire_msg = m_shellClient.receive_message(blocking);
 
@@ -55,7 +55,7 @@ namespace datasuite
         }
     }
 
-    std::optional<message> client_zmq_impl::receive_on_control(bool blocking)
+    std::optional<Message> ClientZmqImpl::receive_on_control(bool blocking)
     {
         std::optional<zmq::multipart_t> wire_msg = m_controlClient.receive_message(blocking);
 
@@ -69,67 +69,67 @@ namespace datasuite
         }
     }
 
-    void client_zmq_impl::register_shell_listener(const listener& l)
+    void ClientZmqImpl::register_shell_listener(const listener& l)
     {
         m_shellListener = l;
     }
 
-    void client_zmq_impl::register_control_listener(const listener& l)
+    void ClientZmqImpl::register_control_listener(const listener& l)
     {
         m_controlListener = l;
     }
 
-    std::size_t client_zmq_impl::iopub_queue_size() const
+    std::size_t ClientZmqImpl::iopub_queue_size() const
     {
         return m_iopubClient.iopub_queue_size();
     }
 
-    std::optional<pub_message> client_zmq_impl::pop_iopub_message()
+    std::optional<PubMessage> ClientZmqImpl::pop_iopub_message()
     {
         return m_iopubClient.pop_iopub_message();
     }
 
-    void client_zmq_impl::register_iopub_listener(const iopub_listener& l)
+    void ClientZmqImpl::register_iopub_listener(const iopub_listener& l)
     {
         m_iopubListener = l;
     }
 
-    void client_zmq_impl::register_kernel_status_listener(const kernel_status_listener& l)
+    void ClientZmqImpl::register_kernel_status_listener(const kernel_status_listener& l)
     {
         m_heartbeatClient.register_kernel_status_listener(l);
     }
 
-    void client_zmq_impl::connect()
+    void ClientZmqImpl::connect()
     {
         p_messenger.connect();
     }
 
-    void client_zmq_impl::stop_channels()
+    void ClientZmqImpl::stop_channels()
     {
         p_messenger.stop_channels();
     }
 
-    void client_zmq_impl::notify_shell_listener(message msg)
+    void ClientZmqImpl::notify_shell_listener(Message msg)
     {
         m_shellListener(std::move(msg));
     }
 
-    void client_zmq_impl::notify_control_listener(message msg)
+    void ClientZmqImpl::notify_control_listener(Message msg)
     {
         m_controlListener(std::move(msg));
     }
 
-    void client_zmq_impl::notify_iopub_listener(pub_message msg)
+    void ClientZmqImpl::notify_iopub_listener(PubMessage msg)
     {
         m_iopubListener(std::move(msg));
     }
 
-    void client_zmq_impl::notify_kernel_dead(bool status)
+    void ClientZmqImpl::notify_kernel_dead(bool status)
     {
         m_heartbeatClient.notify_kernel_dead(status);
     }
 
-    void client_zmq_impl::poll(long timeout)
+    void ClientZmqImpl::poll(long timeout)
     {
         zmq::multipart_t wire_msg;
         zmq::pollitem_t items[]
@@ -143,14 +143,14 @@ namespace datasuite
                 if (items[0].revents & ZMQ_POLLIN)
                 {
                     wire_msg.recv(m_shellClient.get_socket());
-                    message msg = deserialize(wire_msg);
+                    Message msg = deserialize(wire_msg);
                     notify_shell_listener(std::move(msg));
                     return;
                 }
                 if (items[1].revents & ZMQ_POLLIN)
                 {
                     wire_msg.recv(m_controlClient.get_socket());
-                    message msg = deserialize(wire_msg);
+                    Message msg = deserialize(wire_msg);
                     notify_control_listener(std::move(msg));
                     return;
                 }
@@ -162,9 +162,9 @@ namespace datasuite
         }
     }
 
-    void client_zmq_impl::wait_for_message()
+    void ClientZmqImpl::wait_for_message()
     {
-        std::optional<pub_message> pending_message = pop_iopub_message();
+        std::optional<PubMessage> pending_message = pop_iopub_message();
 
         if (pending_message.has_value())
         {
@@ -176,30 +176,30 @@ namespace datasuite
         }
     }
 
-    void client_zmq_impl::start()
+    void ClientZmqImpl::start()
     {
         start_iopub_thread();
         start_heartbeat_thread();
     }
 
-    void client_zmq_impl::start_iopub_thread()
+    void ClientZmqImpl::start_iopub_thread()
     {
-        m_iopubThread = std::move(thread(&client_iopub::run, &m_iopubClient));
+        m_iopubThread = std::move(Thread(&ClientIopub::run, &m_iopubClient));
     }
 
-    void client_zmq_impl::start_heartbeat_thread()
+    void ClientZmqImpl::start_heartbeat_thread()
     {
-        m_heartbeatThread = std::move(thread(&client_heartbeat::run, &m_heartbeatClient));
+        m_heartbeatThread = std::move(Thread(&ClientHeartbeat::run, &m_heartbeatClient));
     }
 
-    message client_zmq_impl::deserialize(zmq::multipart_t& wire_msg) const
+    Message ClientZmqImpl::deserialize(zmq::multipart_t& wire_msg) const
     {
-        return zmq_serializer::deserialize(wire_msg, *p_auth);
+        return ZmqSerializer::deserialize(wire_msg, *p_auth);
     }
 
-    pub_message client_zmq_impl::deserialize_iopub(zmq::multipart_t& wire_msg) const
+    PubMessage ClientZmqImpl::deserialize_iopub(zmq::multipart_t& wire_msg) const
     {
-        return zmq_serializer::deserialize_iopub(wire_msg, *p_auth);
+        return ZmqSerializer::deserialize_iopub(wire_msg, *p_auth);
     }
 
 }

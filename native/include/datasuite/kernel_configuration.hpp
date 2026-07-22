@@ -8,7 +8,7 @@
 
 namespace datasuite
 {
-    struct DATASUITE_API common_configuration
+    struct DATASUITE_API CommonConfiguration
     {
         std::string m_transport = "tcp";
         std::string m_ip = "127.0.0.1";
@@ -16,7 +16,7 @@ namespace datasuite
         std::string m_key;
     };
 
-    struct DATASUITE_API KernelConfiguration : common_configuration
+    struct DATASUITE_API KernelConfiguration : CommonConfiguration
     {
         std::string m_controlPort;
         std::string m_shellPort;
@@ -25,14 +25,14 @@ namespace datasuite
         std::string m_hbPort;
     };
 
-    struct DATASUITE_API registration_configuration : common_configuration
+    struct DATASUITE_API RegistrationConfiguration : CommonConfiguration
     {
         std::string m_kernelId;
         std::string m_registrationIp;
         std::string m_registrationPort;
     };
 
-    using configuration = std::variant<KernelConfiguration, registration_configuration>;
+    using configuration = std::variant<KernelConfiguration, RegistrationConfiguration>;
 
     DATASUITE_API
     configuration load_configuration(const std::string& file_name);

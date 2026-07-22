@@ -9,18 +9,18 @@
 
 namespace datasuite
 {
-    class client_heartbeat
+    class ClientHeartbeat
     {
     public:
 
         using kernel_status_listener = std::function<void(bool)>;
 
-        client_heartbeat(zmq::context_t& context,
+        ClientHeartbeat(zmq::context_t& context,
             const KernelConfiguration& config,
             const std::size_t max_retry,
             const long timeout);
 
-        ~client_heartbeat();
+        ~ClientHeartbeat();
 
         void run();
 

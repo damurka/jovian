@@ -3,11 +3,11 @@
 
 namespace datasuite
 {
-    control_messenger::~control_messenger()
+    ControlMessenger::~ControlMessenger()
     {
     }
 
-    json control_messenger::send_to_shell(const json& message)
+    json ControlMessenger::send_to_shell(const json& message)
     {
         return send_to_shell_impl(message);
     }

@@ -37,21 +37,21 @@ extern "C" __declspec(dllimport) uintptr_t R_CStackLimit;
 
 namespace datasuite
 {
-    static r_interpreter* p_interpreter = nullptr;
-    r_interpreter* get_r_interpreter()
+    static RInterpreter* p_interpreter = nullptr;
+    RInterpreter* get_r_interpreter()
     {
         return p_interpreter;
     }
 
-    interpreter*& get_registered_interpreter()
+    Interpreter*& get_registered_interpreter()
     {
-        static interpreter* interpreter = nullptr;
+        static Interpreter* interpreter = nullptr;
         return interpreter;
     }
 
-    bool register_interpreter(interpreter* new_interpreter)
+    bool register_interpreter(Interpreter* new_interpreter)
     {
-        interpreter*& interp = get_registered_interpreter();
+        Interpreter*& interp = get_registered_interpreter();
         if (interp != nullptr)
         {
             return false;
@@ -63,9 +63,9 @@ namespace datasuite
         }
     }
 
-    interpreter& get_interpreter()
+    Interpreter& get_interpreter()
     {
-        interpreter* interp = get_registered_interpreter();
+        Interpreter* interp = get_registered_interpreter();
         if (interp != nullptr)
             return *interp;
         else
@@ -102,7 +102,7 @@ namespace datasuite
         return 1;
     }
 
-    r_interpreter::r_interpreter(int argc, char* argv[])
+    RInterpreter::RInterpreter(int argc, char* argv[])
     {
 #ifdef _WIN32
         if (AllocConsole()) {
@@ -111,7 +111,7 @@ namespace datasuite
                 ShowWindow(hwnd, SW_HIDE);
             }
             // CRITICAL FIX: Bind the MSVC C-Runtime streams to the new console!
-            // Without this, internal C printf() calls in packages (like Shiny/httpuv) 
+            // Without this, internal C printf() calls in packages (like Shiny/httpuv)
             // will hit a NULL handle and segfault (0xC0000005).
             FILE* fp;
             freopen_s(&fp, "CONOUT$", "w", stdout);
@@ -123,11 +123,11 @@ namespace datasuite
         printf("[R Interpreter BEFORE Init] R_HOME=%s\n", getenv("R_HOME") ? getenv("R_HOME") : "NOT SET");
         printf("[R Interpreter BEFORE Init] R_LIBS=%s\n", getenv("R_LIBS") ? getenv("R_LIBS") : "NOT SET");
         fflush(stdout);
-        
+
         Rf_initEmbeddedR(argc, argv);
 
-        R_CStackLimit = (uintptr_t)-1; 
-        
+        R_CStackLimit = (uintptr_t)-1;
+
         printf("[R Interpreter AFTER Init] Rf_initEmbeddedR completed\n");
         fflush(stdout);
 #endif
@@ -146,13 +146,13 @@ namespace datasuite
         p_interpreter = this;
     }
 
-    void r_interpreter::configure_impl()
+    void RInterpreter::configure_impl()
     {
         // Debug: Print R environment variables
         printf("[R Interpreter] R_HOME=%s\n", getenv("R_HOME") ? getenv("R_HOME") : "NOT SET");
         printf("[R Interpreter] R_LIBS=%s\n", getenv("R_LIBS") ? getenv("R_LIBS") : "NOT SET");
         fflush(stdout);
-        
+
         // Debug: Print .libPaths() from R
         SEXP get_libpaths = PROTECT(Rf_lang1(Rf_install(".libPaths")));
         SEXP libpaths = PROTECT(Rf_eval(get_libpaths, R_GlobalEnv));
@@ -162,11 +162,11 @@ namespace datasuite
         }
         fflush(stdout);
         UNPROTECT(2);
-        
+
         // Try to load hera - MAKE IT OPTIONAL FOR NOW
         printf("[R Interpreter] Attempting to load 'hera' package...\n");
         fflush(stdout);
-        
+
         SEXP sym_library = PROTECT(Rf_install("require"));
         SEXP str_hera = PROTECT(Rf_mkString("hera"));
         SEXP sym_quietly = PROTECT(Rf_install("quietly"));
@@ -175,7 +175,7 @@ namespace datasuite
         SET_TAG(CDDR(call_library_hera), sym_quietly);
 
         SEXP out = PROTECT(Rf_eval(call_library_hera, R_GlobalEnv));
-        
+
         if (LOGICAL_ELT(out, 0) == FALSE) {
             printf("[R Interpreter] WARNING: 'hera' package could not be loaded. Some features may not work.\n");
             printf("[R Interpreter] Continuing without 'hera' for testing purposes...\n");
@@ -193,12 +193,12 @@ namespace datasuite
         UNPROTECT(5);
     }
 
-    void r_interpreter::execute_request_impl(
+    void RInterpreter::execute_request_impl(
         send_reply_callback cb,
         int execution_count,
         const std::string& code,
-        execute_request_config config,
-        nl::json /*user_expressions*/
+        ExecuteRequestConfig config,
+        json /*user_expressions*/
     )
     {
         if (config.store_history) {
@@ -230,18 +230,18 @@ namespace datasuite
            if (Rf_inherits(result, "execution_result")) {
                 SEXP data_ = VECTOR_ELT(result, 0);
                 SEXP metadata_ = VECTOR_ELT(result, 1);
-                auto data = nl::json::parse(CHAR(STRING_ELT(data_, 0)));
-                auto metadata = nl::json::parse(CHAR(STRING_ELT(metadata_, 0)));
+                auto data = json::parse(CHAR(STRING_ELT(data_, 0)));
+                auto metadata = json::parse(CHAR(STRING_ELT(metadata_, 0)));
                 publish_execution_result(execution_count, data, metadata);
             }
 
             cb(create_successful_reply(/*payload, user_expressions*/));
         }
-        
+
         UNPROTECT(4);
     }
 
-    nl::json r_interpreter::is_complete_request_impl(const std::string& code_)
+    json RInterpreter::is_complete_request_impl(const std::string& code_)
     {
         SEXP code = PROTECT(Rf_mkString(code_.c_str()));
 
@@ -276,22 +276,22 @@ namespace datasuite
             reinterpret_cast<void*>(code)
         );
 
-        nl::json res = create_is_complete_reply(CHAR(STRING_ELT(code, 0)), "");
+        json res = create_is_complete_reply(CHAR(STRING_ELT(code, 0)), "");
         UNPROTECT(1);
         return res;
     }
 
-    nl::json json_from_character_vector(SEXP x) {
+    json json_from_character_vector(SEXP x) {
         auto n = XLENGTH(x);
         std::vector<std::string> vec(n);
 
         for (decltype(n) i = 0; i < n; i++) {
             vec[i] = std::string(CHAR(STRING_ELT(x, i)));
         }
-        return nl::json(vec);
+        return json(vec);
     }
 
-    nl::json r_interpreter::complete_request_impl(const std::string& code, int cursor_pos)
+    json RInterpreter::complete_request_impl(const std::string& code, int cursor_pos)
     {
         SEXP code_ = PROTECT(Rf_mkString(code.c_str()));
         SEXP cursor_pos_ = PROTECT(Rf_ScalarInteger(cursor_pos));
@@ -305,7 +305,7 @@ namespace datasuite
         return create_complete_reply(matches, cursor_start, cursor_end);
     }
 
-    nl::json r_interpreter::inspect_request_impl(const std::string& code, int cursor_pos, int /*detail_level*/)
+    json RInterpreter::inspect_request_impl(const std::string& code, int cursor_pos, int /*detail_level*/)
     {
         SEXP code_ = PROTECT(Rf_mkString(code.c_str()));
         SEXP cursor_pos_ = PROTECT(Rf_ScalarInteger(cursor_pos));
@@ -317,23 +317,23 @@ namespace datasuite
             return create_inspect_reply(false);
         }
 
-        auto data = nl::json::parse(CHAR(STRING_ELT(VECTOR_ELT(result, 1), 0)));
+        auto data = json::parse(CHAR(STRING_ELT(VECTOR_ELT(result, 1), 0)));
         UNPROTECT(3);
         return create_inspect_reply(found, data);
     }
 
-    nl::json r_interpreter::shutdown_request_impl(bool /*restart*/)
+    json RInterpreter::shutdown_request_impl(bool /*restart*/)
     {
         Rf_endEmbeddedR(0);
         return create_shutdown_reply(false);
     }
 
-    nl::json r_interpreter::interrupt_request_impl()
+    json RInterpreter::interrupt_request_impl()
     {
         return create_interrupt_reply();
     }
 
-    nl::json r_interpreter::kernel_info_request_impl()
+    json RInterpreter::kernel_info_request_impl()
     {
         const std::string  implementation = "xr";
         const std::string  implementation_version{ version::kernel_protocol_version };
@@ -345,7 +345,7 @@ namespace datasuite
         const std::string  language_codemirror_mode = "";
         const std::string  language_nbconvert_exporter = "";
         const std::string  banner = "xr";
-        const nl::json     help_links = nl::json::array();
+        const json     help_links = json::array();
 
         return create_info_reply(
             implementation,

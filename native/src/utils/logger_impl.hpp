@@ -10,21 +10,21 @@ namespace datasuite
 {
 
     /*****************
-     * logger_nolog *
+     * LoggerNolog *
      *****************/
 
-    class logger_nolog : public logger
+    class LoggerNolog : public Logger
     {
     public:
 
-        logger_nolog() = default;
-        virtual ~logger_nolog() = default;
+        LoggerNolog() = default;
+        virtual ~LoggerNolog() = default;
 
     private:
 
-        void log_received_message_impl(const message& message, logger::channel c) const override;
-        void log_sent_message_impl(const message& message, logger::channel c) const override;
-        void log_iopub_message_impl(const pub_message& message) const override;
+        void log_received_message_impl(const Message& message, Logger::channel c) const override;
+        void log_sent_message_impl(const Message& message, Logger::channel c) const override;
+        void log_iopub_message_impl(const PubMessage& message) const override;
 
         void log_message_impl(const std::string& socket_info,
             const json& header,
@@ -34,25 +34,25 @@ namespace datasuite
     };
 
     /******************
-     * logger_common *
+     * LoggerCommon *
      ******************/
 
-    class logger_common : public logger
+    class LoggerCommon : public Logger
     {
     public:
 
-        virtual ~logger_common();
+        virtual ~LoggerCommon();
 
     protected:
 
-        using logger_ptr = std::unique_ptr<logger>;
-        logger_common(logger::level l, logger_ptr next_logger = nullptr);
+        using logger_ptr = std::unique_ptr<Logger>;
+        LoggerCommon(Logger::level l, logger_ptr next_logger = nullptr);
 
     private:
 
-        void log_received_message_impl(const message& message, logger::channel c) const override;
-        void log_sent_message_impl(const message& message, logger::channel c) const override;
-        void log_iopub_message_impl(const pub_message& message) const override;
+        void log_received_message_impl(const Message& message, Logger::channel c) const override;
+        void log_sent_message_impl(const Message& message, Logger::channel c) const override;
+        void log_iopub_message_impl(const PubMessage& message) const override;
 
         void log_message_impl(const std::string& socket_info,
             const json& header,
@@ -64,21 +64,21 @@ namespace datasuite
             const json& json_message) const = 0;
 
         logger_ptr p_nextLogger;
-        logger::level m_level;
+        Logger::level m_level;
     };
 
     /*******************
-     * logger_console *
+     * LoggerConsole *
      *******************/
 
-    class logger_console : public logger_common
+    class LoggerConsole : public LoggerCommon
     {
     public:
 
-        using logger_ptr = logger_common::logger_ptr;
+        using logger_ptr = LoggerCommon::logger_ptr;
 
-        logger_console(logger::level l, logger_ptr next_logger = nullptr);
-        virtual ~logger_console() = default;
+        LoggerConsole(Logger::level l, logger_ptr next_logger = nullptr);
+        virtual ~LoggerConsole() = default;
 
     private:
 
@@ -89,19 +89,19 @@ namespace datasuite
     };
 
     /****************
-     * logger_file *
+     * LoggerFile *
      ****************/
 
-    class logger_file : public logger_common
+    class LoggerFile : public LoggerCommon
     {
     public:
 
-        using logger_ptr = logger_common::logger_ptr;
+        using logger_ptr = LoggerCommon::logger_ptr;
 
-        logger_file(logger::level l,
+        LoggerFile(Logger::level l,
             const std::string& file_name,
             logger_ptr next_logger = nullptr);
-        virtual ~logger_file() = default;
+        virtual ~LoggerFile() = default;
 
     private:
 

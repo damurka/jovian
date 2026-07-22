@@ -6,21 +6,21 @@
 
 namespace datasuite
 {
-    struct alignas(64) guid {
+    struct alignas(64) Guid {
         std::array<char, 64> buffer{};
 
         // 1. Default constructor
-        guid() = default;
+        Guid() = default;
 
         // 2. Creatable from a std::string
-        guid(const std::string& str) {
+        Guid(const std::string& str) {
             std::size_t len = std::min(str.length(), (std::size_t)63);
             std::copy(str.begin(), str.begin() + len, buffer.begin());
             buffer[len] = '\0';
         }
 
         // 3. Creatable from a const char* (string literal)
-        guid(const char* str) {
+        Guid(const char* str) {
             if (str) {
                 std::size_t len = std::min(std::strlen(str), (std::size_t)63);
                 std::copy(str, str + len, buffer.begin());
@@ -39,12 +39,12 @@ namespace datasuite
         }
 
         // 6. Required for std::map (Allows sorting)
-        bool operator<(const guid& other) const {
+        bool operator<(const Guid& other) const {
             return std::string_view(buffer.data()) < std::string_view(other.buffer.data());
         }
 
         // 7. Required for equality checks
-        bool operator==(const guid& other) const {
+        bool operator==(const Guid& other) const {
             return std::string_view(buffer.data()) == std::string_view(other.buffer.data());
         }
 
@@ -54,17 +54,17 @@ namespace datasuite
 
     // 8. The nlohmann::json magic! (Serialization)
     // By defining this in the same namespace, nlohmann will automatically find it.
-    inline void to_json(json& j, const guid& g) {
+    inline void to_json(json& j, const Guid& g) {
         j = g.to_string();
     }
 
     // 9. The nlohmann::json magic! (Deserialization)
-    inline void from_json(const json& j, guid& g) {
-        g = guid(j.get<std::string>());
+    inline void from_json(const json& j, Guid& g) {
+        g = Guid(j.get<std::string>());
     }
 
 
-    DATASUITE_API guid new_guid();
+    DATASUITE_API Guid new_guid();
 }
 
 #endif

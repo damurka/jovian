@@ -20,44 +20,44 @@ namespace datasuite
     DATASUITE_API
     std::string get_user_name();
 
-    class DATASUITE_API kernel
+    class DATASUITE_API Kernel
     {
     public:
 
-        using context_ptr = std::unique_ptr<context>;
+        using context_ptr = std::unique_ptr<Context>;
         using history_manager_ptr = std::unique_ptr<HistoryManager>;
-        using interpreter_ptr = std::unique_ptr<interpreter>;
+        using interpreter_ptr = std::unique_ptr<Interpreter>;
         using kernel_core_ptr = std::unique_ptr<KernelCore>;
-        using logger_ptr = std::unique_ptr<logger>;
-        using server_ptr = std::unique_ptr<server>;
-        using server_builder = std::function<server_ptr(context& context,
+        using logger_ptr = std::unique_ptr<Logger>;
+        using server_ptr = std::unique_ptr<Server>;
+        using server_builder = std::function<server_ptr(Context& context,
             const configuration& config,
-            nl::json::error_handler_t eh)>;
+            json::error_handler_t eh)>;
 
-        kernel(configuration config,
+        Kernel(configuration config,
             const std::string& user_name,
             context_ptr context,
             interpreter_ptr interpreter,
             server_builder sbuilder,
             history_manager_ptr HistoryManager = make_in_memory_history_manager(),
             logger_ptr logger = nullptr,
-            nl::json::error_handler_t eh = nl::json::error_handler_t::strict);
+            json::error_handler_t eh = json::error_handler_t::strict);
 
-        kernel(const std::string& user_name,
+        Kernel(const std::string& user_name,
             context_ptr context,
             interpreter_ptr interpreter,
             server_builder sbuilder,
             history_manager_ptr HistoryManager = make_in_memory_history_manager(),
             logger_ptr logger = nullptr,
-            nl::json::error_handler_t eh = nl::json::error_handler_t::strict);
+            json::error_handler_t eh = json::error_handler_t::strict);
 
-        ~kernel();
+        ~Kernel();
 
         void start();
         void stop();
 
         const KernelConfiguration& get_config();
-        server& get_server();
+        Server& get_server();
 
     private:
 
@@ -74,7 +74,7 @@ namespace datasuite
         logger_ptr p_logger;
         server_ptr p_server;
         kernel_core_ptr p_core;
-        nl::json::error_handler_t m_errorHandler;
+        json::error_handler_t m_errorHandler;
     };
 }
 

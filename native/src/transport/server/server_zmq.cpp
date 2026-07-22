@@ -4,10 +4,10 @@
 
 namespace datasuite
 {
-    ServerZmq::ServerZmq(context& context,
+    ServerZmq::ServerZmq(Context& context,
         const configuration& config,
-        nl::json::error_handler_t eh)
-        : p_impl(new server_zmq_impl(
+        json::error_handler_t eh)
+        : p_impl(new ServerZmqImpl(
             context.get_wrapped_context<zmq::context_t>(),
             config,
             datasuite::get_kernel_configuration(config),
@@ -54,12 +54,12 @@ namespace datasuite
         return p_impl->poll_channels(timeout);
     }
 
-    void ServerZmq::send_shell_message(message msg)
+    void ServerZmq::send_shell_message(Message msg)
     {
         p_impl->send_shell(std::move(msg));
     }
 
-    void ServerZmq::send_control_message(message msg)
+    void ServerZmq::send_control_message(Message msg)
     {
         p_impl->send_control(std::move(msg));
     }
@@ -68,31 +68,31 @@ namespace datasuite
     // Implementation of server virtual methods //
     ///////////////////////////////////////////////
 
-    control_messenger& ServerZmq::get_control_messenger_impl()
+    ControlMessenger& ServerZmq::get_control_messenger_impl()
     {
         return p_impl->get_control_messenger();
     }
 
-    void ServerZmq::send_shell_impl(message msg)
+    void ServerZmq::send_shell_impl(Message msg)
     {
         send_shell_message(std::move(msg));
     }
 
-    void ServerZmq::send_control_impl(message msg)
+    void ServerZmq::send_control_impl(Message msg)
     {
         send_control_message(std::move(msg));
     }
 
-    void ServerZmq::send_stdin_impl(message msg)
+    void ServerZmq::send_stdin_impl(Message msg)
     {
         auto reply = p_impl->send_stdin(std::move(msg));
         if (reply)
         {
-            server::notify_stdin_listener(std::move(reply.value()));
+            Server::notify_stdin_listener(std::move(reply.value()));
         }
     }
 
-    void ServerZmq::publish_impl(pub_message msg, channel c)
+    void ServerZmq::publish_impl(PubMessage msg, channel c)
     {
         p_impl->publish(std::move(msg), c);
     }

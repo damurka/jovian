@@ -10,15 +10,15 @@
 
 namespace datasuite
 {
-    class DATASUITE_API r_interpreter : public interpreter
+    class DATASUITE_API RInterpreter : public Interpreter
     {
     public:
-        using base_type = interpreter;
+        using base_type = Interpreter;
 
-        r_interpreter() = delete;
-		r_interpreter(int argc, char* argv[]);
+        RInterpreter() = delete;
+		RInterpreter(int argc, char* argv[]);
 
-        virtual ~r_interpreter() = default;
+        virtual ~RInterpreter() = default;
 
         std::stringstream capture_stream;
 
@@ -30,7 +30,7 @@ namespace datasuite
             send_reply_callback cb,
             int execution_counter,
             const std::string& code,
-            execute_request_config config,
+            ExecuteRequestConfig config,
             json user_expressions) override;
 
         json complete_request_impl(const std::string& code, int cursor_pos) override;
@@ -48,7 +48,7 @@ namespace datasuite
         json interrupt_request_impl() override;
     };
 
-    r_interpreter* get_r_interpreter();
+    RInterpreter* get_r_interpreter();
     void register_r_routines();
 }
 

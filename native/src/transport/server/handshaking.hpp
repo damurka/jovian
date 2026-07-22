@@ -15,10 +15,10 @@ namespace datasuite
 
     void send_connection_info(
         zmq::context_t& context,
-        const registration_configuration& regis_config,
+        const RegistrationConfiguration& regis_config,
         const KernelConfiguration& kernel_config,
-        const authentication& auth,
-        nl::json::error_handler_t error_handler);
+        const Authentication& auth,
+        json::error_handler_t error_handler);
 }
 
 #endif

@@ -78,13 +78,13 @@ namespace datasuite
     {
     }
 
-    pub_message KernelCore::build_start_msg() const
+    PubMessage KernelCore::build_start_msg() const
     {
         std::string topic = "kernel_core." + m_kernelId + ".status";
         json content;
         content["execution_state"] = "starting";
 
-        pub_message msg(topic,
+        PubMessage msg(topic,
             make_header("status", m_userName, m_sessionId),
             json::object(),
             json::object(),
@@ -93,21 +93,21 @@ namespace datasuite
         return msg;
     }
 
-    void KernelCore::dispatch_shell(message msg)
+    void KernelCore::dispatch_shell(Message msg)
     {
         dispatch(std::move(msg), channel::SHELL);
     }
 
-    void KernelCore::dispatch_control(message msg)
+    void KernelCore::dispatch_control(Message msg)
     {
         dispatch(std::move(msg), channel::CONTROL);
     }
 
-    void KernelCore::dispatch_stdin(message msg)
+    void KernelCore::dispatch_stdin(Message msg)
     {
         try
         {
-            p_logger->log_received_message(msg, logger::stdinput);
+            p_logger->log_received_message(msg, Logger::stdinput);
             const json& content = msg.content();
             std::string value = content.value("value", "");
             p_interpreter->input_reply(value);
@@ -133,7 +133,7 @@ namespace datasuite
         buffer_sequence buffers,
         channel c)
     {
-        pub_message msg(get_topic(msg_type),
+        PubMessage msg(get_topic(msg_type),
             make_header(msg_type, m_userName, m_sessionId),
             std::move(parent_header),
             std::move(metadata),
@@ -149,27 +149,27 @@ namespace datasuite
         json metadata,
         json content)
     {
-        message msg(id_list,
+        Message msg(id_list,
             make_header(msg_type, m_userName, m_sessionId),
             std::move(parent_header),
             std::move(metadata),
             std::move(content),
             buffer_sequence());
-        p_logger->log_sent_message(msg, logger::stdinput);
+        p_logger->log_sent_message(msg, Logger::stdinput);
         p_server->send_stdin(std::move(msg));
     }
 
-    comm_manager& KernelCore::comm_manager() & noexcept
+    CommManager& KernelCore::comm_manager() & noexcept
     {
         return m_commManager;
     }
 
-    const comm_manager& KernelCore::comm_manager() const& noexcept
+    const CommManager& KernelCore::comm_manager() const& noexcept
     {
         return m_commManager;
     }
 
-    comm_manager KernelCore::comm_manager() const&& noexcept
+    CommManager KernelCore::comm_manager() const&& noexcept
     {
         return m_commManager;
     }
@@ -179,9 +179,9 @@ namespace datasuite
         return p_interpreter->parent_header();
     }
 
-    void KernelCore::dispatch(message msg, channel c)
+    void KernelCore::dispatch(Message msg, channel c)
     {
-        p_logger->log_received_message(msg, c == channel::SHELL ? logger::shell : logger::control);
+        p_logger->log_received_message(msg, c == channel::SHELL ? Logger::shell : Logger::control);
         // Copy because the msg is moved after, and we may need the header
         // for publishing the status.
         json header = msg.header();
@@ -221,7 +221,7 @@ namespace datasuite
         return res;
     }
 
-    void KernelCore::execute_request(message request, channel)
+    void KernelCore::execute_request(Message request, channel)
     {
         // datasuite assumes execute_request will be executed on SHELL only
         try
@@ -236,7 +236,7 @@ namespace datasuite
             bool stop_on_error = content.value("stop_on_error", false);
 
             RequestContext RequestContext(request.header(), request.identities());
-            execute_request_config config{ silent, store_history, allow_stdin };
+            ExecuteRequestConfig config{ silent, store_history, allow_stdin };
 
             auto reply_callback = [this, RequestContext, config, stop_on_error, code](json reply)
                 {
@@ -284,7 +284,7 @@ namespace datasuite
         }
     }
 
-    void KernelCore::complete_request(message request, channel c)
+    void KernelCore::complete_request(Message request, channel c)
     {
         const json& content = request.content();
         std::string code = content.value("code", "");
@@ -294,7 +294,7 @@ namespace datasuite
             json::object(), std::move(reply), c);
     }
 
-    void KernelCore::inspect_request(message request, channel c)
+    void KernelCore::inspect_request(Message request, channel c)
     {
         const json& content = request.content();
         std::string code = content.value("code", "");
@@ -304,7 +304,7 @@ namespace datasuite
         send_reply(request.identities(), "inspect_reply", request.header(), json::object(), std::move(reply), c);
     }
 
-    void KernelCore::history_request(message request, channel c)
+    void KernelCore::history_request(Message request, channel c)
     {
         const json& content = request.content();
 
@@ -313,7 +313,7 @@ namespace datasuite
         send_reply(request.identities(), "history_reply", request.header(), json::object(), std::move(history), c);
     }
 
-    void KernelCore::is_complete_request(message request, channel c)
+    void KernelCore::is_complete_request(Message request, channel c)
     {
         const json& content = request.content();
         std::string code = content.value("code", "");
@@ -321,7 +321,7 @@ namespace datasuite
         send_reply(request.identities(), "is_complete_reply", request.header(), json::object(), std::move(reply), c);
     }
 
-    void KernelCore::comm_info_request(message request, channel c)
+    void KernelCore::comm_info_request(Message request, channel c)
     {
         const json& content = request.content();
         std::string target_name = "";
@@ -346,14 +346,14 @@ namespace datasuite
         send_reply(request.identities(), "comm_info_reply", request.header(), json::object(), std::move(reply), c);
     }
 
-    void KernelCore::kernel_info_request(message request, channel c)
+    void KernelCore::kernel_info_request(Message request, channel c)
     {
         json reply = p_interpreter->kernel_info_request();
         reply["protocol_version"] = get_protocol_version();
         send_reply(request.identities(), "kernel_info_reply", request.header(), json::object(), std::move(reply), c);
     }
 
-    void KernelCore::shutdown_request(message request, channel c)
+    void KernelCore::shutdown_request(Message request, channel c)
     {
         const json& content = request.content();
         bool restart = content.value("restart", false);
@@ -367,7 +367,7 @@ namespace datasuite
         }
     }
 
-    void KernelCore::interrupt_request(message request, channel c)
+    void KernelCore::interrupt_request(Message request, channel c)
     {
         json reply = p_interpreter->interrupt_request();
         std::string reply_status = reply["status"];
@@ -404,13 +404,13 @@ namespace datasuite
         json reply_content,
         channel c)
     {
-        message reply(id_list,
+        Message reply(id_list,
             make_header(reply_type, m_userName, m_sessionId),
             std::move(parent_header),
             std::move(metadata),
             std::move(reply_content),
             buffer_sequence());
-        p_logger->log_sent_message(reply, c == channel::SHELL ? logger::shell : logger::control);
+        p_logger->log_sent_message(reply, c == channel::SHELL ? Logger::shell : Logger::control);
         if (c == channel::SHELL)
         {
             p_server->send_shell(std::move(reply));
@@ -421,7 +421,7 @@ namespace datasuite
         }
     }
 
-    void KernelCore::abort_request(message msg)
+    void KernelCore::abort_request(Message msg)
     {
         const json& header = msg.header();
         std::string msg_type = header.value("msg_type", "");
@@ -449,17 +449,17 @@ namespace datasuite
         return metadata;
     }
 
-    void KernelCore::comm_open(message request, channel)
+    void KernelCore::comm_open(Message request, channel)
     {
         m_commManager.comm_open(std::move(request));
     }
 
-    void KernelCore::comm_close(message request, channel)
+    void KernelCore::comm_close(Message request, channel)
     {
         m_commManager.comm_close(std::move(request));
     }
 
-    void KernelCore::comm_msg(message request, channel)
+    void KernelCore::comm_msg(Message request, channel)
     {
         m_commManager.comm_msg(std::move(request));
     }

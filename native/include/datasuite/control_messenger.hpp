@@ -6,23 +6,23 @@
 
 namespace datasuite
 {
-    class DATASUITE_API control_messenger
+    class DATASUITE_API ControlMessenger
     {
     public:
 
-        virtual ~control_messenger();
+        virtual ~ControlMessenger();
 
-        control_messenger(const control_messenger&) = delete;
-        control_messenger& operator=(const control_messenger&) = delete;
+        ControlMessenger(const ControlMessenger&) = delete;
+        ControlMessenger& operator=(const ControlMessenger&) = delete;
 
-        control_messenger(control_messenger&&) = delete;
-        control_messenger& operator=(control_messenger&&) = delete;
+        ControlMessenger(ControlMessenger&&) = delete;
+        ControlMessenger& operator=(ControlMessenger&&) = delete;
 
         json send_to_shell(const json& message);
 
     protected:
 
-        control_messenger() = default;
+        ControlMessenger() = default;
 
     private:
 

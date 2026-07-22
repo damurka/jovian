@@ -7,7 +7,7 @@
 
 namespace datasuite
 {
-    heartbeat::heartbeat(zmq::context_t& context,
+    Heartbeat::Heartbeat(zmq::context_t& context,
         const std::string& transport,
         const std::string& ip,
         const std::string& port)
@@ -18,16 +18,16 @@ namespace datasuite
         init_socket(m_controller, get_controller_end_point("heartbeat"));
     }
 
-    heartbeat::~heartbeat()
+    Heartbeat::~Heartbeat()
     {
     }
 
-    std::string heartbeat::get_port() const
+    std::string Heartbeat::get_port() const
     {
         return get_socket_port(m_heartbeat);
     }
 
-    void heartbeat::run()
+    void Heartbeat::run()
     {
         zmq::pollitem_t items[] = {
             { m_heartbeat, 0, ZMQ_POLLIN, 0 },

@@ -9,16 +9,16 @@
 
 namespace datasuite
 {
-    class server_zmq_default;
+    class ServerZmqDefault;
 
-    class trivial_messenger : public control_messenger
+    class TrivialMessenger : public ControlMessenger
     {
     public:
 
         using listener = std::function<json(json)>;
 
-        explicit trivial_messenger(listener l);
-        virtual ~trivial_messenger() = default;
+        explicit TrivialMessenger(listener l);
+        virtual ~TrivialMessenger() = default;
 
     private:
 

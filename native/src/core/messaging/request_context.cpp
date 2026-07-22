@@ -13,7 +13,7 @@ namespace datasuite
         return m_header;
     }
 
-    const message::guid_list& RequestContext::id() const
+    const Message::guid_list& RequestContext::id() const
     {
         return m_id;
     }

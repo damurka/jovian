@@ -7,10 +7,10 @@
 
 namespace datasuite
 {
-    server_zmq_impl::server_zmq_impl(zmq::context_t& context,
+    ServerZmqImpl::ServerZmqImpl(zmq::context_t& context,
         const configuration& initial_config,
         KernelConfiguration kernel_config,
-        nl::json::error_handler_t eh,
+        json::error_handler_t eh,
         internal_listener listener)
         : m_shell(context, zmq::socket_type::router)
         , m_controller(context, zmq::socket_type::router)
@@ -20,7 +20,7 @@ namespace datasuite
         , m_heartbeatController(context, zmq::socket_type::req)
         , p_auth(make_authentication(kernel_config.m_signatureScheme, kernel_config.m_key))
         , m_publisher(context,
-            std::bind(&server_zmq_impl::serialize_iopub, this, std::placeholders::_1),
+            std::bind(&ServerZmqImpl::serialize_iopub, this, std::placeholders::_1),
             kernel_config.m_transport, kernel_config.m_ip, kernel_config.m_iopubPort)
         , m_heartbeat(context, kernel_config.m_transport, kernel_config.m_ip, kernel_config.m_hbPort)
         , m_iopubThread()
@@ -40,13 +40,13 @@ namespace datasuite
         m_heartbeatController.set(zmq::sockopt::linger, get_socket_linger());
         m_heartbeatController.connect(get_controller_end_point("heartbeat"));
 
-        if (std::holds_alternative<registration_configuration>(initial_config))
+        if (std::holds_alternative<RegistrationConfiguration>(initial_config))
         {
             update_config(kernel_config);
             datasuite::send_connection_info
             (
                 context,
-                std::get<registration_configuration>(initial_config),
+                std::get<RegistrationConfiguration>(initial_config),
                 kernel_config,
                 *p_auth,
                 m_errorHandler
@@ -54,17 +54,17 @@ namespace datasuite
         }
     }
 
-    void server_zmq_impl::start_publisher_thread()
+    void ServerZmqImpl::start_publisher_thread()
     {
-        m_iopubThread = thread(&publisher::run, &m_publisher);
+        m_iopubThread = Thread(&Publisher::run, &m_publisher);
     }
 
-    void server_zmq_impl::start_heartbeat_thread()
+    void ServerZmqImpl::start_heartbeat_thread()
     {
-        m_hbThread = thread(&heartbeat::run, &m_heartbeat);
+        m_hbThread = Thread(&Heartbeat::run, &m_heartbeat);
     }
 
-    void server_zmq_impl::stop_channels()
+    void ServerZmqImpl::stop_channels()
     {
         zmq::message_t stop_msg("stop", 4);
         zmq::message_t response;
@@ -78,17 +78,17 @@ namespace datasuite
         (void)m_heartbeatController.recv(response);
     }
 
-    void server_zmq_impl::set_request_stop(bool stop)
+    void ServerZmqImpl::set_request_stop(bool stop)
     {
         m_requestStop = stop;
     }
 
-    bool server_zmq_impl::is_stopped() const
+    bool ServerZmqImpl::is_stopped() const
     {
         return m_requestStop;
     }
 
-    auto server_zmq_impl::poll_channels(long timeout) -> std::optional<message_channel>
+    auto ServerZmqImpl::poll_channels(long timeout) -> std::optional<message_channel>
     {
         zmq::pollitem_t items[]
             = { { m_controller, 0, ZMQ_POLLIN, 0 }, { m_shell, 0, ZMQ_POLLIN, 0 } };
@@ -101,7 +101,7 @@ namespace datasuite
             {
                 zmq::multipart_t wire_msg;
                 wire_msg.recv(m_controller);
-                message msg = zmq_serializer::deserialize(wire_msg, *p_auth);
+                Message msg = ZmqSerializer::deserialize(wire_msg, *p_auth);
                 return { std::make_pair(std::move(msg), channel::CONTROL) };
             }
 
@@ -109,7 +109,7 @@ namespace datasuite
             {
                 zmq::multipart_t wire_msg;
                 wire_msg.recv(m_shell);
-                message msg = zmq_serializer::deserialize(wire_msg, *p_auth);
+                Message msg = ZmqSerializer::deserialize(wire_msg, *p_auth);
                 return { std::make_pair(std::move(msg), channel::SHELL) };
             }
         }
@@ -121,33 +121,33 @@ namespace datasuite
         return std::nullopt;
     }
 
-    control_messenger& server_zmq_impl::get_control_messenger()
+    ControlMessenger& ServerZmqImpl::get_control_messenger()
     {
         return m_messenger;
     }
 
-    void server_zmq_impl::send_shell(message message)
+    void ServerZmqImpl::send_shell(Message message)
     {
-        zmq::multipart_t wire_msg = zmq_serializer::serialize(std::move(message), *p_auth, m_errorHandler);
+        zmq::multipart_t wire_msg = ZmqSerializer::serialize(std::move(message), *p_auth, m_errorHandler);
         wire_msg.send(m_shell);
     }
 
-    void server_zmq_impl::send_control(message message)
+    void ServerZmqImpl::send_control(Message message)
     {
-        zmq::multipart_t wire_msg = zmq_serializer::serialize(std::move(message), *p_auth, m_errorHandler);
+        zmq::multipart_t wire_msg = ZmqSerializer::serialize(std::move(message), *p_auth, m_errorHandler);
         wire_msg.send(m_controller);
     }
 
-    std::optional<message> server_zmq_impl::send_stdin(message message)
+    std::optional<Message> ServerZmqImpl::send_stdin(Message message)
     {
-        zmq::multipart_t wire_msg = zmq_serializer::serialize(std::move(message), *p_auth, m_errorHandler);
+        zmq::multipart_t wire_msg = ZmqSerializer::serialize(std::move(message), *p_auth, m_errorHandler);
         wire_msg.send(m_stdin);
         zmq::multipart_t wire_reply;
         // Block until a response to the input request is received.
         wire_reply.recv(m_stdin);
         try
         {
-            return zmq_serializer::deserialize(wire_reply, *p_auth);
+            return ZmqSerializer::deserialize(wire_reply, *p_auth);
         }
         catch (std::exception& e)
         {
@@ -156,13 +156,13 @@ namespace datasuite
         return std::nullopt;
     }
 
-    void server_zmq_impl::publish(pub_message message, channel)
+    void ServerZmqImpl::publish(PubMessage message, channel)
     {
-        zmq::multipart_t wire_msg = zmq_serializer::serialize_iopub(std::move(message), *p_auth, m_errorHandler);
+        zmq::multipart_t wire_msg = ZmqSerializer::serialize_iopub(std::move(message), *p_auth, m_errorHandler);
         wire_msg.send(m_publisherPub);
     }
 
-    void server_zmq_impl::abort_queue(const listener& l, long polling_interval)
+    void ServerZmqImpl::abort_queue(const listener& l, long polling_interval)
     {
         while (true)
         {
@@ -175,7 +175,7 @@ namespace datasuite
 
             try
             {
-                message msg = zmq_serializer::deserialize(wire_msg, *p_auth);
+                Message msg = ZmqSerializer::deserialize(wire_msg, *p_auth);
                 l(std::move(msg));
             }
             catch (std::exception& e)
@@ -186,7 +186,7 @@ namespace datasuite
         }
     }
 
-    void server_zmq_impl::update_config(KernelConfiguration& config) const
+    void ServerZmqImpl::update_config(KernelConfiguration& config) const
     {
         config.m_controlPort = get_socket_port(m_controller);
         config.m_shellPort = get_socket_port(m_shell);
@@ -195,8 +195,8 @@ namespace datasuite
         config.m_hbPort = m_heartbeat.get_port();
     }
 
-    zmq::multipart_t server_zmq_impl::serialize_iopub(pub_message&& msg)
+    zmq::multipart_t ServerZmqImpl::serialize_iopub(PubMessage&& msg)
     {
-        return zmq_serializer::serialize_iopub(std::move(msg), *p_auth, m_errorHandler);
+        return ZmqSerializer::serialize_iopub(std::move(msg), *p_auth, m_errorHandler);
     }
 }

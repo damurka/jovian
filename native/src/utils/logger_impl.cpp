@@ -9,22 +9,22 @@ namespace datasuite
 {
 
     /********************************
-     * logger_nolog implementation *
+     * LoggerNolog implementation *
      ********************************/
 
-    void logger_nolog::log_received_message_impl(const message&, logger::channel) const
+    void LoggerNolog::log_received_message_impl(const Message&, Logger::channel) const
     {
     }
 
-    void logger_nolog::log_sent_message_impl(const message&, logger::channel) const
+    void LoggerNolog::log_sent_message_impl(const Message&, Logger::channel) const
     {
     }
 
-    void logger_nolog::log_iopub_message_impl(const pub_message&) const
+    void LoggerNolog::log_iopub_message_impl(const PubMessage&) const
     {
     }
 
-    void logger_nolog::log_message_impl(const std::string&,
+    void LoggerNolog::log_message_impl(const std::string&,
         const json&,
         const json&,
         const json&,
@@ -33,12 +33,12 @@ namespace datasuite
     }
 
     /*********************************
-     * logger_common implementation *
+     * LoggerCommon implementation *
      *********************************/
 
     namespace
     {
-        const std::array<std::string, logger::CHANNEL_SIZE> channel_str = { "shell", "control", "stdin", "heartbeat" };
+        const std::array<std::string, Logger::CHANNEL_SIZE> channel_str = { "shell", "control", "stdin", "heartbeat" };
 
 
 
@@ -93,54 +93,54 @@ namespace datasuite
         }
     }
 
-    logger_common::logger_common(logger::level l, logger_ptr next_logger)
-        : p_nextLogger(next_logger != nullptr ? std::move(next_logger) : std::make_unique<logger_nolog>())
+    LoggerCommon::LoggerCommon(Logger::level l, logger_ptr next_logger)
+        : p_nextLogger(next_logger != nullptr ? std::move(next_logger) : std::make_unique<LoggerNolog>())
         , m_level(l)
     {
     }
 
-    logger_common::~logger_common()
+    LoggerCommon::~LoggerCommon()
     {
     }
 
-    void logger_common::log_received_message_impl(const message& message, logger::channel c) const
+    void LoggerCommon::log_received_message_impl(const Message& message, Logger::channel c) const
     {
         std::string id = message.identities()[0];
         std::string socket_info = "DATASUITE: received message on "
             + channel_str[c] + " - "
             + (is_utf8_valid(id) ? id : "invalid UTF8");
-        logger::log_message(socket_info,
+        Logger::log_message(socket_info,
             message.header(),
             message.parent_header(),
             message.metadata(),
             message.content());
     }
 
-    void logger_common::log_sent_message_impl(const message& message, logger::channel c) const
+    void LoggerCommon::log_sent_message_impl(const Message& message, Logger::channel c) const
     {
         std::string id = message.identities()[0];
         std::string socket_info = "DATASUITE: sent message on "
             + channel_str[c] + " - "
             + (is_utf8_valid(id) ? id : "invalid UTF8");
-        logger::log_message(socket_info,
+        Logger::log_message(socket_info,
             message.header(),
             message.parent_header(),
             message.metadata(),
             message.content());
     }
 
-    void logger_common::log_iopub_message_impl(const pub_message& message) const
+    void LoggerCommon::log_iopub_message_impl(const PubMessage& message) const
     {
         std::string socket_info = "DATASUITE: sent message on iopub - "
             + message.topic();
-        logger::log_message(socket_info,
+        Logger::log_message(socket_info,
             message.header(),
             message.parent_header(),
             message.metadata(),
             message.content());
     }
 
-    void logger_common::log_message_impl(const std::string& socket_info,
+    void LoggerCommon::log_message_impl(const std::string& socket_info,
         const json& header,
         const json& parent_header,
         const json& metadata,
@@ -171,15 +171,15 @@ namespace datasuite
     }
 
     /**********************************
-     * logger_console implementation *
+     * LoggerConsole implementation *
      **********************************/
 
-    logger_console::logger_console(logger::level l, logger_ptr next_logger)
-        : logger_common(l, std::move(next_logger))
+    LoggerConsole::LoggerConsole(Logger::level l, logger_ptr next_logger)
+        : LoggerCommon(l, std::move(next_logger))
     {
     }
 
-    void logger_console::log_json_message(const std::string& socket_info,
+    void LoggerConsole::log_json_message(const std::string& socket_info,
         const json& json_message) const
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -187,18 +187,18 @@ namespace datasuite
     }
 
     /*******************************
-     * logger_file implementation *
+     * LoggerFile implementation *
      *******************************/
 
-    logger_file::logger_file(logger::level l,
+    LoggerFile::LoggerFile(Logger::level l,
         const std::string& file_name,
         logger_ptr next_logger)
-        : logger_common(l, std::move(next_logger))
+        : LoggerCommon(l, std::move(next_logger))
         , m_fileName(file_name)
     {
     }
 
-    void logger_file::log_json_message(const std::string& socket_info,
+    void LoggerFile::log_json_message(const std::string& socket_info,
         const json& json_message) const
     {
         json log;
@@ -213,16 +213,16 @@ namespace datasuite
      * Builder functions implementation *
      ************************************/
 
-    std::unique_ptr<logger> make_console_logger(logger::level log_level,
-        std::unique_ptr<logger> next_logger)
+    std::unique_ptr<Logger> make_console_logger(Logger::level log_level,
+        std::unique_ptr<Logger> next_logger)
     {
-        return std::make_unique<logger_console>(log_level, std::move(next_logger));
+        return std::make_unique<LoggerConsole>(log_level, std::move(next_logger));
     }
 
-    std::unique_ptr<logger> make_file_logger(logger::level log_level,
+    std::unique_ptr<Logger> make_file_logger(Logger::level log_level,
         const std::string& file_name,
-        std::unique_ptr<logger> next_logger)
+        std::unique_ptr<Logger> next_logger)
     {
-        return std::make_unique<logger_file>(log_level, file_name, std::move(next_logger));
+        return std::make_unique<LoggerFile>(log_level, file_name, std::move(next_logger));
     }
 }

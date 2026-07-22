@@ -11,21 +11,21 @@
 
 namespace datasuite
 {
-    class server_zmq_impl;
+    class ServerZmqImpl;
 
-    class DATASUITE_API ServerZmq : public server
+    class DATASUITE_API ServerZmq : public Server
     {
     public:
 
         ~ServerZmq() override;
 
-        using server::notify_internal_listener;
+        using Server::notify_internal_listener;
 
     protected:
 
-        ServerZmq(context& context,
+        ServerZmq(Context& context,
             const configuration& config,
-            nl::json::error_handler_t eh);
+            json::error_handler_t eh);
 
         // API for inheriting classes
         void start_publisher_thread();
@@ -36,31 +36,31 @@ namespace datasuite
         bool is_stopped() const;
 
         // The following methods must be called in the same thread
-        using message_channel = std::pair<message, channel>;
+        using message_channel = std::pair<Message, channel>;
         std::optional<message_channel> poll_channels(long timeout);
-        void send_shell_message(message msg);
-        void send_control_message(message msg);
+        void send_shell_message(Message msg);
+        void send_control_message(Message msg);
 
     private:
 
         // Implementation of server virtual methods
-        control_messenger& get_control_messenger_impl() override;
+        ControlMessenger& get_control_messenger_impl() override;
 
-        void send_shell_impl(message msg) override;
-        void send_control_impl(message msg) override;
-        void send_stdin_impl(message msg) override;
-        void publish_impl(pub_message msg, channel c) override;
+        void send_shell_impl(Message msg) override;
+        void send_control_impl(Message msg) override;
+        void send_stdin_impl(Message msg) override;
+        void publish_impl(PubMessage msg, channel c) override;
 
         void abort_queue_impl(const listener& l, long polling_interval) override;
         void update_config_impl(KernelConfiguration& config) const override;
 
-        std::unique_ptr<server_zmq_impl> p_impl;
+        std::unique_ptr<ServerZmqImpl> p_impl;
     };
 
     DATASUITE_API
-    std::unique_ptr<server> make_server_default(context& context,
+    std::unique_ptr<Server> make_server_default(Context& context,
             const configuration& config,
-            nl::json::error_handler_t eh = nl::json::error_handler_t::strict);
+            json::error_handler_t eh = json::error_handler_t::strict);
 }
 
 #endif

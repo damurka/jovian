@@ -11,32 +11,32 @@
 
 namespace datasuite
 {
-    class client_zmq_impl;
+    class ClientZmqImpl;
 
     class DATASUITE_API ClientZmq
     {
     public:
 
-        using listener = std::function<void(message)>;
-        using iopub_listener = std::function<void(pub_message)>;
+        using listener = std::function<void(Message)>;
+        using iopub_listener = std::function<void(PubMessage)>;
         using kernel_status_listener = std::function<void(bool)>;
 
-        explicit ClientZmq(std::unique_ptr<client_zmq_impl> impl);
+        explicit ClientZmq(std::unique_ptr<ClientZmqImpl> impl);
         ~ClientZmq();
 
         void connect();
         void start();
         void stop_channels();
 
-        void send_on_shell(message msg);
-        void send_on_control(message msg);
+        void send_on_shell(Message msg);
+        void send_on_control(Message msg);
 
         // APIs for receiving on a specified channel
-        std::optional<message> receive_on_shell(bool blocking = true);
-        std::optional<message> receive_on_control(bool blocking = true);
+        std::optional<Message> receive_on_shell(bool blocking = true);
+        std::optional<Message> receive_on_control(bool blocking = true);
 
         std::size_t iopub_queue_size() const;
-        std::optional<pub_message> pop_iopub_message();
+        std::optional<PubMessage> pop_iopub_message();
 
         // APIs for receiving on all channels
         void register_shell_listener(const listener& l);
@@ -48,11 +48,11 @@ namespace datasuite
 
     private:
 
-        std::unique_ptr<client_zmq_impl> p_clientImpl;
+        std::unique_ptr<ClientZmqImpl> p_clientImpl;
     };
 
     DATASUITE_API
-    std::unique_ptr<ClientZmq> make_client_zmq(context& context,
+    std::unique_ptr<ClientZmq> make_client_zmq(Context& context,
             const KernelConfiguration& config,
             json::error_handler_t eh = json::error_handler_t::strict);
 }
