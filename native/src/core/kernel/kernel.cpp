@@ -30,7 +30,7 @@
 
 namespace datasuite
 {
-    std::string get_user_name() {
+    std::string getUserName() {
 #if (defined(LINUX_PLATFORM) || defined(APPLE_PLATFORM))
         struct passwd* pws;
         pws = getpwuid(geteuid());
@@ -70,8 +70,8 @@ namespace datasuite
         history_manager_ptr HistoryManager,
         logger_ptr logger,
         json::error_handler_t eh)
-        : m_kernelId(new_guid())
-        , m_sessionId(new_guid())
+        : m_kernelId(newGuid())
+        , m_sessionId(newGuid())
         , m_userName(user_name)
         , p_context(std::move(context))
         , p_interpreter(std::move(interpreter))
@@ -83,7 +83,7 @@ namespace datasuite
             {
                 if (arg.m_key.size() == 0)
                 {
-                    arg.m_key = new_guid();
+                    arg.m_key = newGuid();
                 }
                 m_config.m_transport = arg.m_transport;
                 m_config.m_ip = arg.m_ip;
@@ -97,7 +97,7 @@ namespace datasuite
         }
 
         p_server = sbuilder(*p_context, config, m_errorHandler);
-        p_server->update_config(m_config);
+        p_server->updateConfig(m_config);
 
         p_core = std::make_unique<KernelCore>(m_kernelId,
             m_userName,
@@ -107,10 +107,10 @@ namespace datasuite
             p_interpreter.get(),
             p_historyManager.get());
 
-        ControlMessenger& messenger = p_server->get_control_messenger();
+        ControlMessenger& messenger = p_server->getControlMessenger();
 
-        p_interpreter->register_control_messenger(messenger);
-        p_interpreter->register_history_manager(*p_historyManager);
+        p_interpreter->registerControlMessenger(messenger);
+        p_interpreter->registerHistoryManager(*p_historyManager);
         p_interpreter->configure();
     }
 
@@ -139,22 +139,22 @@ namespace datasuite
 
     void Kernel::start()
     {
-        PubMessage start_msg = p_core->build_start_msg();
+        PubMessage start_msg = p_core->buildStartMsg();
         p_server->start(std::move(start_msg));
     }
 
     void Kernel::stop()
     {
-        p_interpreter->shutdown_request(false);
+        p_interpreter->shutdownRequest(false);
         p_server->stop();
     }
 
-    const KernelConfiguration& Kernel::get_config()
+    const KernelConfiguration& Kernel::getConfig()
     {
         return m_config;
     }
 
-    Server& Kernel::get_server()
+    Server& Kernel::getServer()
     {
         return *p_server;
     }

@@ -20,18 +20,18 @@ namespace datasuite
         static Message deserialize(zmq::multipart_t& wire_msg,
             const Authentication& auth);
 
-        static zmq::multipart_t serialize_iopub(PubMessage&& msg,
+        static zmq::multipart_t serializeIopub(PubMessage&& msg,
             const Authentication& auth,
             json::error_handler_t error_handler = json::error_handler_t::strict);
 
-        static PubMessage deserialize_iopub(zmq::multipart_t& wire_msg,
+        static PubMessage deserializeIopub(zmq::multipart_t& wire_msg,
             const Authentication& auth);
 
 
-        static void serialize_zmq_id(const Message::guid_list& ids, zmq::multipart_t& wire_msg);
-        static Message::guid_list deserialize_zmq_id(zmq::multipart_t& wire_msg);
+        static void serializeZmqId(const Message::guid_list& ids, zmq::multipart_t& wire_msg);
+        static Message::guid_list deserializeZmqId(zmq::multipart_t& wire_msg);
 
-        static RawBuffer make_raw_buffer(zmq::message_t& msg);
+        static RawBuffer makeRawBuffer(zmq::message_t& msg);
     };
 
 }

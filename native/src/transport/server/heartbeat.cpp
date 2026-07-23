@@ -14,17 +14,17 @@ namespace datasuite
         : m_heartbeat(context, zmq::socket_type::router)
         , m_controller(context, zmq::socket_type::rep)
     {
-        init_socket(m_heartbeat, transport, ip, port);
-        init_socket(m_controller, get_controller_end_point("heartbeat"));
+        initSocket(m_heartbeat, transport, ip, port);
+        initSocket(m_controller, getControllerEndPoint("heartbeat"));
     }
 
     Heartbeat::~Heartbeat()
     {
     }
 
-    std::string Heartbeat::get_port() const
+    std::string Heartbeat::getPort() const
     {
-        return get_socket_port(m_heartbeat);
+        return getSocketPort(m_heartbeat);
     }
 
     void Heartbeat::run()

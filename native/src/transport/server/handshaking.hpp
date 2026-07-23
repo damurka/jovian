@@ -11,9 +11,9 @@
 namespace datasuite
 {
 
-    KernelConfiguration get_kernel_configuration(const configuration& config);
+    KernelConfiguration getKernelConfiguration(const configuration& config);
 
-    void send_connection_info(
+    void sendConnectionInfo(
         zmq::context_t& context,
         const RegistrationConfiguration& regis_config,
         const KernelConfiguration& kernel_config,

@@ -15,8 +15,8 @@ namespace datasuite
 {
     class Interpreter;
 
-    DATASUITE_API bool register_interpreter(Interpreter* interpreter);
-    DATASUITE_API Interpreter& get_interpreter();
+    DATASUITE_API bool registerInterpreter(Interpreter* interpreter);
+    DATASUITE_API Interpreter& getInterpreter();
 
     struct DATASUITE_API ExecuteRequestConfig
     {
@@ -41,94 +41,94 @@ namespace datasuite
         void configure();
 
         using send_reply_callback = std::function<void(json)>;
-        void execute_request(RequestContext context,
+        void executeRequest(RequestContext context,
             send_reply_callback callback,
             const std::string& code,
             ExecuteRequestConfig config,
             json user_expressions);
 
-        json complete_request(const std::string& code, int cursor_pos);
+        json completeRequest(const std::string& code, int cursor_pos);
 
-        json inspect_request(const std::string& code, int cursor_pos, int detail_level);
+        json inspectRequest(const std::string& code, int cursor_pos, int detail_level);
 
-        json is_complete_request(const std::string& code);
-        json kernel_info_request();
+        json isCompleteRequest(const std::string& code);
+        json kernelInfoRequest();
 
-        json shutdown_request(bool restart);
-        json interrupt_request();
+        json shutdownRequest(bool restart);
+        json interruptRequest();
 
-        json internal_request(const json& message);
+        json internalRequest(const json& message);
 
         // publish(msg_type, metadata, content)
         using publisher_type = std::function<void(RequestContext, const std::string&, json, json, buffer_sequence)>;
-        void register_publisher(const publisher_type& publisher);
+        void registerPublisher(const publisher_type& publisher);
 
-        void publish_stream(const std::string& name, const std::string& text);
-        void display_data(json data, json metadata, json transient);
-        void update_display_data(json data, json metadata, json transient);
-        void publish_execution_input(const std::string& code, int execution_count);
-        void publish_execution_result(int execution_count, json data, json metadata);
-        void publish_execution_error(const std::string& ename,
+        void publishStream(const std::string& name, const std::string& text);
+        void displayData(json data, json metadata, json transient);
+        void updateDisplayData(json data, json metadata, json transient);
+        void publishExecutionInput(const std::string& code, int execution_count);
+        void publishExecutionResult(int execution_count, json data, json metadata);
+        void publishExecutionError(const std::string& ename,
             const std::string& evalue,
             const std::vector<std::string>& trace_back);
-        void clear_output(bool wait);
+        void clearOutput(bool wait);
 
-        // send_stdin(msg_type, metadata, content)
+        // sendStdin(msg_type, metadata, content)
         using stdin_sender_type = std::function<void(RequestContext, const std::string&, json, json)>;
-        void register_stdin_sender(const stdin_sender_type& sender);
+        void registerStdinSender(const stdin_sender_type& sender);
         using input_reply_handler_type = std::function<void(const std::string&)>;
-        void register_input_handler(const input_reply_handler_type& handler);
+        void registerInputHandler(const input_reply_handler_type& handler);
 
-        void input_request(const std::string& prompt, bool pwd);
-        void input_reply(const std::string& value);
+        void inputRequest(const std::string& prompt, bool pwd);
+        void inputReply(const std::string& value);
 
-        void register_comm_manager(datasuite::CommManager* manager);
+        void registerCommManager(datasuite::CommManager* manager);
 
         // --- FIXED NAMING COLLISIONS HERE ---
-        datasuite::CommManager& get_comm_manager() noexcept;
-        const datasuite::CommManager& get_comm_manager() const noexcept;
+        datasuite::CommManager& getCommManager() noexcept;
+        const datasuite::CommManager& getCommManager() const noexcept;
 
-        const json& parent_header() const noexcept;
+        const json& parentHeader() const noexcept;
 
-        void register_control_messenger(ControlMessenger& messenger);
+        void registerControlMessenger(ControlMessenger& messenger);
 
-        void register_history_manager(const HistoryManager& history);
-        const HistoryManager& get_history_manager() const noexcept;
+        void registerHistoryManager(const HistoryManager& history);
+        const HistoryManager& getHistoryManager() const noexcept;
 
     protected:
 
-        ControlMessenger& get_control_messenger();
+        ControlMessenger& getControlMessenger();
 
     private:
 
-        virtual void configure_impl() = 0;
+        virtual void configureImpl() = 0;
 
-        virtual void execute_request_impl(send_reply_callback cb,
+        virtual void executeRequestImpl(send_reply_callback cb,
             int execution_counter,
             const std::string& code,
             ExecuteRequestConfig config,
             json user_expressions) = 0;
 
-        virtual json complete_request_impl(const std::string& code,
+        virtual json completeRequestImpl(const std::string& code,
             int cursor_pos) = 0;
 
-        virtual json inspect_request_impl(const std::string& code,
+        virtual json inspectRequestImpl(const std::string& code,
             int cursor_pos,
             int detail_level) = 0;
 
-        virtual json is_complete_request_impl(const std::string& code) = 0;
+        virtual json isCompleteRequestImpl(const std::string& code) = 0;
 
-        virtual json kernel_info_request_impl() = 0;
+        virtual json kernelInfoRequestImpl() = 0;
 
-        virtual json shutdown_request_impl(bool restart) = 0;
-        virtual json interrupt_request_impl() = 0;
+        virtual json shutdownRequestImpl(bool restart) = 0;
+        virtual json interruptRequestImpl() = 0;
 
-        virtual json internal_request_impl(const json& message);
+        virtual json internalRequestImpl(const json& message);
 
-        json build_display_content(json data, json metadata, json transient);
+        json buildDisplayContent(json data, json metadata, json transient);
 
-        virtual void set_request_context(RequestContext context);
-        virtual const RequestContext& get_request_context() const noexcept;
+        virtual void setRequestContext(RequestContext context);
+        virtual const RequestContext& getRequestContext() const noexcept;
 
         publisher_type m_publisher;
         stdin_sender_type m_stdin;
@@ -141,12 +141,12 @@ namespace datasuite
     };
 
     // --- FIXED INLINE DEFINITIONS HERE ---
-    inline datasuite::CommManager& Interpreter::get_comm_manager() noexcept
+    inline datasuite::CommManager& Interpreter::getCommManager() noexcept
     {
         return *p_commManager;
     }
 
-    inline const datasuite::CommManager& Interpreter::get_comm_manager() const noexcept
+    inline const datasuite::CommManager& Interpreter::getCommManager() const noexcept
     {
         return *p_commManager;
     }

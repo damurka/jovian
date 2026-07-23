@@ -8,25 +8,25 @@
 namespace datasuite 
 {
 	DATASUITE_API
-	std::string get_temp_directory_path();
+	std::string getTempDirectoryPath();
 
     DATASUITE_API
-    bool create_directory(const std::string& path);
+    bool createDirectory(const std::string& path);
 
     DATASUITE_API
-    int get_current_pid();
+    int getCurrentPid();
 
     DATASUITE_API
-    std::size_t get_tmp_hash_seed();
+    std::size_t getTmpHashSeed();
 
     DATASUITE_API
-    std::string get_tmp_prefix(const std::string& process_name);
+    std::string getTmpPrefix(const std::string& process_name);
 
     DATASUITE_API
-    std::string executable_path();
+    std::string executablePath();
 
     DATASUITE_API
-    std::string prefix_path();
+    std::string prefixPath();
 }
 
 #endif // !DATASUITE_SYSTEM_HPP

@@ -24,12 +24,12 @@ namespace datasuite
 
         void run();
 
-        void register_kernel_status_listener(const kernel_status_listener& l);
-        void notify_kernel_dead(bool status);
+        void registerKernelStatusListener(const kernel_status_listener& l);
+        void notifyKernelDead(bool status);
 
     private:
-        void send_heartbeat_message();
-        bool wait_for_answer(long timeout);
+        void sendHeartbeatMessage();
+        bool waitForAnswer(long timeout);
 
         zmq::socket_t m_heartbeat;
         zmq::socket_t m_controller;

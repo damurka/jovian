@@ -22,71 +22,71 @@ namespace datasuite
         p_clientImpl->start();
     }
 
-    void ClientZmq::stop_channels()
+    void ClientZmq::stopChannels()
     {
-        p_clientImpl->stop_channels();
+        p_clientImpl->stopChannels();
     }
 
-    void ClientZmq::send_on_shell(Message msg)
+    void ClientZmq::sendOnShell(Message msg)
     {
-        p_clientImpl->send_on_shell(std::move(msg));
+        p_clientImpl->sendOnShell(std::move(msg));
     }
 
-    void ClientZmq::send_on_control(Message msg)
+    void ClientZmq::sendOnControl(Message msg)
     {
-        p_clientImpl->send_on_control(std::move(msg));
+        p_clientImpl->sendOnControl(std::move(msg));
     }
 
-    std::optional<Message> ClientZmq::receive_on_shell(bool blocking)
+    std::optional<Message> ClientZmq::receiveOnShell(bool blocking)
     {
-        return p_clientImpl->receive_on_shell(blocking);
+        return p_clientImpl->receiveOnShell(blocking);
     }
 
-    std::optional<Message> ClientZmq::receive_on_control(bool blocking)
+    std::optional<Message> ClientZmq::receiveOnControl(bool blocking)
     {
-        return p_clientImpl->receive_on_control(blocking);
+        return p_clientImpl->receiveOnControl(blocking);
     }
 
-    std::size_t ClientZmq::iopub_queue_size() const
+    std::size_t ClientZmq::iopubQueueSize() const
     {
-        return p_clientImpl->iopub_queue_size();
+        return p_clientImpl->iopubQueueSize();
     }
 
-    std::optional<PubMessage> ClientZmq::pop_iopub_message()
+    std::optional<PubMessage> ClientZmq::popIopubMessage()
     {
-        return p_clientImpl->pop_iopub_message();
+        return p_clientImpl->popIopubMessage();
     }
 
-    void ClientZmq::register_shell_listener(const listener& l)
+    void ClientZmq::registerShellListener(const listener& l)
     {
-        p_clientImpl->register_shell_listener(l);
+        p_clientImpl->registerShellListener(l);
     }
 
-    void ClientZmq::register_control_listener(const listener& l)
+    void ClientZmq::registerControlListener(const listener& l)
     {
-        p_clientImpl->register_control_listener(l);
+        p_clientImpl->registerControlListener(l);
     }
 
-    void ClientZmq::register_iopub_listener(const iopub_listener& l)
+    void ClientZmq::registerIopubListener(const iopub_listener& l)
     {
-        p_clientImpl->register_iopub_listener(l);
+        p_clientImpl->registerIopubListener(l);
     }
 
-    void ClientZmq::register_kernel_status_listener(const kernel_status_listener& l)
+    void ClientZmq::registerKernelStatusListener(const kernel_status_listener& l)
     {
-        p_clientImpl->register_kernel_status_listener(l);
+        p_clientImpl->registerKernelStatusListener(l);
     }
 
-    void ClientZmq::wait_for_message()
+    void ClientZmq::waitForMessage()
     {
-        p_clientImpl->wait_for_message();
+        p_clientImpl->waitForMessage();
     }
 
-    std::unique_ptr<ClientZmq> make_client_zmq(Context& context,
+    std::unique_ptr<ClientZmq> makeClientZmq(Context& context,
         const KernelConfiguration& config,
         json::error_handler_t eh)
     {
-        auto impl = std::make_unique<ClientZmqImpl>(context.get_wrapped_context<zmq::context_t>(), config, eh);
+        auto impl = std::make_unique<ClientZmqImpl>(context.getWrappedContext<zmq::context_t>(), config, eh);
         return std::make_unique<ClientZmq>(std::move(impl));
     }
 }

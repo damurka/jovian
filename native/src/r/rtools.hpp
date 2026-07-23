@@ -11,38 +11,38 @@ namespace datasuite
     namespace r
     {
 
-        inline SEXP r_pairlist(SEXP head) {
+        inline SEXP rPairlist(SEXP head) {
             return Rf_cons(head, R_NilValue);
         }
 
-        inline SEXP r_call(SEXP head) {
+        inline SEXP rCall(SEXP head) {
             return Rf_lcons(head, R_NilValue);
         }
 
         template<class... Types>
-        SEXP r_pairlist(SEXP head, Types... tail) {
+        SEXP rPairlist(SEXP head, Types... tail) {
             PROTECT(head);
-            head = Rf_cons(head, r_pairlist(tail...));
+            head = Rf_cons(head, rPairlist(tail...));
             UNPROTECT(1);
             return head;
         }
 
         template<class... Types>
-        SEXP r_call(SEXP head, Types... tail) {
+        SEXP rCall(SEXP head, Types... tail) {
             PROTECT(head);
-            head = Rf_lcons(head, r_pairlist(tail...));
+            head = Rf_lcons(head, rPairlist(tail...));
             UNPROTECT(1);
             return head;
         }
 
         template<class... Types>
-        SEXP invoke_hera_fn(const char* f, Types... args) {
+        SEXP invokeHeraFn(const char* f, Types... args) {
             SEXP sym_hera = Rf_install("hera");
             SEXP sym_hera_call = Rf_install("hera_call");
             SEXP sym_triple_colon = Rf_install(":::");
 
-            SEXP call_triple_colon = PROTECT(r_call(sym_triple_colon, sym_hera, sym_hera_call));
-            SEXP call = PROTECT(r_call(call_triple_colon, Rf_mkString(f), args...));
+            SEXP call_triple_colon = PROTECT(rCall(sym_triple_colon, sym_hera, sym_hera_call));
+            SEXP call = PROTECT(rCall(call_triple_colon, Rf_mkString(f), args...));
             SEXP result = Rf_eval(call, R_GlobalEnv);
 
             UNPROTECT(2);
@@ -50,13 +50,13 @@ namespace datasuite
         }
 
         template <class... Types>
-        inline SEXP new_hera_r6(const char* klass, SEXP xp, Types... args) {
+        inline SEXP newHeraR6(const char* klass, SEXP xp, Types... args) {
             SEXP sym_hera = Rf_install("hera");
             SEXP sym_hera_new = Rf_install("hera_new");
             SEXP sym_triple_colon = Rf_install(":::");
 
-            SEXP call_triple_colon = PROTECT(r_call(sym_triple_colon, sym_hera, sym_hera_new));
-            SEXP call = PROTECT(r_call(call_triple_colon, Rf_mkString(klass), xp, args...));
+            SEXP call_triple_colon = PROTECT(rCall(sym_triple_colon, sym_hera, sym_hera_new));
+            SEXP call = PROTECT(rCall(call_triple_colon, Rf_mkString(klass), xp, args...));
             SEXP result = Rf_eval(call, R_GlobalEnv);
 
             UNPROTECT(2);

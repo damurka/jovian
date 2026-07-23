@@ -23,8 +23,8 @@ namespace datasuite
 
         ~ClientIopub();
 
-        std::size_t iopub_queue_size() const;
-        std::optional<PubMessage> pop_iopub_message();
+        std::size_t iopubQueueSize() const;
+        std::optional<PubMessage> popIopubMessage();
 
         void run();
 

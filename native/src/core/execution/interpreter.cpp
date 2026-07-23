@@ -14,20 +14,20 @@ namespace datasuite
 
     void Interpreter::configure()
     {
-        configure_impl();
+        configureImpl();
     }
 
-    void Interpreter::execute_request(RequestContext context,
+    void Interpreter::executeRequest(RequestContext context,
         send_reply_callback callback,
         const std::string& code,
         ExecuteRequestConfig config,
         json user_expressions)
     {
-        set_request_context(std::move(context));
+        setRequestContext(std::move(context));
         if (!config.silent)
         {
             ++m_executionCount;
-            publish_execution_input(code, m_executionCount);
+            publishExecutionInput(code, m_executionCount);
         }
         // copy m_executionCount in a local variable to capture it in the lambda
         auto execution_count = m_executionCount;
@@ -38,7 +38,7 @@ namespace datasuite
                 callback(std::move(reply));
             };
 
-        execute_request_impl(
+        executeRequestImpl(
             std::move(callback_impl),
             m_executionCount,
             code,
@@ -47,47 +47,47 @@ namespace datasuite
         );
     }
 
-    json Interpreter::complete_request(const std::string& code, int cursor_pos)
+    json Interpreter::completeRequest(const std::string& code, int cursor_pos)
     {
-        return complete_request_impl(code, cursor_pos);
+        return completeRequestImpl(code, cursor_pos);
     }
 
-    json Interpreter::inspect_request(const std::string& code, int cursor_pos, int detail_level)
+    json Interpreter::inspectRequest(const std::string& code, int cursor_pos, int detail_level)
     {
-        return inspect_request_impl(code, cursor_pos, detail_level);
+        return inspectRequestImpl(code, cursor_pos, detail_level);
     }
 
-    json Interpreter::is_complete_request(const std::string& code)
+    json Interpreter::isCompleteRequest(const std::string& code)
     {
-        return is_complete_request_impl(code);
+        return isCompleteRequestImpl(code);
     }
 
-    json Interpreter::kernel_info_request()
+    json Interpreter::kernelInfoRequest()
     {
-        return kernel_info_request_impl();
+        return kernelInfoRequestImpl();
     }
 
-    json Interpreter::shutdown_request(bool restart)
+    json Interpreter::shutdownRequest(bool restart)
     {
-        return shutdown_request_impl(restart);
+        return shutdownRequestImpl(restart);
     }
 
-    json Interpreter::interrupt_request()
+    json Interpreter::interruptRequest()
     {
-        return interrupt_request_impl();
+        return interruptRequestImpl();
     }
 
-    json Interpreter::internal_request(const json& message)
+    json Interpreter::internalRequest(const json& message)
     {
-        return internal_request_impl(message);
+        return internalRequestImpl(message);
     }
 
-    void Interpreter::register_publisher(const publisher_type& publisher)
+    void Interpreter::registerPublisher(const publisher_type& publisher)
     {
         m_publisher = publisher;
     }
 
-    void Interpreter::publish_stream(const std::string& name, const std::string& text)
+    void Interpreter::publishStream(const std::string& name, const std::string& text)
     {
         if (m_publisher)
         {
@@ -95,7 +95,7 @@ namespace datasuite
             content["name"] = name;
             content["text"] = text;
             m_publisher(
-                get_request_context(),
+                getRequestContext(),
                 "stream",
                 json::object(),
                 std::move(content),
@@ -104,35 +104,35 @@ namespace datasuite
         }
     }
 
-    void Interpreter::display_data(json data, json metadata, json transient)
+    void Interpreter::displayData(json data, json metadata, json transient)
     {
         if (m_publisher)
         {
             m_publisher(
-                get_request_context(),
+                getRequestContext(),
                 "display_data",
                 json::object(),
-                build_display_content(std::move(data), std::move(metadata), std::move(transient)),
+                buildDisplayContent(std::move(data), std::move(metadata), std::move(transient)),
                 buffer_sequence()
             );
         }
     }
 
-    void Interpreter::update_display_data(json data, json metadata, json transient)
+    void Interpreter::updateDisplayData(json data, json metadata, json transient)
     {
         if (m_publisher)
         {
             m_publisher(
-                get_request_context(),
+                getRequestContext(),
                 "update_display_data",
                 json::object(),
-                build_display_content(std::move(data), std::move(metadata), std::move(transient)),
+                buildDisplayContent(std::move(data), std::move(metadata), std::move(transient)),
                 buffer_sequence()
             );
         }
     }
 
-    void Interpreter::publish_execution_input(const std::string& code, int execution_count)
+    void Interpreter::publishExecutionInput(const std::string& code, int execution_count)
     {
         if (m_publisher)
         {
@@ -140,7 +140,7 @@ namespace datasuite
             content["code"] = code;
             content["execution_count"] = execution_count;
             m_publisher(
-                get_request_context(),
+                getRequestContext(),
                 "execute_input",
                 json::object(),
                 std::move(content),
@@ -149,7 +149,7 @@ namespace datasuite
         }
     }
 
-    void Interpreter::publish_execution_result(int execution_count, json data, json metadata)
+    void Interpreter::publishExecutionResult(int execution_count, json data, json metadata)
     {
         if (m_publisher)
         {
@@ -158,7 +158,7 @@ namespace datasuite
             content["data"] = std::move(data);
             content["metadata"] = std::move(metadata);
             m_publisher(
-                get_request_context(),
+                getRequestContext(),
                 "execute_result",
                 json::object(),
                 std::move(content),
@@ -167,7 +167,7 @@ namespace datasuite
         }
     }
 
-    void Interpreter::publish_execution_error(const std::string& ename,
+    void Interpreter::publishExecutionError(const std::string& ename,
         const std::string& evalue,
         const std::vector<std::string>& trace_back)
     {
@@ -178,7 +178,7 @@ namespace datasuite
             content["evalue"] = evalue;
             content["traceback"] = trace_back;
             m_publisher(
-                get_request_context(),
+                getRequestContext(),
                 "error",
                 json::object(),
                 std::move(content),
@@ -187,14 +187,14 @@ namespace datasuite
         }
     }
 
-    void Interpreter::clear_output(bool wait)
+    void Interpreter::clearOutput(bool wait)
     {
         if (m_publisher)
         {
             json content;
             content["wait"] = wait;
             m_publisher(
-                get_request_context(),
+                getRequestContext(),
                 "clear_output",
                 json::object(),
                 std::move(content),
@@ -203,48 +203,48 @@ namespace datasuite
         }
     }
 
-    void Interpreter::register_stdin_sender(const stdin_sender_type& sender)
+    void Interpreter::registerStdinSender(const stdin_sender_type& sender)
     {
         m_stdin = sender;
     }
 
-    void Interpreter::register_input_handler(const input_reply_handler_type& handler)
+    void Interpreter::registerInputHandler(const input_reply_handler_type& handler)
     {
         m_inputReplyHandler = handler;
     }
 
-    void Interpreter::register_comm_manager(datasuite::CommManager* manager)
+    void Interpreter::registerCommManager(datasuite::CommManager* manager)
     {
         p_commManager = manager;
     }
 
-    const json& Interpreter::parent_header() const noexcept
+    const json& Interpreter::parentHeader() const noexcept
     {
 
-        return get_request_context().header();
+        return getRequestContext().header();
     }
 
-    void Interpreter::register_control_messenger(ControlMessenger& messenger)
+    void Interpreter::registerControlMessenger(ControlMessenger& messenger)
     {
         p_messenger = &messenger;
     }
 
-    void Interpreter::register_history_manager(const HistoryManager& history)
+    void Interpreter::registerHistoryManager(const HistoryManager& history)
     {
         p_history = &history;
     }
 
-    const HistoryManager& Interpreter::get_history_manager() const noexcept
+    const HistoryManager& Interpreter::getHistoryManager() const noexcept
     {
         return *p_history;
     }
 
-    ControlMessenger& Interpreter::get_control_messenger()
+    ControlMessenger& Interpreter::getControlMessenger()
     {
         return *p_messenger;
     }
 
-    void Interpreter::input_request(const std::string& prompt, bool pwd)
+    void Interpreter::inputRequest(const std::string& prompt, bool pwd)
     {
         if (m_stdin)
         {
@@ -252,7 +252,7 @@ namespace datasuite
             content["prompt"] = prompt;
             content["password"] = pwd;
             m_stdin(
-                get_request_context(),
+                getRequestContext(),
                 "input_request",
                 json::object(),
                 std::move(content)
@@ -260,7 +260,7 @@ namespace datasuite
         }
     }
 
-    void Interpreter::input_reply(const std::string& value)
+    void Interpreter::inputReply(const std::string& value)
     {
         if (m_inputReplyHandler)
         {
@@ -268,7 +268,7 @@ namespace datasuite
         }
     }
 
-    json Interpreter::internal_request_impl(const json&)
+    json Interpreter::internalRequestImpl(const json&)
     {
         json res;
         res["status"] = "error";
@@ -276,7 +276,7 @@ namespace datasuite
         return res;
     }
 
-    json Interpreter::build_display_content(json data, json metadata, json transient)
+    json Interpreter::buildDisplayContent(json data, json metadata, json transient)
     {
         json res;
         res["data"] = std::move(data);
@@ -285,12 +285,12 @@ namespace datasuite
         return res;
     }
 
-    void Interpreter::set_request_context(RequestContext context)
+    void Interpreter::setRequestContext(RequestContext context)
     {
         m_requestContext = std::move(context);
     }
 
-    const RequestContext& Interpreter::get_request_context() const noexcept
+    const RequestContext& Interpreter::getRequestContext() const noexcept
     {
         return m_requestContext;
     }

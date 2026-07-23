@@ -5,22 +5,22 @@
 
 namespace datasuite
 {
-    std::string blocking_input_request(
+    std::string blockingInputRequest(
         const std::string& prompt,
         bool password
     )
     {
-        auto& interpreter = get_interpreter();
+        auto& interpreter = getInterpreter();
 
         // Register the input handler
         std::string value;
-        interpreter.register_input_handler([&value](const std::string& v) { value = v; });
+        interpreter.registerInputHandler([&value](const std::string& v) { value = v; });
 
         // Send the input request
-        interpreter.input_request(prompt, password);
+        interpreter.inputRequest(prompt, password);
 
         // Remove input handler
-        interpreter.register_input_handler(nullptr);
+        interpreter.registerInputHandler(nullptr);
 
         return value;
     }

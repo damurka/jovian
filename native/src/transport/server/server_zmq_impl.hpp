@@ -33,27 +33,27 @@ namespace datasuite
             json::error_handler_t eh,
             internal_listener listener);
 
-        void start_publisher_thread();
-        void start_heartbeat_thread();
-        void stop_channels();
+        void startPublisherThread();
+        void startHeartbeatThread();
+        void stopChannels();
 
-        void set_request_stop(bool stop);
-        bool is_stopped() const;
+        void setRequestStop(bool stop);
+        bool isStopped() const;
 
         using message_channel = std::pair<Message, channel>;
-        std::optional<message_channel> poll_channels(long timeout);
+        std::optional<message_channel> pollChannels(long timeout);
 
-        ControlMessenger& get_control_messenger();
+        ControlMessenger& getControlMessenger();
 
-        void send_shell(Message message);
-        void send_control(Message message);
-        std::optional<Message> send_stdin(Message message);
+        void sendShell(Message message);
+        void sendControl(Message message);
+        std::optional<Message> sendStdin(Message message);
         void publish(PubMessage message, channel c);
 
-        void abort_queue(const listener& l, long polling_interval);
-        void update_config(KernelConfiguration& config) const;
+        void abortQueue(const listener& l, long polling_interval);
+        void updateConfig(KernelConfiguration& config) const;
 
-        zmq::multipart_t serialize_iopub(PubMessage&& msg);
+        zmq::multipart_t serializeIopub(PubMessage&& msg);
 
     private:
 

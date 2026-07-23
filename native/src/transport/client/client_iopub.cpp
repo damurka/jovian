@@ -16,10 +16,10 @@ namespace datasuite
         , m_iopubEndPoint("")
         , p_clientImpl(client)
     {
-        m_iopubEndPoint = get_end_point(config.m_transport, config.m_ip, config.m_iopubPort);
+        m_iopubEndPoint = getEndPoint(config.m_transport, config.m_ip, config.m_iopubPort);
         m_iopub.connect(m_iopubEndPoint);
         m_iopub.set(zmq::sockopt::subscribe, "");
-        init_socket(m_controller, get_controller_end_point("iopub"));
+        initSocket(m_controller, getControllerEndPoint("iopub"));
     }
 
     ClientIopub::~ClientIopub()
@@ -27,13 +27,13 @@ namespace datasuite
         m_iopub.disconnect(m_iopubEndPoint);
     }
 
-    std::size_t ClientIopub::iopub_queue_size() const
+    std::size_t ClientIopub::iopubQueueSize() const
     {
         std::lock_guard<std::mutex> guard(m_queueMutex);
         return m_messageQueue.size();
     }
 
-    std::optional<PubMessage> ClientIopub::pop_iopub_message()
+    std::optional<PubMessage> ClientIopub::popIopubMessage()
     {
         std::lock_guard<std::mutex> guard(m_queueMutex);
         if (!m_messageQueue.empty())
@@ -63,7 +63,7 @@ namespace datasuite
                 {
                     zmq::multipart_t wire_msg;
                     wire_msg.recv(m_iopub);
-                    PubMessage msg = p_clientImpl->deserialize_iopub(wire_msg);
+                    PubMessage msg = p_clientImpl->deserializeIopub(wire_msg);
                     {
                         std::lock_guard<std::mutex> guard(m_queueMutex);
                         m_messageQueue.push(std::move(msg));

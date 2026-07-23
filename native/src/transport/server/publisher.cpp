@@ -15,22 +15,22 @@ namespace datasuite
         , m_controller(context, zmq::socket_type::rep)
         , m_serializeIopubMsgCb(std::move(serialize_iopub_msg_cb))
     {
-        init_socket(m_publisher, transport, ip, port);
+        initSocket(m_publisher, transport, ip, port);
         // Set xpub_verbose option to 1 to pass all subscription messages (not only unique ones).
         m_publisher.set(zmq::sockopt::xpub_verbose, 1);
         m_listener.set(zmq::sockopt::subscribe, "");
-        m_listener.bind(get_publisher_end_point());
-        m_controller.set(zmq::sockopt::linger, get_socket_linger());
-        m_controller.bind(get_controller_end_point("publisher"));
+        m_listener.bind(getPublisherEndPoint());
+        m_controller.set(zmq::sockopt::linger, getSocketLinger());
+        m_controller.bind(getControllerEndPoint("publisher"));
     }
 
     Publisher::~Publisher()
     {
     }
 
-    PubMessage Publisher::create_pub_message(const std::string& topic)
+    PubMessage Publisher::createPubMessage(const std::string& topic)
     {
-        json header = datasuite::make_header("iopub_welcome", "", "");
+        json header = datasuite::makeHeader("iopub_welcome", "", "");
         json content = json::object();
         content["subscription"] = topic;
 
@@ -42,9 +42,9 @@ namespace datasuite
             buffer_sequence());
     }
 
-    std::string Publisher::get_port() const
+    std::string Publisher::getPort() const
     {
-        return get_socket_port(m_publisher);
+        return getSocketPort(m_publisher);
     }
 
     void Publisher::run()
@@ -100,7 +100,7 @@ namespace datasuite
                     if (m_serializeIopubMsgCb)
                     {
                         // Construct the `iopub_welcome` message
-                        PubMessage p_msg = create_pub_message(topic);
+                        PubMessage p_msg = createPubMessage(topic);
                         zmq::multipart_t iopub_welcome_wire_msg = m_serializeIopubMsgCb(std::move(p_msg));
                         // Send the `iopub_welcome` message
                         iopub_welcome_wire_msg.send(m_publisher);

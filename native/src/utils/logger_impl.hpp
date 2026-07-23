@@ -22,11 +22,11 @@ namespace datasuite
 
     private:
 
-        void log_received_message_impl(const Message& message, Logger::channel c) const override;
-        void log_sent_message_impl(const Message& message, Logger::channel c) const override;
-        void log_iopub_message_impl(const PubMessage& message) const override;
+        void logReceivedMessageImpl(const Message& message, Logger::channel c) const override;
+        void logSentMessageImpl(const Message& message, Logger::channel c) const override;
+        void logIopubMessageImpl(const PubMessage& message) const override;
 
-        void log_message_impl(const std::string& socket_info,
+        void logMessageImpl(const std::string& socket_info,
             const json& header,
             const json& parent_header,
             const json& metadata,
@@ -50,17 +50,17 @@ namespace datasuite
 
     private:
 
-        void log_received_message_impl(const Message& message, Logger::channel c) const override;
-        void log_sent_message_impl(const Message& message, Logger::channel c) const override;
-        void log_iopub_message_impl(const PubMessage& message) const override;
+        void logReceivedMessageImpl(const Message& message, Logger::channel c) const override;
+        void logSentMessageImpl(const Message& message, Logger::channel c) const override;
+        void logIopubMessageImpl(const PubMessage& message) const override;
 
-        void log_message_impl(const std::string& socket_info,
+        void logMessageImpl(const std::string& socket_info,
             const json& header,
             const json& parent_header,
             const json& metadata,
             const json& content) const override;
 
-        virtual void log_json_message(const std::string& socket_info,
+        virtual void logJsonMessage(const std::string& socket_info,
             const json& json_message) const = 0;
 
         logger_ptr p_nextLogger;
@@ -82,7 +82,7 @@ namespace datasuite
 
     private:
 
-        void log_json_message(const std::string& socket_info,
+        void logJsonMessage(const std::string& socket_info,
             const json& json_message) const override;
 
         mutable std::mutex m_mutex;
@@ -105,7 +105,7 @@ namespace datasuite
 
     private:
 
-        void log_json_message(const std::string& socket_info,
+        void logJsonMessage(const std::string& socket_info,
             const json& json_message) const override;
 
         std::string m_fileName;

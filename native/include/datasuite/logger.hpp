@@ -38,11 +38,11 @@ namespace datasuite
         Logger(Logger&&) = delete;
         Logger& operator=(Logger&&) = delete;
 
-        void log_received_message(const Message& message, channel c) const;
-        void log_sent_message(const Message& message, channel c) const;
-        void log_iopub_message(const PubMessage& message) const;
+        void logReceivedMessage(const Message& message, channel c) const;
+        void logSentMessage(const Message& message, channel c) const;
+        void logIopubMessage(const PubMessage& message) const;
 
-        void log_message(const std::string& socket_info,
+        void logMessage(const std::string& socket_info,
             const json& header,
             const json& parent_header,
             const json& metadata,
@@ -54,11 +54,11 @@ namespace datasuite
 
     private:
 
-        virtual void log_received_message_impl(const Message& message, channel c) const = 0;
-        virtual void log_sent_message_impl(const Message& message, channel c) const = 0;
-        virtual void log_iopub_message_impl(const PubMessage& message) const = 0;
+        virtual void logReceivedMessageImpl(const Message& message, channel c) const = 0;
+        virtual void logSentMessageImpl(const Message& message, channel c) const = 0;
+        virtual void logIopubMessageImpl(const PubMessage& message) const = 0;
 
-        virtual void log_message_impl(const std::string& socket_info,
+        virtual void logMessageImpl(const std::string& socket_info,
             const json& header,
             const json& parent_header,
             const json& metadata,
@@ -66,11 +66,11 @@ namespace datasuite
     };
 
     DATASUITE_API
-    std::unique_ptr<Logger> make_console_logger(Logger::level log_level,
+    std::unique_ptr<Logger> makeConsoleLogger(Logger::level log_level,
             std::unique_ptr<Logger> next_logger = nullptr);
 
     DATASUITE_API
-    std::unique_ptr<Logger> make_file_logger(Logger::level log_level,
+    std::unique_ptr<Logger> makeFileLogger(Logger::level log_level,
             const std::string& file_name,
             std::unique_ptr<Logger> next_logger = nullptr);
 }

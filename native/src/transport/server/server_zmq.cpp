@@ -8,11 +8,11 @@ namespace datasuite
         const configuration& config,
         json::error_handler_t eh)
         : p_impl(new ServerZmqImpl(
-            context.get_wrapped_context<zmq::context_t>(),
+            context.getWrappedContext<zmq::context_t>(),
             config,
-            datasuite::get_kernel_configuration(config),
+            datasuite::getKernelConfiguration(config),
             eh,
-            std::bind(&ServerZmq::notify_internal_listener, this, std::placeholders::_1)))
+            std::bind(&ServerZmq::notifyInternalListener, this, std::placeholders::_1)))
     {
     }
 
@@ -24,86 +24,86 @@ namespace datasuite
     // API for inheriting classes //
     ////////////////////////////////
 
-    void ServerZmq::start_publisher_thread()
+    void ServerZmq::startPublisherThread()
     {
-        p_impl->start_publisher_thread();
+        p_impl->startPublisherThread();
     }
 
-    void ServerZmq::start_heartbeat_thread()
+    void ServerZmq::startHeartbeatThread()
     {
-        p_impl->start_heartbeat_thread();
+        p_impl->startHeartbeatThread();
     }
 
-    void ServerZmq::stop_channels()
+    void ServerZmq::stopChannels()
     {
-        p_impl->stop_channels();
+        p_impl->stopChannels();
     }
 
-    void ServerZmq::set_request_stop(bool stop)
+    void ServerZmq::setRequestStop(bool stop)
     {
-        p_impl->set_request_stop(stop);
+        p_impl->setRequestStop(stop);
     }
 
-    bool ServerZmq::is_stopped() const
+    bool ServerZmq::isStopped() const
     {
-        return p_impl->is_stopped();
+        return p_impl->isStopped();
     }
 
-    auto ServerZmq::poll_channels(long timeout) -> std::optional<message_channel>
+    auto ServerZmq::pollChannels(long timeout) -> std::optional<message_channel>
     {
-        return p_impl->poll_channels(timeout);
+        return p_impl->pollChannels(timeout);
     }
 
-    void ServerZmq::send_shell_message(Message msg)
+    void ServerZmq::sendShellMessage(Message msg)
     {
-        p_impl->send_shell(std::move(msg));
+        p_impl->sendShell(std::move(msg));
     }
 
-    void ServerZmq::send_control_message(Message msg)
+    void ServerZmq::sendControlMessage(Message msg)
     {
-        p_impl->send_control(std::move(msg));
+        p_impl->sendControl(std::move(msg));
     }
 
     ///////////////////////////////////////////////
     // Implementation of server virtual methods //
     ///////////////////////////////////////////////
 
-    ControlMessenger& ServerZmq::get_control_messenger_impl()
+    ControlMessenger& ServerZmq::getControlMessengerImpl()
     {
-        return p_impl->get_control_messenger();
+        return p_impl->getControlMessenger();
     }
 
-    void ServerZmq::send_shell_impl(Message msg)
+    void ServerZmq::sendShellImpl(Message msg)
     {
-        send_shell_message(std::move(msg));
+        sendShellMessage(std::move(msg));
     }
 
-    void ServerZmq::send_control_impl(Message msg)
+    void ServerZmq::sendControlImpl(Message msg)
     {
-        send_control_message(std::move(msg));
+        sendControlMessage(std::move(msg));
     }
 
-    void ServerZmq::send_stdin_impl(Message msg)
+    void ServerZmq::sendStdinImpl(Message msg)
     {
-        auto reply = p_impl->send_stdin(std::move(msg));
+        auto reply = p_impl->sendStdin(std::move(msg));
         if (reply)
         {
-            Server::notify_stdin_listener(std::move(reply.value()));
+            Server::notifyStdinListener(std::move(reply.value()));
         }
     }
 
-    void ServerZmq::publish_impl(PubMessage msg, channel c)
+    void ServerZmq::publishImpl(PubMessage msg, channel c)
     {
         p_impl->publish(std::move(msg), c);
     }
 
-    void ServerZmq::abort_queue_impl(const listener& l, long polling_interval)
+    void ServerZmq::abortQueueImpl(const listener& l, long polling_interval)
     {
-        p_impl->abort_queue(l, polling_interval);
+        p_impl->abortQueue(l, polling_interval);
     }
 
-    void ServerZmq::update_config_impl(KernelConfiguration& config) const
+    void ServerZmq::updateConfigImpl(KernelConfiguration& config) const
     {
-        p_impl->update_config(config);
+        p_impl->updateConfig(config);
     }
 }

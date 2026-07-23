@@ -57,7 +57,7 @@ namespace datasuite
     {
     }
 
-    std::string iso8601_now()
+    std::string iso8601Now()
     {
         std::ostringstream ss;
 
@@ -76,22 +76,22 @@ namespace datasuite
         return ss.str();
     }
 
-    std::string_view get_protocol_version()
+    std::string_view getProtocolVersion()
     {
         return datasuite::version::kernel_protocol_version;
     }
 
-    json make_header(const std::string& msg_type,
+    json makeHeader(const std::string& msg_type,
         const std::string& user_name,
         const std::string& session_id)
     {
         json header;
-        header["msg_id"] = new_guid();
+        header["msg_id"] = newGuid();
         header["username"] = user_name;
         header["session"] = session_id;
-        header["date"] = iso8601_now();
+        header["date"] = iso8601Now();
         header["msg_type"] = msg_type;
-        header["version"] = get_protocol_version();
+        header["version"] = getProtocolVersion();
         return header;
     }
 }

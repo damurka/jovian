@@ -7,7 +7,7 @@ namespace datasuite
     {
     }
 
-    json TrivialMessenger::send_to_shell_impl(const json& message)
+    json TrivialMessenger::sendToShellImpl(const json& message)
     {
         return m_listener(message);
     }

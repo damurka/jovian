@@ -20,7 +20,7 @@ namespace datasuite
 		MessageBase& operator=(const MessageBase&) = delete;
 
 		const json& header() const { return m_header; }
-		const json& parent_header() const { return m_parentHeader; }
+		const json& parentHeader() const { return m_parentHeader; }
 		const json& metadata() const { return m_metadata; }
 		const json& content() const { return m_content; }
 
@@ -104,11 +104,11 @@ namespace datasuite
 		std::string m_topic;
 	};
 
-	DATASUITE_API std::string iso8601_now();
+	DATASUITE_API std::string iso8601Now();
 
-	DATASUITE_API std::string_view get_protocol_version();
+	DATASUITE_API std::string_view getProtocolVersion();
 
-	DATASUITE_API json make_header(const std::string& msg_type,
+	DATASUITE_API json makeHeader(const std::string& msg_type,
 									const std::string& user_name,
 									const std::string& session_id);
 }

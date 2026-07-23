@@ -18,21 +18,21 @@ namespace datasuite
 #endif
 
     DATASUITE_API
-    std::string get_controller_end_point(const std::string& channel);
+    std::string getControllerEndPoint(const std::string& channel);
 
     DATASUITE_API
-    std::string get_publisher_end_point();
+    std::string getPublisherEndPoint();
 
     DATASUITE_API
-    std::string get_end_point(const std::string& transport,
+    std::string getEndPoint(const std::string& transport,
             const std::string& ip,
             const std::string& port);
 
     DATASUITE_API
-    int get_socket_linger();
+    int getSocketLinger();
 
     DATASUITE_API
-    std::string find_free_port(std::size_t max_tries = 100, int start = 49152, int stop = 65536);
+    std::string findFreePort(std::size_t max_tries = 100, int start = 49152, int stop = 65536);
 }
 
 #endif

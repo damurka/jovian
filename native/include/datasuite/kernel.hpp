@@ -18,7 +18,7 @@ namespace datasuite
     class KernelCore;
 
     DATASUITE_API
-    std::string get_user_name();
+    std::string getUserName();
 
     class DATASUITE_API Kernel
     {
@@ -39,7 +39,7 @@ namespace datasuite
             context_ptr context,
             interpreter_ptr interpreter,
             server_builder sbuilder,
-            history_manager_ptr HistoryManager = make_in_memory_history_manager(),
+            history_manager_ptr HistoryManager = makeInMemoryHistoryManager(),
             logger_ptr logger = nullptr,
             json::error_handler_t eh = json::error_handler_t::strict);
 
@@ -47,7 +47,7 @@ namespace datasuite
             context_ptr context,
             interpreter_ptr interpreter,
             server_builder sbuilder,
-            history_manager_ptr HistoryManager = make_in_memory_history_manager(),
+            history_manager_ptr HistoryManager = makeInMemoryHistoryManager(),
             logger_ptr logger = nullptr,
             json::error_handler_t eh = json::error_handler_t::strict);
 
@@ -56,8 +56,8 @@ namespace datasuite
         void start();
         void stop();
 
-        const KernelConfiguration& get_config();
-        Server& get_server();
+        const KernelConfiguration& getConfig();
+        Server& getServer();
 
     private:
 

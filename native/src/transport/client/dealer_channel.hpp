@@ -18,10 +18,10 @@ namespace datasuite
 
         ~DealerChannel();
 
-        void send_message(zmq::multipart_t& message);
-        std::optional<zmq::multipart_t> receive_message(bool blocking);
+        void sendMessage(zmq::multipart_t& message);
+        std::optional<zmq::multipart_t> receiveMessage(bool blocking);
 
-        zmq::socket_t& get_socket();
+        zmq::socket_t& getSocket();
 
     private:
 

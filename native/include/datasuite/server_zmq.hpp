@@ -19,7 +19,7 @@ namespace datasuite
 
         ~ServerZmq() override;
 
-        using Server::notify_internal_listener;
+        using Server::notifyInternalListener;
 
     protected:
 
@@ -28,37 +28,37 @@ namespace datasuite
             json::error_handler_t eh);
 
         // API for inheriting classes
-        void start_publisher_thread();
-        void start_heartbeat_thread();
-        void stop_channels();
+        void startPublisherThread();
+        void startHeartbeatThread();
+        void stopChannels();
 
-        void set_request_stop(bool stop);
-        bool is_stopped() const;
+        void setRequestStop(bool stop);
+        bool isStopped() const;
 
         // The following methods must be called in the same thread
         using message_channel = std::pair<Message, channel>;
-        std::optional<message_channel> poll_channels(long timeout);
-        void send_shell_message(Message msg);
-        void send_control_message(Message msg);
+        std::optional<message_channel> pollChannels(long timeout);
+        void sendShellMessage(Message msg);
+        void sendControlMessage(Message msg);
 
     private:
 
         // Implementation of server virtual methods
-        ControlMessenger& get_control_messenger_impl() override;
+        ControlMessenger& getControlMessengerImpl() override;
 
-        void send_shell_impl(Message msg) override;
-        void send_control_impl(Message msg) override;
-        void send_stdin_impl(Message msg) override;
-        void publish_impl(PubMessage msg, channel c) override;
+        void sendShellImpl(Message msg) override;
+        void sendControlImpl(Message msg) override;
+        void sendStdinImpl(Message msg) override;
+        void publishImpl(PubMessage msg, channel c) override;
 
-        void abort_queue_impl(const listener& l, long polling_interval) override;
-        void update_config_impl(KernelConfiguration& config) const override;
+        void abortQueueImpl(const listener& l, long polling_interval) override;
+        void updateConfigImpl(KernelConfiguration& config) const override;
 
         std::unique_ptr<ServerZmqImpl> p_impl;
     };
 
     DATASUITE_API
-    std::unique_ptr<Server> make_server_default(Context& context,
+    std::unique_ptr<Server> makeServerDefault(Context& context,
             const configuration& config,
             json::error_handler_t eh = json::error_handler_t::strict);
 }

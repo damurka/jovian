@@ -16,11 +16,11 @@ namespace datasuite
     {
     }
 
-    void InMemoryHistoryManager::configure_impl()
+    void InMemoryHistoryManager::configureImpl()
     {
     }
 
-    void InMemoryHistoryManager::store_inputs_impl(int session,
+    void InMemoryHistoryManager::storeInputsImpl(int session,
         int line_num,
         const std::string& input,
         const std::string& output)
@@ -28,13 +28,13 @@ namespace datasuite
         m_history.push_back({ session, line_num, { input, output } });
     }
 
-    InMemoryHistoryManager::short_entry make_short_entry(const InMemoryHistoryManager::entry& in)
+    InMemoryHistoryManager::short_entry makeShortEntry(const InMemoryHistoryManager::entry& in)
     {
         InMemoryHistoryManager::short_entry res = { std::get<0>(in), std::get<1>(in), std::get<2>(in).first };
         return res;
     }
 
-    json InMemoryHistoryManager::get_tail_impl(int n, bool /*raw*/, bool output) const
+    json InMemoryHistoryManager::getTailImpl(int n, bool /*raw*/, bool output) const
     {
         json reply;
 
@@ -55,7 +55,7 @@ namespace datasuite
             std::transform(m_history.rbegin(),
                 std::next(m_history.rbegin(), count),
                 std::front_inserter(history),
-                make_short_entry);
+                makeShortEntry);
             reply["history"] = history;
         }
 
@@ -63,7 +63,7 @@ namespace datasuite
         return reply;
     }
 
-    json InMemoryHistoryManager::get_range_impl(int /*session*/,
+    json InMemoryHistoryManager::getRangeImpl(int /*session*/,
         int start,
         int stop,
         bool /*raw*/,
@@ -95,7 +95,7 @@ namespace datasuite
             std::transform(std::next(m_history.cbegin(), start),
                 std::next(m_history.cbegin(), start + count),
                 std::back_inserter(history),
-                make_short_entry);
+                makeShortEntry);
             reply["history"] = history;
         }
 
@@ -106,7 +106,7 @@ namespace datasuite
     }
 
     template <class InputIt, class OutputIt, class Predicate, class Operation>
-    OutputIt transform_if(InputIt first, InputIt last, OutputIt d_first,
+    OutputIt transformIf(InputIt first, InputIt last, OutputIt d_first,
         Predicate pred, Operation op)
     {
         while (first != last)
@@ -121,7 +121,7 @@ namespace datasuite
     }
 
     template <class H>
-    void clean_history(H& history, int n, bool unique)
+    void cleanHistory(H& history, int n, bool unique)
     {
         if (unique)
         {
@@ -136,7 +136,7 @@ namespace datasuite
         }
     }
 
-    json InMemoryHistoryManager::search_impl(const std::string& pattern,
+    json InMemoryHistoryManager::searchImpl(const std::string& pattern,
         bool /*raw*/,
         bool output,
         int n,
@@ -159,18 +159,18 @@ namespace datasuite
         {
             history_type history;
             std::copy_if(m_history.cbegin(), m_history.cend(), std::back_inserter(history), regex_lambda);
-            clean_history(history, n, unique);
+            cleanHistory(history, n, unique);
             reply["history"] = history;
         }
         else
         {
             short_history_type history;
-            transform_if(m_history.cbegin(),
+            transformIf(m_history.cbegin(),
                 m_history.cend(),
                 std::back_inserter(history),
                 regex_lambda,
-                make_short_entry);
-            clean_history(history, n, unique);
+                makeShortEntry);
+            cleanHistory(history, n, unique);
             reply["history"] = history;
         }
 

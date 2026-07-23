@@ -27,25 +27,25 @@ namespace datasuite
         return m_callback(std::move(c), std::move(request));
     }
 
-    void CommTarget::register_comm(Guid id, Comm* c) const
+    void CommTarget::registerComm(Guid id, Comm* c) const
     {
-        p_manager->register_comm(id, c);
+        p_manager->registerComm(id, c);
     }
 
-    void CommTarget::unregister_comm(Guid id) const
+    void CommTarget::unregisterComm(Guid id) const
     {
-        p_manager->unregister_comm(id);
+        p_manager->unregisterComm(id);
     }
 
-    void CommTarget::publish_message(const std::string& msg_type,
+    void CommTarget::publishMessage(const std::string& msg_type,
         json metadata,
         json content,
         buffer_sequence buffers) const
     {
         if (p_manager->p_kernel != nullptr)
         {
-            p_manager->p_kernel->publish_message(
-                msg_type, p_manager->p_kernel->parent_header(),
+            p_manager->p_kernel->publishMessage(
+                msg_type, p_manager->p_kernel->parentHeader(),
                 std::move(metadata), std::move(content),
                 std::move(buffers), channel::SHELL
             );
@@ -61,7 +61,7 @@ namespace datasuite
         return *p_target;
     }
 
-    void Comm::handle_close(Message request)
+    void Comm::handleClose(Message request)
     {
         if (m_closeHandler)
         {
@@ -69,7 +69,7 @@ namespace datasuite
         }
     }
 
-    void Comm::handle_message(Message request)
+    void Comm::handleMessage(Message request)
     {
         if (m_messageHandler)
         {
@@ -77,7 +77,7 @@ namespace datasuite
         }
     }
 
-    void Comm::send_comm_message(const std::string& msg_type,
+    void Comm::sendCommMessage(const std::string& msg_type,
         json metadata,
         json data,
         buffer_sequence buffers) const
@@ -85,10 +85,10 @@ namespace datasuite
         json content;
         content["comm_id"] = m_id;
         content["data"] = std::move(data);
-        target().publish_message(msg_type, std::move(metadata), std::move(content), std::move(buffers));
+        target().publishMessage(msg_type, std::move(metadata), std::move(content), std::move(buffers));
     }
 
-    void Comm::send_comm_message(const std::string& msg_type,
+    void Comm::sendCommMessage(const std::string& msg_type,
         json metadata,
         json data,
         buffer_sequence buffers,
@@ -98,7 +98,7 @@ namespace datasuite
         content["comm_id"] = m_id;
         content["target_name"] = target_name;
         content["data"] = std::move(data);
-        target().publish_message(msg_type, std::move(metadata), std::move(content), std::move(buffers));
+        target().publishMessage(msg_type, std::move(metadata), std::move(content), std::move(buffers));
     }
 
     Comm::Comm(Comm&& other)
@@ -109,15 +109,15 @@ namespace datasuite
         , m_movedFrom(false)
     {
         other.m_movedFrom = true;
-        p_target->register_comm(m_id, this);
+        p_target->registerComm(m_id, this);
     }
 
     Comm::Comm(const Comm& other)
         : p_target(other.p_target)
-        , m_id(new_guid())
+        , m_id(newGuid())
         , m_movedFrom(false)
     {
-        p_target->register_comm(m_id, this);
+        p_target->registerComm(m_id, this);
     }
 
     Comm& Comm::operator=(Comm&& other)
@@ -125,21 +125,21 @@ namespace datasuite
         m_closeHandler = std::move(other.m_closeHandler);
         m_messageHandler = std::move(other.m_messageHandler);
         p_target = std::move(other.p_target);
-        p_target->unregister_comm(m_id);
+        p_target->unregisterComm(m_id);
         m_id = std::move(other.m_id);
         m_movedFrom = false;
         other.m_movedFrom = true;
-        p_target->register_comm(m_id, this);
+        p_target->registerComm(m_id, this);
         return *this;
     }
 
     Comm& Comm::operator=(const Comm& other)
     {
         p_target = other.p_target;
-        p_target->unregister_comm(m_id);
-        m_id = new_guid();
+        p_target->unregisterComm(m_id);
+        m_id = newGuid();
         m_movedFrom = false;
-        p_target->register_comm(m_id, this);
+        p_target->registerComm(m_id, this);
         return *this;
     }
 
@@ -149,30 +149,30 @@ namespace datasuite
     {
         if (!p_target)
             throw std::runtime_error("Cannot initialize comm with null target");
-        p_target->register_comm(m_id, this);
+        p_target->registerComm(m_id, this);
     }
 
     Comm::~Comm()
     {
         if (!m_movedFrom)
         {
-            p_target->unregister_comm(m_id);
+            p_target->unregisterComm(m_id);
         }
     }
 
     void Comm::open(json metadata, json data, buffer_sequence buffers)
     {
-        send_comm_message("comm_open", std::move(metadata), std::move(data), std::move(buffers), p_target->name());
+        sendCommMessage("comm_open", std::move(metadata), std::move(data), std::move(buffers), p_target->name());
     }
 
     void Comm::close(json metadata, json data, buffer_sequence buffers)
     {
-        send_comm_message("comm_close", std::move(metadata), std::move(data), std::move(buffers));
+        sendCommMessage("comm_close", std::move(metadata), std::move(data), std::move(buffers));
     }
 
     void Comm::send(json metadata, json data, buffer_sequence buffers) const
     {
-        send_comm_message("comm_msg", std::move(metadata), std::move(data), std::move(buffers));
+        sendCommMessage("comm_msg", std::move(metadata), std::move(data), std::move(buffers));
     }
 
     Guid Comm::id() const noexcept
@@ -189,35 +189,35 @@ namespace datasuite
         p_kernel = kernel;
     }
 
-    json CommManager::get_metadata() const
+    json CommManager::getMetadata() const
     {
         json metadata;
-        metadata["started"] = iso8601_now();
+        metadata["started"] = iso8601Now();
         return metadata;
     }
 
-    void CommManager::register_comm_target(const std::string& target_name,
+    void CommManager::registerCommTarget(const std::string& target_name,
         const target_function_type& callback)
     {
         m_targets.insert_or_assign(target_name, CommTarget(target_name, callback, this));
     }
 
-    void CommManager::unregister_comm_target(const std::string& target_name)
+    void CommManager::unregisterCommTarget(const std::string& target_name)
     {
         m_targets.erase(target_name);
     }
 
-    void CommManager::register_comm(Guid id, Comm* c)
+    void CommManager::registerComm(Guid id, Comm* c)
     {
         m_comms[id] = c;
     }
 
-    void CommManager::unregister_comm(Guid id)
+    void CommManager::unregisterComm(Guid id)
     {
         m_comms.erase(id);
     }
 
-    void CommManager::comm_open(Message request)
+    void CommManager::commOpen(Message request)
     {
         const json& content = request.content();
         std::string target_name = content["target_name"];
@@ -227,7 +227,7 @@ namespace datasuite
         {
             if (p_kernel != nullptr)
             {
-                p_kernel->publish_message(
+                p_kernel->publishMessage(
                     "comm_close", request.header(), json::object(), content, buffer_sequence(), channel::SHELL
                 );
             }
@@ -241,7 +241,7 @@ namespace datasuite
         }
     }
 
-    void CommManager::comm_close(Message request)
+    void CommManager::commClose(Message request)
     {
         const json& content = request.content();
         Guid id = content["comm_id"];
@@ -252,12 +252,12 @@ namespace datasuite
         }
         else
         {
-            position->second->handle_close(std::move(request));
+            position->second->handleClose(std::move(request));
         }
         m_comms.erase(id);
     }
 
-    void CommManager::comm_msg(Message request)
+    void CommManager::commMsg(Message request)
     {
         const json& content = request.content();
         Guid id = content["comm_id"];
@@ -268,7 +268,7 @@ namespace datasuite
         }
         else
         {
-            position->second->handle_message(std::move(request));
+            position->second->handleMessage(std::move(request));
         }
     }
 

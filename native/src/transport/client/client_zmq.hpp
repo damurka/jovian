@@ -26,25 +26,25 @@ namespace datasuite
 
         void connect();
         void start();
-        void stop_channels();
+        void stopChannels();
 
-        void send_on_shell(Message msg);
-        void send_on_control(Message msg);
+        void sendOnShell(Message msg);
+        void sendOnControl(Message msg);
 
         // APIs for receiving on a specified channel
-        std::optional<Message> receive_on_shell(bool blocking = true);
-        std::optional<Message> receive_on_control(bool blocking = true);
+        std::optional<Message> receiveOnShell(bool blocking = true);
+        std::optional<Message> receiveOnControl(bool blocking = true);
 
-        std::size_t iopub_queue_size() const;
-        std::optional<PubMessage> pop_iopub_message();
+        std::size_t iopubQueueSize() const;
+        std::optional<PubMessage> popIopubMessage();
 
         // APIs for receiving on all channels
-        void register_shell_listener(const listener& l);
-        void register_control_listener(const listener& l);
-        void register_iopub_listener(const iopub_listener& l);
-        void register_kernel_status_listener(const kernel_status_listener& l);
+        void registerShellListener(const listener& l);
+        void registerControlListener(const listener& l);
+        void registerIopubListener(const iopub_listener& l);
+        void registerKernelStatusListener(const kernel_status_listener& l);
 
-        void wait_for_message();
+        void waitForMessage();
 
     private:
 
@@ -52,7 +52,7 @@ namespace datasuite
     };
 
     DATASUITE_API
-    std::unique_ptr<ClientZmq> make_client_zmq(Context& context,
+    std::unique_ptr<ClientZmq> makeClientZmq(Context& context,
             const KernelConfiguration& config,
             json::error_handler_t eh = json::error_handler_t::strict);
 }

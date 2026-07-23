@@ -6,7 +6,7 @@
 
 namespace datasuite
 {
-    std::string get_start_message(const KernelConfiguration& config)
+    std::string getStartMessage(const KernelConfiguration& config)
     {
         std::string kernel_info;
         kernel_info = "Starting kernel...\n\n"
@@ -27,7 +27,7 @@ namespace datasuite
         return kernel_info;
     }
 
-    std::string extract_filename(int& argc, char* argv[])
+    std::string extractFilename(int& argc, char* argv[])
     {
         std::string res = "";
         for (int i = 0; i < argc; ++i)
@@ -46,7 +46,7 @@ namespace datasuite
         return res;
     }
 
-    bool should_print_version(int argc, char* argv[])
+    bool shouldPrintVersion(int argc, char* argv[])
     {
         for (int i = 0; i < argc; ++i)
         {
@@ -59,7 +59,7 @@ namespace datasuite
     }
 
     // Helpers that create replies to the server
-    json create_error_reply(const std::string& ename,
+    json createErrorReply(const std::string& ename,
         const std::string& evalue,
         const json& trace_back)
     {
@@ -71,7 +71,7 @@ namespace datasuite
         return kernel_res;
     }
 
-    json create_successful_reply(const json& payload,
+    json createSuccessfulReply(const json& payload,
         const json& user_expressions)
     {
         json kernel_res;
@@ -81,7 +81,7 @@ namespace datasuite
         return kernel_res;
     }
 
-    json create_complete_reply(const json& matches,
+    json createCompleteReply(const json& matches,
         const int& cursor_start,
         const int& cursor_end,
         const json& metadata)
@@ -95,7 +95,7 @@ namespace datasuite
         return kernel_res;
     }
 
-    json create_inspect_reply(const bool found,
+    json createInspectReply(const bool found,
         const json& data,
         const json& metadata)
     {
@@ -107,7 +107,7 @@ namespace datasuite
         return kernel_res;
     }
 
-    json create_is_complete_reply(const std::string& status,
+    json createIsCompleteReply(const std::string& status,
         const std::string& indent)
     {
         json kernel_res;
@@ -116,7 +116,7 @@ namespace datasuite
         return kernel_res;
     }
 
-    json create_info_reply(const std::string& implementation,
+    json createInfoReply(const std::string& implementation,
         const std::string& implementation_version,
         const std::string& language_name,
         const std::string& language_version,
@@ -130,7 +130,7 @@ namespace datasuite
         const std::vector<std::string>& supported_features)
     {
         json kernel_res;
-        // kernel_res["protocol_version"] is set in KernelCore::kernel_info_request
+        // kernel_res["protocol_version"] is set in KernelCore::kernelInfoRequest
         // to ensure the same version for all the datasuite-based kernels
         kernel_res["status"] = "ok";
         kernel_res["implementation"] = implementation;
@@ -151,7 +151,7 @@ namespace datasuite
         return kernel_res;
     }
 
-    json create_shutdown_reply(bool restart)
+    json createShutdownReply(bool restart)
     {
         json kernel_res;
         kernel_res["status"] = "ok";
@@ -159,7 +159,7 @@ namespace datasuite
         return kernel_res;
     }
 
-    json create_interrupt_reply()
+    json createInterruptReply()
     {
         json kernel_res;
         kernel_res["status"] = "ok";

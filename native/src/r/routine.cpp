@@ -23,7 +23,7 @@ namespace datasuite
 {
     namespace routines
     {
-        SEXP to_r_json(const json &js)
+        SEXP toRJson(const json &js)
         {
             SEXP out = PROTECT(Rf_mkString(js.dump(4).c_str()));
             Rf_classgets(out, Rf_mkString("json"));
@@ -32,59 +32,59 @@ namespace datasuite
             return out;
         }
 
-        SEXP kernel_info_request()
+        SEXP kernelInfoRequest()
         {
-            auto info = get_interpreter().kernel_info_request();
+            auto info = getInterpreter().kernelInfoRequest();
             SEXP out = PROTECT(Rf_mkString(info.dump(4).c_str()));
             Rf_classgets(out, Rf_mkString("json"));
             UNPROTECT(1);
             return out;
         }
 
-        SEXP publish_stream(SEXP name_, SEXP text_)
+        SEXP publishStream(SEXP name_, SEXP text_)
         {
             auto name = CHAR(STRING_ELT(name_, 0));
             auto text = CHAR(STRING_ELT(text_, 0));
 
-            auto interpreter = get_r_interpreter();
-            interpreter->publish_stream(name, text);
+            auto interpreter = getRInterpreter();
+            interpreter->publishStream(name, text);
 
             return R_NilValue;
         }
 
-        SEXP display_data(SEXP js_data, SEXP js_metadata)
+        SEXP displayData(SEXP js_data, SEXP js_metadata)
         {
             auto data = json::parse(CHAR(STRING_ELT(js_data, 0)));
             auto metadata = json::parse(CHAR(STRING_ELT(js_metadata, 0)));
 
-            get_r_interpreter()->display_data(
+            getRInterpreter()->displayData(
                 std::move(data), std::move(metadata), /* transient = */ json::object());
 
             return R_NilValue;
         }
 
-        SEXP update_display_data(SEXP js_data, SEXP js_metadata)
+        SEXP updateDisplayData(SEXP js_data, SEXP js_metadata)
         {
             auto data = json::parse(CHAR(STRING_ELT(js_data, 0)));
             auto metadata = json::parse(CHAR(STRING_ELT(js_metadata, 0)));
 
-            get_r_interpreter()->update_display_data(
+            getRInterpreter()->updateDisplayData(
                 std::move(data), std::move(metadata), /* transient = */ json::object());
 
             return R_NilValue;
         }
 
-        SEXP clear_output(SEXP wait_)
+        SEXP clearOutput(SEXP wait_)
         {
             bool wait = LOGICAL_ELT(wait_, 0) == TRUE;
-            get_r_interpreter()->clear_output(wait);
+            getRInterpreter()->clearOutput(wait);
             return R_NilValue;
         }
 
-        SEXP is_complete_request(SEXP code_)
+        SEXP isCompleteRequest(SEXP code_)
         {
             std::string code = CHAR(STRING_ELT(code_, 0));
-            auto is_complete = get_r_interpreter()->is_complete_request(code);
+            auto is_complete = getRInterpreter()->isCompleteRequest(code);
 
             SEXP out = PROTECT(Rf_mkString(is_complete.dump(4).c_str()));
             Rf_classgets(out, Rf_mkString("json"));
@@ -92,7 +92,7 @@ namespace datasuite
             return out;
         }
 
-        SEXP datasuite_log(SEXP level_, SEXP msg_)
+        SEXP datasuiteLog(SEXP level_, SEXP msg_)
         {
             std::string level = CHAR(STRING_ELT(level_, 0));
             std::string msg = CHAR(STRING_ELT(msg_, 0));
@@ -101,7 +101,7 @@ namespace datasuite
             return R_NilValue;
         }
 
-        SEXP CommManager__register_target(SEXP name_)
+        SEXP CommManager__registerTarget(SEXP name_)
         {
             std::string name = CHAR(STRING_ELT(name_, 0));
 
@@ -113,7 +113,7 @@ namespace datasuite
                     reinterpret_cast<void *>(ptr_comm), R_NilValue, R_NilValue));
                 R_RegisterCFinalizerEx(xp_comm, [](SEXP xp)
                                        { delete reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp)); }, FALSE);
-                SEXP r6_comm = PROTECT(r::new_hera_r6("Comm", xp_comm));
+                SEXP r6_comm = PROTECT(r::newHeraR6("Comm", xp_comm));
 
                 // request
                 auto ptr_request = new Message(std::move(request));
@@ -121,50 +121,50 @@ namespace datasuite
                     reinterpret_cast<void *>(ptr_request), R_NilValue, R_NilValue));
                 R_RegisterCFinalizerEx(xptr_request, [](SEXP xp)
                                        { delete reinterpret_cast<Message *>(R_ExternalPtrAddr(xp)); }, FALSE);
-                SEXP r6_request = PROTECT(r::new_hera_r6("Message", xptr_request));
+                SEXP r6_request = PROTECT(r::newHeraR6("Message", xptr_request));
 
                 // callback
-                r::invoke_hera_fn(".CommManager__register_target_callback", r6_comm, r6_request);
+                r::invokeHeraFn(".CommManager__register_target_callback", r6_comm, r6_request);
 
                 UNPROTECT(4);
             };
 
-            get_interpreter().get_comm_manager().register_comm_target(name, callback);
+            getInterpreter().getCommManager().registerCommTarget(name, callback);
             return R_NilValue;
         }
 
-        SEXP CommManager__unregister_target(SEXP name_)
+        SEXP CommManager__unregisterTarget(SEXP name_)
         {
             std::string name = CHAR(STRING_ELT(name_, 0));
 
-            get_interpreter().get_comm_manager().unregister_comm_target(name);
+            getInterpreter().getCommManager().unregisterCommTarget(name);
             return R_NilValue;
         }
 
-        SEXP CommManager__new_comm(SEXP target_name_, SEXP s_description)
+        SEXP CommManager__newComm(SEXP target_name_, SEXP s_description)
         {
-            auto target = get_interpreter().get_comm_manager().target(CHAR(STRING_ELT(target_name_, 0)));
+            auto target = getInterpreter().getCommManager().target(CHAR(STRING_ELT(target_name_, 0)));
             if (target == nullptr)
             {
                 return R_NilValue;
             }
 
-            auto id = new_guid();
+            auto id = newGuid();
             auto comm = new datasuite::Comm(target, id);
             SEXP xp_comm = PROTECT(R_MakeExternalPtr(
                 reinterpret_cast<void *>(comm), R_NilValue, R_NilValue));
             R_RegisterCFinalizerEx(xp_comm, [](SEXP xp)
                                    { delete reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp)); }, FALSE);
-            SEXP r6_comm = PROTECT(r::new_hera_r6("Comm", xp_comm, s_description));
+            SEXP r6_comm = PROTECT(r::newHeraR6("Comm", xp_comm, s_description));
 
             UNPROTECT(2);
 
             return r6_comm;
         }
 
-        SEXP CommManager__get_comm_info(SEXP target_name_)
+        SEXP CommManager__getCommInfo(SEXP target_name_)
         {
-            auto comms = get_interpreter().get_comm_manager().comms();
+            auto comms = getInterpreter().getCommManager().comms();
 
             bool keep_all = Rf_isNull(target_name_);
             std::string target_name(keep_all ? "" : CHAR(STRING_ELT(target_name_, 0)));
@@ -204,7 +204,7 @@ namespace datasuite
                     SET_VECTOR_ELT(info, i, x);
                     UNPROTECT(1);
 
-                    SET_STRING_ELT(info_names, i, Rf_mkChar(comm_it->first.to_string().c_str()));
+                    SET_STRING_ELT(info_names, i, Rf_mkChar(comm_it->first.toString().c_str()));
                     i++;
                 }
             }
@@ -216,10 +216,10 @@ namespace datasuite
         SEXP Comm__id(SEXP xp_comm)
         {
             auto comm = reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm));
-            return Rf_mkString(comm->id().to_string().c_str());
+            return Rf_mkString(comm->id().toString().c_str());
         }
 
-        SEXP Comm__target_name(SEXP xp_comm)
+        SEXP Comm__targetName(SEXP xp_comm)
         {
             auto comm = reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm));
             return Rf_mkString(comm->target().name().c_str());
@@ -227,7 +227,7 @@ namespace datasuite
 
         namespace
         {
-            buffer_sequence to_buffer_sequence(SEXP r_buffers)
+            buffer_sequence toBufferSequence(SEXP r_buffers)
             {
                 buffer_sequence out;
                 if (r_buffers == R_NilValue)
@@ -252,7 +252,7 @@ namespace datasuite
             auto data = json::parse(CHAR(STRING_ELT(js_data, 0)));
 
             auto *comm = reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm));
-            comm->open(metadata, data, to_buffer_sequence(r_buffers));
+            comm->open(metadata, data, toBufferSequence(r_buffers));
 
             return R_NilValue;
         }
@@ -263,7 +263,7 @@ namespace datasuite
             auto data = json::parse(CHAR(STRING_ELT(js_data, 0)));
 
             auto *comm = reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm));
-            comm->close(metadata, data, to_buffer_sequence(r_buffers));
+            comm->close(metadata, data, toBufferSequence(r_buffers));
 
             return R_NilValue;
         }
@@ -274,7 +274,7 @@ namespace datasuite
             auto data = json::parse(CHAR(STRING_ELT(js_data, 0)));
 
             auto *comm = reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm));
-            comm->send(metadata, data, to_buffer_sequence(r_buffers));
+            comm->send(metadata, data, toBufferSequence(r_buffers));
 
             return R_NilValue;
         }
@@ -292,9 +292,9 @@ namespace datasuite
                 R_RegisterCFinalizerEx(xptr_message, [](SEXP xp)
                                        { delete reinterpret_cast<datasuite::Message *>(R_ExternalPtrAddr(xp)); }, FALSE);
 
-                SEXP call = PROTECT(r::r_call(
+                SEXP call = PROTECT(r::rCall(
                     m_handler,
-                    r::new_hera_r6("Message", xptr_message)));
+                    r::newHeraR6("Message", xptr_message)));
 
                 Rf_eval(call, R_GlobalEnv);
 
@@ -305,43 +305,43 @@ namespace datasuite
             SEXP m_handler;
         };
 
-        SEXP Comm__on_close(SEXP xp_comm, SEXP handler)
+        SEXP Comm__onClose(SEXP xp_comm, SEXP handler)
         {
-            reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm))->on_close(CommMessageHandler(handler));
+            reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm))->onClose(CommMessageHandler(handler));
             return R_NilValue;
         }
 
-        SEXP Comm__on_message(SEXP xp_comm, SEXP handler)
+        SEXP Comm__onMessage(SEXP xp_comm, SEXP handler)
         {
-            reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm))->on_message(CommMessageHandler(handler));
+            reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm))->onMessage(CommMessageHandler(handler));
             return R_NilValue;
         }
 
-        SEXP Message__get_content(SEXP xptr_msg)
+        SEXP Message__getContent(SEXP xptr_msg)
         {
             auto ptr_msg = reinterpret_cast<Message *>(R_ExternalPtrAddr(xptr_msg));
-            return to_r_json(ptr_msg->content());
+            return toRJson(ptr_msg->content());
         }
 
-        SEXP Message__get_header(SEXP xptr_msg)
+        SEXP Message__getHeader(SEXP xptr_msg)
         {
             auto ptr_msg = reinterpret_cast<Message *>(R_ExternalPtrAddr(xptr_msg));
-            return to_r_json(ptr_msg->header());
+            return toRJson(ptr_msg->header());
         }
 
-        SEXP Message__get_parent_header(SEXP xptr_msg)
+        SEXP Message__getParentHeader(SEXP xptr_msg)
         {
             auto ptr_msg = reinterpret_cast<Message *>(R_ExternalPtrAddr(xptr_msg));
-            return to_r_json(ptr_msg->parent_header());
+            return toRJson(ptr_msg->parentHeader());
         }
 
-        SEXP Message__get_metadata(SEXP xptr_msg)
+        SEXP Message__getMetadata(SEXP xptr_msg)
         {
             auto ptr_msg = reinterpret_cast<Message *>(R_ExternalPtrAddr(xptr_msg));
-            return to_r_json(ptr_msg->metadata());
+            return toRJson(ptr_msg->metadata());
         }
 
-        SEXP Message__get_buffers(SEXP xptr_msg)
+        SEXP Message__getBuffers(SEXP xptr_msg)
         {
             auto *msg = reinterpret_cast<Message *>(R_ExternalPtrAddr(xptr_msg));
             const auto &bufs = msg->buffers();
@@ -363,40 +363,40 @@ namespace datasuite
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wcast-function-type"
 #endif
-    void register_r_routines()
+    void registerRRoutines()
     {
         DllInfo *info = R_getEmbeddingDllInfo();
 
         static const R_CallMethodDef callMethods[] = {
-            {"datasuite_kernel_info_request", (DL_FUNC)&routines::kernel_info_request, 0},
-            {"datasuite_publish_stream", (DL_FUNC)&routines::publish_stream, 2},
-            {"datasuite_display_data", (DL_FUNC)&routines::display_data, 2},
-            {"datasuite_update_display_data", (DL_FUNC)&routines::update_display_data, 2},
-            {"datasuite_clear_output", (DL_FUNC)&routines::clear_output, 1},
-            {"datasuite_is_complete_request", (DL_FUNC)&routines::is_complete_request, 1},
-            {"datasuite_log", (DL_FUNC)&routines::datasuite_log, 2},
+            {"datasuite_kernel_info_request", (DL_FUNC)&routines::kernelInfoRequest, 0},
+            {"datasuite_publish_stream", (DL_FUNC)&routines::publishStream, 2},
+            {"datasuite_display_data", (DL_FUNC)&routines::displayData, 2},
+            {"datasuite_update_display_data", (DL_FUNC)&routines::updateDisplayData, 2},
+            {"datasuite_clear_output", (DL_FUNC)&routines::clearOutput, 1},
+            {"datasuite_is_complete_request", (DL_FUNC)&routines::isCompleteRequest, 1},
+            {"datasuite_log", (DL_FUNC)&routines::datasuiteLog, 2},
 
             // CommManager
-            {"CommManager__register_target", (DL_FUNC)&routines::CommManager__register_target, 1},
-            {"CommManager__unregister_target", (DL_FUNC)&routines::CommManager__unregister_target, 1},
-            {"CommManager__new_comm", (DL_FUNC)&routines::CommManager__new_comm, 2},
-            {"CommManager__get_comm_info", (DL_FUNC)&routines::CommManager__get_comm_info, 1},
+            {"CommManager__register_target", (DL_FUNC)&routines::CommManager__registerTarget, 1},
+            {"CommManager__unregister_target", (DL_FUNC)&routines::CommManager__unregisterTarget, 1},
+            {"CommManager__new_comm", (DL_FUNC)&routines::CommManager__newComm, 2},
+            {"CommManager__get_comm_info", (DL_FUNC)&routines::CommManager__getCommInfo, 1},
 
             // Comm
             {"Comm__id", (DL_FUNC)&routines::Comm__id, 1},
-            {"Comm__target_name", (DL_FUNC)&routines::Comm__target_name, 1},
+            {"Comm__target_name", (DL_FUNC)&routines::Comm__targetName, 1},
             {"Comm__open", (DL_FUNC)&routines::Comm__open, 4},
             {"Comm__close", (DL_FUNC)&routines::Comm__close, 4},
             {"Comm__send", (DL_FUNC)&routines::Comm__send, 4},
-            {"Comm__on_close", (DL_FUNC)&routines::Comm__on_close, 2},
-            {"Comm__on_message", (DL_FUNC)&routines::Comm__on_message, 2},
+            {"Comm__on_close", (DL_FUNC)&routines::Comm__onClose, 2},
+            {"Comm__on_message", (DL_FUNC)&routines::Comm__onMessage, 2},
 
             // Message aka message
-            {"Message__get_content", (DL_FUNC)&routines::Message__get_content, 1},
-            {"Message__get_header", (DL_FUNC)&routines::Message__get_header, 1},
-            {"Message__get_parent_header", (DL_FUNC)&routines::Message__get_parent_header, 1},
-            {"Message__get_metadata", (DL_FUNC)&routines::Message__get_metadata, 1},
-            {"Message__get_buffers", (DL_FUNC)&routines::Message__get_buffers, 1},
+            {"Message__get_content", (DL_FUNC)&routines::Message__getContent, 1},
+            {"Message__get_header", (DL_FUNC)&routines::Message__getHeader, 1},
+            {"Message__get_parent_header", (DL_FUNC)&routines::Message__getParentHeader, 1},
+            {"Message__get_metadata", (DL_FUNC)&routines::Message__getMetadata, 1},
+            {"Message__get_buffers", (DL_FUNC)&routines::Message__getBuffers, 1},
 
             {NULL, NULL, 0}};
 

@@ -18,7 +18,7 @@ namespace datasuite
 
         ~Heartbeat();
 
-        std::string get_port() const;
+        std::string getPort() const;
 
         void run();
 

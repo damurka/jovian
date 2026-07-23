@@ -11,7 +11,7 @@ Napi::ThreadSafeFunction tsfn;
 // ============================================================================
 // 1. CREATE ENGINE WITH CONFIGURATION
 // ============================================================================
-Napi::Value CreateEngine(const Napi::CallbackInfo& info) {
+Napi::Value createEngine(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
     EnvironmentConfig env_config;
@@ -48,7 +48,7 @@ Napi::Value CreateEngine(const Napi::CallbackInfo& info) {
 // ============================================================================
 // 2. Boot Server (Background) & Connect Client (Foreground)
 // ============================================================================
-Napi::Value Start(const Napi::CallbackInfo& info) {
+Napi::Value start(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
     if (!engine) {
@@ -113,7 +113,7 @@ Napi::Value Start(const Napi::CallbackInfo& info) {
 // =========================================================================
 // 3. EXPORT: addon.init()
 // =========================================================================
-Napi::Value Init(const Napi::CallbackInfo& info) {
+Napi::Value init(const Napi::CallbackInfo& info) {
     if (!engine) {
         engine = std::make_unique<DatasuiteEngine>();
     }
@@ -125,7 +125,7 @@ Napi::Value Init(const Napi::CallbackInfo& info) {
 // =========================================================================
 // 4. EXPORT: addon.execute(code)
 // =========================================================================
-Napi::Value Execute(const Napi::CallbackInfo& info) {
+Napi::Value execute(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
     if (!engine) {
@@ -151,7 +151,7 @@ Napi::Value Execute(const Napi::CallbackInfo& info) {
 // =========================================================================
 // 4. EXPORT: addon.stop()
 // =========================================================================
-Napi::Value Stop(const Napi::CallbackInfo& info) {
+Napi::Value stop(const Napi::CallbackInfo& info) {
     if (!engine) {
         return info.Env().Null();
     }
@@ -172,11 +172,11 @@ Napi::Value Stop(const Napi::CallbackInfo& info) {
 // 5. N-API MODULE REGISTRATION
 // =========================================================================
 Napi::Object InitModule(Napi::Env env, Napi::Object exports) {
-    exports.Set(Napi::String::New(env, "createEngine"), Napi::Function::New(env, CreateEngine));
-    exports.Set(Napi::String::New(env, "init"), Napi::Function::New(env, Init));
-    exports.Set(Napi::String::New(env, "start"), Napi::Function::New(env, Start));
-    exports.Set(Napi::String::New(env, "execute"), Napi::Function::New(env, Execute));
-    exports.Set(Napi::String::New(env, "stop"), Napi::Function::New(env, Stop));
+    exports.Set(Napi::String::New(env, "createEngine"), Napi::Function::New(env, createEngine));
+    exports.Set(Napi::String::New(env, "init"), Napi::Function::New(env, init));
+    exports.Set(Napi::String::New(env, "start"), Napi::Function::New(env, start));
+    exports.Set(Napi::String::New(env, "execute"), Napi::Function::New(env, execute));
+    exports.Set(Napi::String::New(env, "stop"), Napi::Function::New(env, stop));
     return exports;
 }
 

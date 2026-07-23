@@ -12,7 +12,7 @@ namespace datasuite
         virtual ~ClientMessenger();
 
         void connect();
-        void stop_channels();
+        void stopChannels();
 
     private:
         zmq::socket_t m_iopubController;

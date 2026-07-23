@@ -8,7 +8,7 @@
 namespace datasuite
 {
     DATASUITE_API
-    std::string blocking_input_request(
+    std::string blockingInputRequest(
         const std::string& prompt,
         bool password
     );

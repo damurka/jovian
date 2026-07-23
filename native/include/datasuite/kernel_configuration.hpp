@@ -35,7 +35,7 @@ namespace datasuite
     using configuration = std::variant<KernelConfiguration, RegistrationConfiguration>;
 
     DATASUITE_API
-    configuration load_configuration(const std::string& file_name);
+    configuration loadConfiguration(const std::string& file_name);
 }
 
 #endif

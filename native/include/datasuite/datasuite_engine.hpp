@@ -48,7 +48,7 @@ namespace datasuite
         void start(const KernelConfiguration& config, std::function<void()> on_ready = nullptr);
         void stop();
     private:
-        void setup_environment();
+        void setupEnvironment();
     };
 
     // =========================================================================
@@ -68,7 +68,7 @@ namespace datasuite
         void stop();
 
         // Expose the underlying client for the Engine's polling thread
-        ClientZmq* get_zmq_client() { return zmq_client.get(); }
+        ClientZmq* getZmqClient() { return zmq_client.get(); }
     };
 
     // =========================================================================
@@ -100,7 +100,7 @@ namespace datasuite
         // {channel, topic, msg_type, parent_msg_id, content}
         std::function<void(std::string)> on_message_callback;
 
-        void poll_messages();
+        void pollMessages();
     };
 }
 

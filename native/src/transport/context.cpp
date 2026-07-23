@@ -4,7 +4,7 @@
 
 namespace datasuite
 {
-    std::unique_ptr<Context> make_zmq_context()
+    std::unique_ptr<Context> makeZmqContext()
     {
         return std::unique_ptr<Context>(new ContextImpl<zmq::context_t>());
     }

@@ -24,32 +24,32 @@ namespace datasuite
 
     protected:
 
-        void configure_impl() override;
+        void configureImpl() override;
 
-        void execute_request_impl(
+        void executeRequestImpl(
             send_reply_callback cb,
             int execution_counter,
             const std::string& code,
             ExecuteRequestConfig config,
             json user_expressions) override;
 
-        json complete_request_impl(const std::string& code, int cursor_pos) override;
+        json completeRequestImpl(const std::string& code, int cursor_pos) override;
 
-        json inspect_request_impl(const std::string& code,
+        json inspectRequestImpl(const std::string& code,
             int cursor_pos,
             int detail_level) override;
 
-        json is_complete_request_impl(const std::string& code) override;
+        json isCompleteRequestImpl(const std::string& code) override;
 
-        json kernel_info_request_impl() override;
+        json kernelInfoRequestImpl() override;
 
-        json shutdown_request_impl(bool restart) override;
+        json shutdownRequestImpl(bool restart) override;
 
-        json interrupt_request_impl() override;
+        json interruptRequestImpl() override;
     };
 
-    RInterpreter* get_r_interpreter();
-    void register_r_routines();
+    RInterpreter* getRInterpreter();
+    void registerRRoutines();
 }
 
 #endif

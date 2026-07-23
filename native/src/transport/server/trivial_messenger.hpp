@@ -22,7 +22,7 @@ namespace datasuite
 
     private:
 
-        json send_to_shell_impl(const json& message) override;
+        json sendToShellImpl(const json& message) override;
 
         listener m_listener;
     };

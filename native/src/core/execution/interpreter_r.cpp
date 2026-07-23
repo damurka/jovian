@@ -38,20 +38,20 @@ extern "C" __declspec(dllimport) uintptr_t R_CStackLimit;
 namespace datasuite
 {
     static RInterpreter* p_interpreter = nullptr;
-    RInterpreter* get_r_interpreter()
+    RInterpreter* getRInterpreter()
     {
         return p_interpreter;
     }
 
-    Interpreter*& get_registered_interpreter()
+    Interpreter*& getRegisteredInterpreter()
     {
         static Interpreter* interpreter = nullptr;
         return interpreter;
     }
 
-    bool register_interpreter(Interpreter* new_interpreter)
+    bool registerInterpreter(Interpreter* new_interpreter)
     {
-        Interpreter*& interp = get_registered_interpreter();
+        Interpreter*& interp = getRegisteredInterpreter();
         if (interp != nullptr)
         {
             return false;
@@ -63,26 +63,26 @@ namespace datasuite
         }
     }
 
-    Interpreter& get_interpreter()
+    Interpreter& getInterpreter()
     {
-        Interpreter* interp = get_registered_interpreter();
+        Interpreter* interp = getRegisteredInterpreter();
         if (interp != nullptr)
             return *interp;
         else
-            return *get_r_interpreter();
+            return *getRInterpreter();
     }
 
     void WriteConsoleEx(const char* buf, int buflen, int otype) {
         std::string output(buf, buflen);
         if (otype == 1) {
-            p_interpreter->publish_stream("stderr", output);
+            p_interpreter->publishStream("stderr", output);
         }
         else {
-            p_interpreter->publish_stream("stdout", output);
+            p_interpreter->publishStream("stdout", output);
         }
     }
 
-    void capture_WriteConsoleEx(const char* buf, int buflen, int otype) {
+    void captureWriteConsoleEx(const char* buf, int buflen, int otype) {
         std::string output(buf, buflen);
         if (otype == 1) {
             // do nothing
@@ -93,7 +93,7 @@ namespace datasuite
     }
 
     int ReadConsole(const char* prompt, unsigned char* buffer, int length, int /*addtohistory*/) {
-        std::string res = datasuite::blocking_input_request(prompt, false);
+        std::string res = datasuite::blockingInputRequest(prompt, false);
 
         std::size_t size = std::min(res.size(), std::size_t(length));
         std::copy(res.c_str(), res.c_str() + size, buffer);
@@ -132,7 +132,7 @@ namespace datasuite
         fflush(stdout);
 #endif
 
-        register_r_routines();
+        registerRRoutines();
 
 #ifndef _WIN32
         ptr_R_WriteConsole = nullptr;
@@ -142,11 +142,11 @@ namespace datasuite
         R_Consolefile = NULL;
 #endif
 
-        register_interpreter(this);
+        registerInterpreter(this);
         p_interpreter = this;
     }
 
-    void RInterpreter::configure_impl()
+    void RInterpreter::configureImpl()
     {
         // Debug: Print R environment variables
         printf("[R Interpreter] R_HOME=%s\n", getenv("R_HOME") ? getenv("R_HOME") : "NOT SET");
@@ -171,7 +171,7 @@ namespace datasuite
         SEXP str_hera = PROTECT(Rf_mkString("hera"));
         SEXP sym_quietly = PROTECT(Rf_install("quietly"));
 
-        SEXP call_library_hera = PROTECT(r::r_call(sym_library, str_hera, /* quietly = */ Rf_ScalarLogical(FALSE)));
+        SEXP call_library_hera = PROTECT(r::rCall(sym_library, str_hera, /* quietly = */ Rf_ScalarLogical(FALSE)));
         SET_TAG(CDDR(call_library_hera), sym_quietly);
 
         SEXP out = PROTECT(Rf_eval(call_library_hera, R_GlobalEnv));
@@ -193,7 +193,7 @@ namespace datasuite
         UNPROTECT(5);
     }
 
-    void RInterpreter::execute_request_impl(
+    void RInterpreter::executeRequestImpl(
         send_reply_callback cb,
         int execution_count,
         const std::string& code,
@@ -202,13 +202,13 @@ namespace datasuite
     )
     {
         if (config.store_history) {
-            const_cast<HistoryManager&>(get_history_manager()).store_inputs(0, execution_count, code);
+            const_cast<HistoryManager&>(getHistoryManager()).storeInputs(0, execution_count, code);
         }
 
         SEXP code_ = PROTECT(Rf_mkString(code.c_str()));
         SEXP execution_counter_ = PROTECT(Rf_ScalarInteger(execution_count));
         SEXP silent_ = PROTECT(Rf_ScalarLogical(config.silent));
-        SEXP result = PROTECT(r::invoke_hera_fn("execute", code_, execution_counter_, silent_));
+        SEXP result = PROTECT(r::invokeHeraFn("execute", code_, execution_counter_, silent_));
 
         if (Rf_inherits(result, "error_reply")) {
             std::string evalue = CHAR(STRING_ELT(VECTOR_ELT(result, 0), 0));
@@ -223,8 +223,8 @@ namespace datasuite
                 }
             }
 
-            publish_execution_error(evalue, ename, trace_back);
-            cb(create_error_reply(evalue, ename, std::move(trace_back)));
+            publishExecutionError(evalue, ename, trace_back);
+            cb(createErrorReply(evalue, ename, std::move(trace_back)));
         }
         else {
            if (Rf_inherits(result, "execution_result")) {
@@ -232,16 +232,16 @@ namespace datasuite
                 SEXP metadata_ = VECTOR_ELT(result, 1);
                 auto data = json::parse(CHAR(STRING_ELT(data_, 0)));
                 auto metadata = json::parse(CHAR(STRING_ELT(metadata_, 0)));
-                publish_execution_result(execution_count, data, metadata);
+                publishExecutionResult(execution_count, data, metadata);
             }
 
-            cb(create_successful_reply(/*payload, user_expressions*/));
+            cb(createSuccessfulReply(/*payload, user_expressions*/));
         }
 
         UNPROTECT(4);
     }
 
-    json RInterpreter::is_complete_request_impl(const std::string& code_)
+    json RInterpreter::isCompleteRequestImpl(const std::string& code_)
     {
         SEXP code = PROTECT(Rf_mkString(code_.c_str()));
 
@@ -276,12 +276,12 @@ namespace datasuite
             reinterpret_cast<void*>(code)
         );
 
-        json res = create_is_complete_reply(CHAR(STRING_ELT(code, 0)), "");
+        json res = createIsCompleteReply(CHAR(STRING_ELT(code, 0)), "");
         UNPROTECT(1);
         return res;
     }
 
-    json json_from_character_vector(SEXP x) {
+    json jsonFromCharacterVector(SEXP x) {
         auto n = XLENGTH(x);
         std::vector<std::string> vec(n);
 
@@ -291,49 +291,49 @@ namespace datasuite
         return json(vec);
     }
 
-    json RInterpreter::complete_request_impl(const std::string& code, int cursor_pos)
+    json RInterpreter::completeRequestImpl(const std::string& code, int cursor_pos)
     {
         SEXP code_ = PROTECT(Rf_mkString(code.c_str()));
         SEXP cursor_pos_ = PROTECT(Rf_ScalarInteger(cursor_pos));
-        SEXP result = PROTECT(r::invoke_hera_fn("complete", code_, cursor_pos_));
+        SEXP result = PROTECT(r::invokeHeraFn("complete", code_, cursor_pos_));
 
-        auto matches = json_from_character_vector(VECTOR_ELT(result, 0));
+        auto matches = jsonFromCharacterVector(VECTOR_ELT(result, 0));
         int cursor_start = INTEGER_ELT(VECTOR_ELT(result, 1), 0);
         int cursor_end = INTEGER_ELT(VECTOR_ELT(result, 1), 1);
 
         UNPROTECT(3);
-        return create_complete_reply(matches, cursor_start, cursor_end);
+        return createCompleteReply(matches, cursor_start, cursor_end);
     }
 
-    json RInterpreter::inspect_request_impl(const std::string& code, int cursor_pos, int /*detail_level*/)
+    json RInterpreter::inspectRequestImpl(const std::string& code, int cursor_pos, int /*detail_level*/)
     {
         SEXP code_ = PROTECT(Rf_mkString(code.c_str()));
         SEXP cursor_pos_ = PROTECT(Rf_ScalarInteger(cursor_pos));
-        SEXP result = PROTECT(r::invoke_hera_fn("inspect", code_, cursor_pos_));
+        SEXP result = PROTECT(r::invokeHeraFn("inspect", code_, cursor_pos_));
 
         bool found = LOGICAL_ELT(VECTOR_ELT(result, 0), 0);
         if (!found) {
             UNPROTECT(3);
-            return create_inspect_reply(false);
+            return createInspectReply(false);
         }
 
         auto data = json::parse(CHAR(STRING_ELT(VECTOR_ELT(result, 1), 0)));
         UNPROTECT(3);
-        return create_inspect_reply(found, data);
+        return createInspectReply(found, data);
     }
 
-    json RInterpreter::shutdown_request_impl(bool /*restart*/)
+    json RInterpreter::shutdownRequestImpl(bool /*restart*/)
     {
         Rf_endEmbeddedR(0);
-        return create_shutdown_reply(false);
+        return createShutdownReply(false);
     }
 
-    json RInterpreter::interrupt_request_impl()
+    json RInterpreter::interruptRequestImpl()
     {
-        return create_interrupt_reply();
+        return createInterruptReply();
     }
 
-    json RInterpreter::kernel_info_request_impl()
+    json RInterpreter::kernelInfoRequestImpl()
     {
         const std::string  implementation = "xr";
         const std::string  implementation_version{ version::kernel_protocol_version };
@@ -347,7 +347,7 @@ namespace datasuite
         const std::string  banner = "xr";
         const json     help_links = json::array();
 
-        return create_info_reply(
+        return createInfoReply(
             implementation,
             implementation_version,
             language_name,
