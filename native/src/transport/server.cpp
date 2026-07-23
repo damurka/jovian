@@ -4,72 +4,72 @@
 
 namespace datasuite
 {
-    ControlMessenger& Server::get_control_messenger()
+    ControlMessenger& Server::getControlMessenger()
     {
-        return get_control_messenger_impl();
+        return getControlMessengerImpl();
     }
 
-    void Server::send_shell(Message message)
+    void Server::sendShell(Message message)
     {
-        send_shell_impl(std::move(message));
+        sendShellImpl(std::move(message));
     }
 
-    void Server::send_control(Message message)
+    void Server::sendControl(Message message)
     {
-        send_control_impl(std::move(message));
+        sendControlImpl(std::move(message));
     }
 
-    void Server::send_stdin(Message message)
+    void Server::sendStdin(Message message)
     {
-        send_stdin_impl(std::move(message));
+        sendStdinImpl(std::move(message));
     }
 
     void Server::publish(PubMessage message, channel c)
     {
-        publish_impl(std::move(message), c);
+        publishImpl(std::move(message), c);
     }
 
     void Server::start(PubMessage message)
     {
-        start_impl(std::move(message));
+        startImpl(std::move(message));
     }
 
-    void Server::abort_queue(const listener& l, long polling_interval)
+    void Server::abortQueue(const listener& l, long polling_interval)
     {
-        abort_queue_impl(l, polling_interval);
+        abortQueueImpl(l, polling_interval);
     }
 
     void Server::stop()
     {
-        stop_impl();
+        stopImpl();
     }
 
-    void Server::update_config(KernelConfiguration& config) const
+    void Server::updateConfig(KernelConfiguration& config) const
     {
-        update_config_impl(config);
+        updateConfigImpl(config);
     }
 
-    void Server::register_shell_listener(const listener& l)
+    void Server::registerShellListener(const listener& l)
     {
         m_shellListener = l;
     }
 
-    void Server::register_control_listener(const listener& l)
+    void Server::registerControlListener(const listener& l)
     {
         m_controlListener = l;
     }
 
-    void Server::register_stdin_listener(const listener& l)
+    void Server::registerStdinListener(const listener& l)
     {
         m_stdinListener = l;
     }
 
-    void Server::register_internal_listener(const internal_listener& l)
+    void Server::registerInternalListener(const internal_listener& l)
     {
         m_internalListener = l;
     }
 
-    void Server::notify_shell_listener(Message msg)
+    void Server::notifyShellListener(Message msg)
     {
         if (m_shellListener) {
             m_shellListener(std::move(msg));
@@ -79,21 +79,21 @@ namespace datasuite
         }
     }
 
-    void Server::notify_control_listener(Message msg)
+    void Server::notifyControlListener(Message msg)
     {
         if (m_controlListener) {
             m_controlListener(std::move(msg));
         }
     }
 
-    void Server::notify_stdin_listener(Message msg)
+    void Server::notifyStdinListener(Message msg)
     {
         if (m_stdinListener) {
             m_stdinListener(std::move(msg));
         }
     }
 
-    json Server::notify_internal_listener(json msg)
+    json Server::notifyInternalListener(json msg)
     {
         if (m_internalListener) {
             return m_internalListener(std::move(msg));

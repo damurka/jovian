@@ -12,19 +12,19 @@ namespace datasuite
      * LoggerNolog implementation *
      ********************************/
 
-    void LoggerNolog::log_received_message_impl(const Message&, Logger::channel) const
+    void LoggerNolog::logReceivedMessageImpl(const Message&, Logger::channel) const
     {
     }
 
-    void LoggerNolog::log_sent_message_impl(const Message&, Logger::channel) const
+    void LoggerNolog::logSentMessageImpl(const Message&, Logger::channel) const
     {
     }
 
-    void LoggerNolog::log_iopub_message_impl(const PubMessage&) const
+    void LoggerNolog::logIopubMessageImpl(const PubMessage&) const
     {
     }
 
-    void LoggerNolog::log_message_impl(const std::string&,
+    void LoggerNolog::logMessageImpl(const std::string&,
         const json&,
         const json&,
         const json&,
@@ -46,7 +46,7 @@ namespace datasuite
          * @copyright Copyright (c) 2008-2009 Bjoern Hoehrmann <bjoern@hoehrmann.de>
          * @sa http://bjoern.hoehrmann.de/utf-8/decoder/dfa/
          */
-        std::uint8_t decode_utf8(std::uint8_t& state, std::uint32_t& codep, const std::uint8_t byte) noexcept
+        std::uint8_t decodeUtf8(std::uint8_t& state, std::uint32_t& codep, const std::uint8_t byte) noexcept
         {
             static const uint8_t UTF8_ACCEPT = 0;
             static const std::array<std::uint8_t, 400> utf8d =
@@ -79,7 +79,7 @@ namespace datasuite
             return state;
         }
 
-        bool is_utf8_valid(const std::string& str)
+        bool isUtf8Valid(const std::string& str)
         {
             std::uint32_t codepoint(0);
             std::uint8_t state(0);
@@ -87,7 +87,7 @@ namespace datasuite
             for (std::size_t i = 0; i < str.size(); ++i)
             {
                 auto byte = static_cast<uint8_t>(str[i]);
-                decode_utf8(state, codepoint, byte);
+                decodeUtf8(state, codepoint, byte);
             }
             return !state;
         }
@@ -103,44 +103,44 @@ namespace datasuite
     {
     }
 
-    void LoggerCommon::log_received_message_impl(const Message& message, Logger::channel c) const
+    void LoggerCommon::logReceivedMessageImpl(const Message& message, Logger::channel c) const
     {
         std::string id = message.identities()[0];
         std::string socket_info = "DATASUITE: received message on "
             + channel_str[c] + " - "
-            + (is_utf8_valid(id) ? id : "invalid UTF8");
-        Logger::log_message(socket_info,
+            + (isUtf8Valid(id) ? id : "invalid UTF8");
+        Logger::logMessage(socket_info,
             message.header(),
-            message.parent_header(),
+            message.parentHeader(),
             message.metadata(),
             message.content());
     }
 
-    void LoggerCommon::log_sent_message_impl(const Message& message, Logger::channel c) const
+    void LoggerCommon::logSentMessageImpl(const Message& message, Logger::channel c) const
     {
         std::string id = message.identities()[0];
         std::string socket_info = "DATASUITE: sent message on "
             + channel_str[c] + " - "
-            + (is_utf8_valid(id) ? id : "invalid UTF8");
-        Logger::log_message(socket_info,
+            + (isUtf8Valid(id) ? id : "invalid UTF8");
+        Logger::logMessage(socket_info,
             message.header(),
-            message.parent_header(),
+            message.parentHeader(),
             message.metadata(),
             message.content());
     }
 
-    void LoggerCommon::log_iopub_message_impl(const PubMessage& message) const
+    void LoggerCommon::logIopubMessageImpl(const PubMessage& message) const
     {
         std::string socket_info = "DATASUITE: sent message on iopub - "
             + message.topic();
-        Logger::log_message(socket_info,
+        Logger::logMessage(socket_info,
             message.header(),
-            message.parent_header(),
+            message.parentHeader(),
             message.metadata(),
             message.content());
     }
 
-    void LoggerCommon::log_message_impl(const std::string& socket_info,
+    void LoggerCommon::logMessageImpl(const std::string& socket_info,
         const json& header,
         const json& parent_header,
         const json& metadata,
@@ -166,8 +166,8 @@ namespace datasuite
         break;
         }
 
-        log_json_message(socket_info, message);
-        p_nextLogger->log_message(socket_info, header, parent_header, metadata, json_content);
+        logJsonMessage(socket_info, message);
+        p_nextLogger->logMessage(socket_info, header, parent_header, metadata, json_content);
     }
 
     /**********************************
@@ -179,7 +179,7 @@ namespace datasuite
     {
     }
 
-    void LoggerConsole::log_json_message(const std::string& socket_info,
+    void LoggerConsole::logJsonMessage(const std::string& socket_info,
         const json& json_message) const
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -198,7 +198,7 @@ namespace datasuite
     {
     }
 
-    void LoggerFile::log_json_message(const std::string& socket_info,
+    void LoggerFile::logJsonMessage(const std::string& socket_info,
         const json& json_message) const
     {
         json log;
@@ -213,13 +213,13 @@ namespace datasuite
      * Builder functions implementation *
      ************************************/
 
-    std::unique_ptr<Logger> make_console_logger(Logger::level log_level,
+    std::unique_ptr<Logger> makeConsoleLogger(Logger::level log_level,
         std::unique_ptr<Logger> next_logger)
     {
         return std::make_unique<LoggerConsole>(log_level, std::move(next_logger));
     }
 
-    std::unique_ptr<Logger> make_file_logger(Logger::level log_level,
+    std::unique_ptr<Logger> makeFileLogger(Logger::level log_level,
         const std::string& file_name,
         std::unique_ptr<Logger> next_logger)
     {

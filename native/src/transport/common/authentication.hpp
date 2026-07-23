@@ -54,22 +54,22 @@ namespace datasuite
 
     private:
 
-        virtual std::string sign_impl(const RawBuffer& header,
+        virtual std::string signImpl(const RawBuffer& header,
             const RawBuffer& parent_header,
             const RawBuffer& meta_data,
             const RawBuffer& content) const = 0;
 
-        virtual bool verify_impl(const RawBuffer& signature,
+        virtual bool verifyImpl(const RawBuffer& signature,
             const RawBuffer& header,
             const RawBuffer& parent_header,
             const RawBuffer& meta_data,
             const RawBuffer& content) const = 0;
 
-        virtual std::string sign_impl(const RawBuffer& content) const = 0;
-        virtual bool verify_impl(const RawBuffer& signature, const RawBuffer& content) const = 0;
+        virtual std::string signImpl(const RawBuffer& content) const = 0;
+        virtual bool verifyImpl(const RawBuffer& signature, const RawBuffer& content) const = 0;
     };
 
-    std::unique_ptr<Authentication> make_authentication(const std::string& scheme,
+    std::unique_ptr<Authentication> makeAuthentication(const std::string& scheme,
         const std::string& key);
 }
 

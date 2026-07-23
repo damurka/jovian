@@ -34,7 +34,7 @@ namespace datasuite
         }
 
         // 5. Explicit string conversion
-        std::string to_string() const {
+        std::string toString() const {
             return std::string(buffer.data());
         }
 
@@ -55,7 +55,7 @@ namespace datasuite
     // 8. The nlohmann::json magic! (Serialization)
     // By defining this in the same namespace, nlohmann will automatically find it.
     inline void to_json(json& j, const Guid& g) {
-        j = g.to_string();
+        j = g.toString();
     }
 
     // 9. The nlohmann::json magic! (Deserialization)
@@ -64,7 +64,7 @@ namespace datasuite
     }
 
 
-    DATASUITE_API Guid new_guid();
+    DATASUITE_API Guid newGuid();
 }
 
 #endif

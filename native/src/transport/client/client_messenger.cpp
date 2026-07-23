@@ -16,14 +16,14 @@ namespace datasuite
 
     void ClientMessenger::connect()
     {
-        m_iopubController.set(zmq::sockopt::linger, get_socket_linger());
-        m_iopubController.connect(get_controller_end_point("iopub"));
+        m_iopubController.set(zmq::sockopt::linger, getSocketLinger());
+        m_iopubController.connect(getControllerEndPoint("iopub"));
 
-        m_heartbeatController.set(zmq::sockopt::linger, get_socket_linger());
-        m_heartbeatController.connect(get_controller_end_point("heartbeat"));
+        m_heartbeatController.set(zmq::sockopt::linger, getSocketLinger());
+        m_heartbeatController.connect(getControllerEndPoint("heartbeat"));
     }
 
-    void ClientMessenger::stop_channels()
+    void ClientMessenger::stopChannels()
     {
         zmq::message_t stop_msg("stop", 4);
         zmq::message_t response;

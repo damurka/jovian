@@ -39,43 +39,43 @@ namespace datasuite
         ClientZmqImpl& operator=(ClientZmqImpl&&) = delete;
 
         // shell channel
-        void send_on_shell(Message msg);
-        std::optional<Message> receive_on_shell(bool blocking);
-        void register_shell_listener(const listener& l);
+        void sendOnShell(Message msg);
+        std::optional<Message> receiveOnShell(bool blocking);
+        void registerShellListener(const listener& l);
 
         // control channel
-        void send_on_control(Message msg);
-        std::optional<Message> receive_on_control(bool blocking);
-        void register_control_listener(const listener& l);
+        void sendOnControl(Message msg);
+        std::optional<Message> receiveOnControl(bool blocking);
+        void registerControlListener(const listener& l);
 
         // iopub channel
-        std::size_t iopub_queue_size() const;
-        std::optional<PubMessage> pop_iopub_message();
-        void register_iopub_listener(const iopub_listener& l);
+        std::size_t iopubQueueSize() const;
+        std::optional<PubMessage> popIopubMessage();
+        void registerIopubListener(const iopub_listener& l);
 
         // heartbeat channel
-        void register_kernel_status_listener(const kernel_status_listener& l);
+        void registerKernelStatusListener(const kernel_status_listener& l);
 
         // client messenger
         void connect();
-        void stop_channels();
+        void stopChannels();
 
-        void wait_for_message();
+        void waitForMessage();
         void start();
 
         Message deserialize(zmq::multipart_t& wire_msg) const;
-        PubMessage deserialize_iopub(zmq::multipart_t& wire_msg) const;
+        PubMessage deserializeIopub(zmq::multipart_t& wire_msg) const;
 
     private:
 
-        void start_iopub_thread();
-        void start_heartbeat_thread();
+        void startIopubThread();
+        void startHeartbeatThread();
         void poll(long timeout);
 
-        void notify_shell_listener(Message msg);
-        void notify_control_listener(Message msg);
-        void notify_iopub_listener(PubMessage msg);
-        void notify_kernel_dead(bool status);
+        void notifyShellListener(Message msg);
+        void notifyControlListener(Message msg);
+        void notifyIopubListener(PubMessage msg);
+        void notifyKernelDead(bool status);
 
         using authentication_ptr = std::unique_ptr<Authentication>;
         authentication_ptr p_auth;

@@ -12,7 +12,7 @@ namespace datasuite
         : m_socket(context, zmq::socket_type::dealer)
         , m_dealerEndPoint("")
     {
-        m_dealerEndPoint = get_end_point(transport, ip, port);
+        m_dealerEndPoint = getEndPoint(transport, ip, port);
         m_socket.connect(m_dealerEndPoint);
     }
 
@@ -21,12 +21,12 @@ namespace datasuite
         m_socket.disconnect(m_dealerEndPoint);
     }
 
-    void DealerChannel::send_message(zmq::multipart_t& message)
+    void DealerChannel::sendMessage(zmq::multipart_t& message)
     {
         message.send(m_socket);
     }
 
-    std::optional<zmq::multipart_t> DealerChannel::receive_message(bool blocking)
+    std::optional<zmq::multipart_t> DealerChannel::receiveMessage(bool blocking)
     {
         zmq::multipart_t wire_msg;
         zmq::recv_flags flags = zmq::recv_flags::none;
@@ -46,7 +46,7 @@ namespace datasuite
         }
     }
 
-    zmq::socket_t& DealerChannel::get_socket()
+    zmq::socket_t& DealerChannel::getSocket()
     {
         return m_socket;
     }

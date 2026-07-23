@@ -30,45 +30,45 @@ namespace datasuite
         Server(Server&&) = delete;
         Server& operator=(Server&&) = delete;
 
-        ControlMessenger& get_control_messenger();
+        ControlMessenger& getControlMessenger();
 
-        void send_shell(Message message);
-        void send_control(Message message);
-        void send_stdin(Message message);
+        void sendShell(Message message);
+        void sendControl(Message message);
+        void sendStdin(Message message);
         void publish(PubMessage message, channel c);
 
         void start(PubMessage message);
-        void abort_queue(const listener& l, long polling_interval);
+        void abortQueue(const listener& l, long polling_interval);
         void stop();
-        void update_config(KernelConfiguration& config) const;
+        void updateConfig(KernelConfiguration& config) const;
 
-        void register_shell_listener(const listener& l);
-        void register_control_listener(const listener& l);
-        void register_stdin_listener(const listener& l);
-        void register_internal_listener(const internal_listener& l);
+        void registerShellListener(const listener& l);
+        void registerControlListener(const listener& l);
+        void registerStdinListener(const listener& l);
+        void registerInternalListener(const internal_listener& l);
 
     protected:
 
         Server() = default;
 
-        void notify_shell_listener(Message msg);
-        void notify_control_listener(Message msg);
-        void notify_stdin_listener(Message msg);
-        json notify_internal_listener(json msg);
+        void notifyShellListener(Message msg);
+        void notifyControlListener(Message msg);
+        void notifyStdinListener(Message msg);
+        json notifyInternalListener(json msg);
 
     private:
 
-        virtual ControlMessenger& get_control_messenger_impl() = 0;
+        virtual ControlMessenger& getControlMessengerImpl() = 0;
 
-        virtual void send_shell_impl(Message message) = 0;
-        virtual void send_control_impl(Message message) = 0;
-        virtual void send_stdin_impl(Message message) = 0;
-        virtual void publish_impl(PubMessage message, channel c) = 0;
+        virtual void sendShellImpl(Message message) = 0;
+        virtual void sendControlImpl(Message message) = 0;
+        virtual void sendStdinImpl(Message message) = 0;
+        virtual void publishImpl(PubMessage message, channel c) = 0;
 
-        virtual void start_impl(PubMessage message) = 0;
-        virtual void abort_queue_impl(const listener& l, long polling_interval) = 0;
-        virtual void stop_impl() = 0;
-        virtual void update_config_impl(KernelConfiguration& config) const = 0;
+        virtual void startImpl(PubMessage message) = 0;
+        virtual void abortQueueImpl(const listener& l, long polling_interval) = 0;
+        virtual void stopImpl() = 0;
+        virtual void updateConfigImpl(KernelConfiguration& config) const = 0;
 
         listener m_shellListener;
         listener m_controlListener;

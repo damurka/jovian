@@ -12,18 +12,18 @@ namespace datasuite
 
     void HistoryManager::configure()
     {
-        configure_impl();
+        configureImpl();
     }
 
-    void HistoryManager::store_inputs(int session,
+    void HistoryManager::storeInputs(int session,
         int line_num,
         const std::string& input,
         const std::string& output)
     {
-        store_inputs_impl(session, line_num, input, output);
+        storeInputsImpl(session, line_num, input, output);
     }
 
-    json HistoryManager::process_request(const json& content) const
+    json HistoryManager::processRequest(const json& content) const
     {
         json history;
 
@@ -35,7 +35,7 @@ namespace datasuite
             bool raw = content.value("raw", true);
             bool output = content.value("output", false);
 
-            history = get_tail(n, raw, output);
+            history = getTail(n, raw, output);
         }
 
         if (hist_access_type.compare("search") == 0)
@@ -57,28 +57,28 @@ namespace datasuite
             bool raw = content.value("raw", true);
             bool output = content.value("output", false);
 
-            history = get_range(session, start, stop, raw, output);
+            history = getRange(session, start, stop, raw, output);
         }
 
         return history;
     }
 
-    json HistoryManager::get_tail(int n, bool raw, bool output) const
+    json HistoryManager::getTail(int n, bool raw, bool output) const
     {
-        return get_tail_impl(n, raw, output);
+        return getTailImpl(n, raw, output);
     }
 
-    json HistoryManager::get_range(int session, int start, int stop, bool raw, bool output) const
+    json HistoryManager::getRange(int session, int start, int stop, bool raw, bool output) const
     {
-        return get_range_impl(session, start, stop, raw, output);
+        return getRangeImpl(session, start, stop, raw, output);
     }
 
     json HistoryManager::search(const std::string& pattern, bool raw, bool output, int n, bool unique) const
     {
-        return search_impl(pattern, raw, output, n, unique);
+        return searchImpl(pattern, raw, output, n, unique);
     }
 
-    std::unique_ptr<HistoryManager> make_in_memory_history_manager()
+    std::unique_ptr<HistoryManager> makeInMemoryHistoryManager()
     {
         return std::make_unique<InMemoryHistoryManager>();
     }

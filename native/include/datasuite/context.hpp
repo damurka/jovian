@@ -24,7 +24,7 @@ namespace datasuite
         Context& operator=(Context&&) = delete;
 
         template <class T>
-        T& get_wrapped_context();
+        T& getWrappedContext();
 
     protected:
 
@@ -49,14 +49,14 @@ namespace datasuite
     };
 
     template <class T>
-    T& Context::get_wrapped_context()
+    T& Context::getWrappedContext()
     {
         auto* impl = static_cast<ContextImpl<T>*>(this);
         return impl->m_context;
     };
 
     DATASUITE_API
-    std::unique_ptr<Context> make_zmq_context();
+    std::unique_ptr<Context> makeZmqContext();
 
 }
 

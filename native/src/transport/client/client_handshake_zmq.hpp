@@ -20,9 +20,9 @@ namespace datasuite
         ClientHandshakeZmq(Context& context, const RegistrationConfiguration& config);
         ~ClientHandshakeZmq();
 
-        std::string get_registration_port() const;
+        std::string getRegistrationPort() const;
 
-        KernelConfiguration wait_for_configuration();
+        KernelConfiguration waitForConfiguration();
 
     private:
 

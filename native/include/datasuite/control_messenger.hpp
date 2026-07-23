@@ -18,7 +18,7 @@ namespace datasuite
         ControlMessenger(ControlMessenger&&) = delete;
         ControlMessenger& operator=(ControlMessenger&&) = delete;
 
-        json send_to_shell(const json& message);
+        json sendToShell(const json& message);
 
     protected:
 
@@ -26,7 +26,7 @@ namespace datasuite
 
     private:
 
-        virtual json send_to_shell_impl(const json& message) = 0;
+        virtual json sendToShellImpl(const json& message) = 0;
     };
 }
 

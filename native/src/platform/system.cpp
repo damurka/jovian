@@ -18,7 +18,7 @@
 
 namespace datasuite 
 {
-    std::string remove_ending_separator(const char* path)
+    std::string removeEndingSeparator(const char* path)
     {
         std::size_t s = strlen(path);
         if (path[s - 1] == '/')
@@ -28,7 +28,7 @@ namespace datasuite
         return std::string(path, s);
     }
 
-    std::string get_temp_directory_path_impl()
+    std::string getTempDirectoryPathImpl()
     {
 #ifdef _WIN32
         std::string tmp_prefix;
@@ -44,26 +44,26 @@ namespace datasuite
         const char* tmp = std::getenv("TMP");
         const char* tempdir = std::getenv("TEMPDIR");
         const char* temp = std::getenv("TEMP");
-        if (tmpdir != nullptr) return remove_ending_separator(tmpdir);
-        else if (tmp != nullptr) return remove_ending_separator(tmp);
-        else if (tempdir != nullptr) return remove_ending_separator(tempdir);
-        else if (temp != nullptr) return remove_ending_separator(temp);
+        if (tmpdir != nullptr) return removeEndingSeparator(tmpdir);
+        else if (tmp != nullptr) return removeEndingSeparator(tmp);
+        else if (tempdir != nullptr) return removeEndingSeparator(tempdir);
+        else if (temp != nullptr) return removeEndingSeparator(temp);
         else return "/tmp";
 #endif
     }
 
-    std::string get_temp_directory_path()
+    std::string getTempDirectoryPath()
     {
-        static const std::string path = get_temp_directory_path_impl();
+        static const std::string path = getTempDirectoryPathImpl();
         return path;
     }
 
-    bool create_directory(const std::string& path)
+    bool createDirectory(const std::string& path)
     {
         std::size_t pos = path.rfind('/');
         if (pos != 0 && pos != std::string::npos)
         {
-            create_directory(path.substr(0, pos));
+            createDirectory(path.substr(0, pos));
         }
 #ifdef _WIN32
         return CreateDirectoryA(path.c_str(), NULL);
@@ -79,7 +79,7 @@ namespace datasuite
 #endif
     }
 
-    int get_current_pid()
+    int getCurrentPid()
     {
 #ifdef _WIN32
         return GetCurrentProcessId();
@@ -88,29 +88,29 @@ namespace datasuite
 #endif
     }
 
-    std::string get_cell_tmp_file(const std::string& prefix,
+    std::string getCellTmpFile(const std::string& prefix,
         int execution_count,
         const std::string& extension)
     {
         return prefix + "/[" + std::to_string(execution_count) + "]" + extension;
     }
 
-    std::size_t get_tmp_hash_seed()
+    std::size_t getTmpHashSeed()
     {
         std::size_t hash_seed(0xc70f6907UL);
         return hash_seed;
     }
 
-    std::string get_tmp_prefix(const std::string& process_name)
+    std::string getTmpPrefix(const std::string& process_name)
     {
-        std::string tmp_prefix = datasuite::get_temp_directory_path()
+        std::string tmp_prefix = datasuite::getTempDirectoryPath()
             + '/' + process_name + '_'
-            + std::to_string(datasuite::get_current_pid())
+            + std::to_string(datasuite::getCurrentPid())
             + '/';
         return tmp_prefix;
     }
 
-    std::string executable_path()
+    std::string executablePath()
     {
         std::string path;
 #if defined(UNICODE)
@@ -169,9 +169,9 @@ namespace datasuite
         return path;
     }
 
-    std::string prefix_path()
+    std::string prefixPath()
     {
-        std::string path = executable_path();
+        std::string path = executablePath();
 #if defined (_WIN32)
         char separator = '\\';
 #else

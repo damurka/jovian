@@ -33,9 +33,9 @@ namespace datasuite
         Thread& operator=(Thread&&);
 
         bool joinable() const noexcept;
-        id get_id() const noexcept;
-        native_handle_type native_handle();
-        static unsigned int hardware_concurrency() noexcept;
+        id getId() const noexcept;
+        native_handle_type nativeHandle();
+        static unsigned int hardwareConcurrency() noexcept;
 
         void join();
         void detach();
@@ -83,17 +83,17 @@ namespace datasuite
         return m_thread.joinable();
     }
 
-    inline Thread::id Thread::get_id() const noexcept
+    inline Thread::id Thread::getId() const noexcept
     {
         return m_thread.get_id();
     }
 
-    inline Thread::native_handle_type Thread::native_handle()
+    inline Thread::native_handle_type Thread::nativeHandle()
     {
         return m_thread.native_handle();
     }
 
-    inline unsigned int Thread::hardware_concurrency() noexcept
+    inline unsigned int Thread::hardwareConcurrency() noexcept
     {
         return std::thread::hardware_concurrency();
     }

@@ -7,8 +7,8 @@ namespace datasuite
     {
     }
 
-    json ControlMessenger::send_to_shell(const json& message)
+    json ControlMessenger::sendToShell(const json& message)
     {
-        return send_to_shell_impl(message);
+        return sendToShellImpl(message);
     }
 }

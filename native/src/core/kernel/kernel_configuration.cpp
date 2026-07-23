@@ -8,7 +8,7 @@ namespace datasuite
 {
     namespace
     {
-        void load_common_configuration(const json& doc, CommonConfiguration& res)
+        void loadCommonConfiguration(const json& doc, CommonConfiguration& res)
         {
             res.m_transport = doc["transport"].get<std::string>();
             res.m_ip = doc["ip"].get<std::string>();
@@ -23,10 +23,10 @@ namespace datasuite
             }
         }
 
-        KernelConfiguration load_kernel_configuration(const json& doc)
+        KernelConfiguration loadKernelConfiguration(const json& doc)
         {
             KernelConfiguration res;
-            load_common_configuration(doc, res);
+            loadCommonConfiguration(doc, res);
             res.m_controlPort = std::to_string(doc["control_port"].get<int>());
             res.m_shellPort = std::to_string(doc["shell_port"].get<int>());
             res.m_stdinPort = std::to_string(doc["stdin_port"].get<int>());
@@ -35,10 +35,10 @@ namespace datasuite
             return res;
         }
 
-        RegistrationConfiguration load_registration_configuration(const json& doc)
+        RegistrationConfiguration loadRegistrationConfiguration(const json& doc)
         {
             RegistrationConfiguration res;
-            load_common_configuration(doc, res);
+            loadCommonConfiguration(doc, res);
             res.m_kernelId = doc["kernel_id"].get<std::string>();
             res.m_registrationIp = doc["registration_ip"].get<std::string>();
             res.m_registrationPort = doc["registration_port"].get<std::string>();
@@ -46,7 +46,7 @@ namespace datasuite
         }
     }
 
-    configuration load_configuration(const std::string& file_name)
+    configuration loadConfiguration(const std::string& file_name)
     {
         std::ifstream ifs(file_name);
 
@@ -56,11 +56,11 @@ namespace datasuite
         std::string registration_ip = doc.value("registration_ip", "");
         if (registration_ip != "")
         {
-            return load_registration_configuration(doc);
+            return loadRegistrationConfiguration(doc);
         }
         else
         {
-            return load_kernel_configuration(doc);
+            return loadKernelConfiguration(doc);
         }
     }
 }

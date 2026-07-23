@@ -17,8 +17,8 @@ namespace datasuite
 
     private:
 
-        void start_impl(PubMessage msg) override;
-        void stop_impl() override;
+        void startImpl(PubMessage msg) override;
+        void stopImpl() override;
     };
 }
 

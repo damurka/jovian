@@ -7,7 +7,7 @@ namespace datasuite
     {
         const std::string DELIMITER = "<IDS|MSG>";
 
-        bool is_delimiter(zmq::message_t& frame)
+        bool isDelimiter(zmq::message_t& frame)
         {
             std::size_t frame_size = frame.size();
             if (frame_size != DELIMITER.size())
@@ -19,12 +19,12 @@ namespace datasuite
             return check == DELIMITER;
         }
 
-        RawBuffer make_raw_buffer(zmq::message_t& msg)
+        RawBuffer makeRawBuffer(zmq::message_t& msg)
         {
-            return ZmqSerializer::make_raw_buffer(msg);
+            return ZmqSerializer::makeRawBuffer(msg);
         }
 
-        void parse_zmq_message(const zmq::message_t& msg, json& j)
+        void parseZmqMessage(const zmq::message_t& msg, json& j)
         {
             const char* buf = msg.data<const char>();
             try {
@@ -49,25 +49,25 @@ namespace datasuite
             }
         }
 
-        zmq::message_t write_zmq_message(const json& json, json::error_handler_t error_handler)
+        zmq::message_t writeZmqMessage(const json& json, json::error_handler_t error_handler)
         {
             std::string buffer = json.dump(-1, ' ', false, error_handler);
             return zmq::message_t(buffer.c_str(), buffer.size());
         }
 
-        void serialize_message_base(MessageBase&& msg,
+        void serializeMessageBase(MessageBase&& msg,
             const Authentication& auth,
             json::error_handler_t error_handler,
             zmq::multipart_t& wire_msg)
         {
-            zmq::message_t header = write_zmq_message(msg.header(), error_handler);
-            zmq::message_t parent_header = write_zmq_message(msg.parent_header(), error_handler);
-            zmq::message_t metadata = write_zmq_message(msg.metadata(), error_handler);
-            zmq::message_t content = write_zmq_message(msg.content(), error_handler);
-            std::string sig = auth.sign(make_raw_buffer(header),
-                make_raw_buffer(parent_header),
-                make_raw_buffer(metadata),
-                make_raw_buffer(content));
+            zmq::message_t header = writeZmqMessage(msg.header(), error_handler);
+            zmq::message_t parent_header = writeZmqMessage(msg.parentHeader(), error_handler);
+            zmq::message_t metadata = writeZmqMessage(msg.metadata(), error_handler);
+            zmq::message_t content = writeZmqMessage(msg.content(), error_handler);
+            std::string sig = auth.sign(makeRawBuffer(header),
+                makeRawBuffer(parent_header),
+                makeRawBuffer(metadata),
+                makeRawBuffer(content));
             zmq::message_t signature(sig.begin(), sig.end());
 
             wire_msg.add(std::move(signature));
@@ -83,7 +83,7 @@ namespace datasuite
             }
         }
 
-        std::tuple<json, json, json, json, buffer_sequence>  deserialize_message_base(zmq::multipart_t& wire_msg,
+        std::tuple<json, json, json, json, buffer_sequence>  deserializeMessageBase(zmq::multipart_t& wire_msg,
             const Authentication& auth)
         {
             zmq::message_t signature = wire_msg.pop();
@@ -93,10 +93,10 @@ namespace datasuite
             zmq::message_t content = wire_msg.pop();
 
             json j_header, j_parent_header, j_metadata, j_content;
-            parse_zmq_message(header, j_header);
-            parse_zmq_message(parent_header, j_parent_header);
-            parse_zmq_message(metadata, j_metadata);
-            parse_zmq_message(content, j_content);
+            parseZmqMessage(header, j_header);
+            parseZmqMessage(parent_header, j_parent_header);
+            parseZmqMessage(metadata, j_metadata);
+            parseZmqMessage(content, j_content);
 
             buffer_sequence buffers;
             while (!wire_msg.empty())
@@ -107,11 +107,11 @@ namespace datasuite
             }
 
             // TODO: should we verify with buffers
-            if (!auth.verify(make_raw_buffer(signature),
-                make_raw_buffer(header),
-                make_raw_buffer(parent_header),
-                make_raw_buffer(metadata),
-                make_raw_buffer(content)))
+            if (!auth.verify(makeRawBuffer(signature),
+                makeRawBuffer(header),
+                makeRawBuffer(parent_header),
+                makeRawBuffer(metadata),
+                makeRawBuffer(content)))
             {
                 throw std::runtime_error("ERROR: Signatures don't match");
             }
@@ -125,13 +125,13 @@ namespace datasuite
             };
         }
 
-        void serialize_topic(const PubMessage& msg, zmq::multipart_t& wire_msg)
+        void serializeTopic(const PubMessage& msg, zmq::multipart_t& wire_msg)
         {
             wire_msg.add(zmq::message_t(msg.topic().begin(), msg.topic().end()));
             wire_msg.add(zmq::message_t(DELIMITER.begin(), DELIMITER.end()));
         }
 
-        std::string deserialize_topic(zmq::multipart_t& wire_msg)
+        std::string deserializeTopic(zmq::multipart_t& wire_msg)
         {
             zmq::message_t topic_msg = wire_msg.pop();
             std::string topic = std::string(topic_msg.data<const char>(), topic_msg.size());
@@ -145,16 +145,16 @@ namespace datasuite
         json::error_handler_t error_handler)
     {
         zmq::multipart_t wire_msg;
-        serialize_zmq_id(msg.identities(), wire_msg);
-        serialize_message_base(std::move(msg), auth, error_handler, wire_msg);
+        serializeZmqId(msg.identities(), wire_msg);
+        serializeMessageBase(std::move(msg), auth, error_handler, wire_msg);
         return wire_msg;
     }
 
     Message ZmqSerializer::deserialize(zmq::multipart_t& wire_msg,
         const Authentication& auth)
     {
-        Message::guid_list zmq_id = deserialize_zmq_id(wire_msg);
-        auto [header, parent_header, metadata, content, buffers] = deserialize_message_base(wire_msg, auth);
+        Message::guid_list zmq_id = deserializeZmqId(wire_msg);
+        auto [header, parent_header, metadata, content, buffers] = deserializeMessageBase(wire_msg, auth);
         return Message(
             std::move(zmq_id),
             std::move(header),
@@ -165,21 +165,21 @@ namespace datasuite
         );
     }
 
-    zmq::multipart_t ZmqSerializer::serialize_iopub(PubMessage&& msg,
+    zmq::multipart_t ZmqSerializer::serializeIopub(PubMessage&& msg,
         const Authentication& auth,
         json::error_handler_t error_handler)
     {
         zmq::multipart_t wire_msg;
-        serialize_topic(msg, wire_msg);
-        serialize_message_base(std::move(msg), auth, error_handler, wire_msg);
+        serializeTopic(msg, wire_msg);
+        serializeMessageBase(std::move(msg), auth, error_handler, wire_msg);
         return wire_msg;
     }
 
-    PubMessage ZmqSerializer::deserialize_iopub(zmq::multipart_t& wire_msg,
+    PubMessage ZmqSerializer::deserializeIopub(zmq::multipart_t& wire_msg,
         const Authentication& auth)
     {
-        std::string topic = deserialize_topic(wire_msg);
-        auto [header, parent_header, metadata, content, buffers] = deserialize_message_base(wire_msg, auth);
+        std::string topic = deserializeTopic(wire_msg);
+        auto [header, parent_header, metadata, content, buffers] = deserializeMessageBase(wire_msg, auth);
         return PubMessage(topic,
             std::move(header),
             std::move(parent_header),
@@ -189,7 +189,7 @@ namespace datasuite
         );
     }
 
-    void ZmqSerializer::serialize_zmq_id(const Message::guid_list& ids, zmq::multipart_t& wire_msg)
+    void ZmqSerializer::serializeZmqId(const Message::guid_list& ids, zmq::multipart_t& wire_msg)
     {
         auto app = [&wire_msg](const std::string& uid) {
             wire_msg.add(zmq::message_t(uid.begin(), uid.end()));
@@ -198,13 +198,13 @@ namespace datasuite
         wire_msg.add(zmq::message_t(DELIMITER.begin(), DELIMITER.end()));
     }
 
-    Message::guid_list ZmqSerializer::deserialize_zmq_id(zmq::multipart_t& wire_msg)
+    Message::guid_list ZmqSerializer::deserializeZmqId(zmq::multipart_t& wire_msg)
     {
         Message::guid_list zmq_id;
         zmq::message_t frame = wire_msg.pop();
 
         // ZMQ identites
-        while (!is_delimiter(frame) && wire_msg.size() != 0)
+        while (!isDelimiter(frame) && wire_msg.size() != 0)
         {
             zmq_id.emplace_back(frame.data<const char>(), frame.size());
             frame = wire_msg.pop();
@@ -218,7 +218,7 @@ namespace datasuite
         return zmq_id;
     }
 
-    RawBuffer ZmqSerializer::make_raw_buffer(zmq::message_t& msg)
+    RawBuffer ZmqSerializer::makeRawBuffer(zmq::message_t& msg)
     {
         return RawBuffer(msg.data<const unsigned char>(), msg.size());
     }

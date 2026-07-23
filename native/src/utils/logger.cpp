@@ -4,28 +4,28 @@
 
 namespace datasuite
 {
-    void Logger::log_received_message(const Message& message, channel c) const
+    void Logger::logReceivedMessage(const Message& message, channel c) const
     {
-        log_received_message_impl(message, c);
+        logReceivedMessageImpl(message, c);
     }
 
-    void Logger::log_sent_message(const Message& message, channel c) const
+    void Logger::logSentMessage(const Message& message, channel c) const
     {
-        log_sent_message_impl(message, c);
+        logSentMessageImpl(message, c);
     }
 
-    void Logger::log_iopub_message(const PubMessage& message) const
+    void Logger::logIopubMessage(const PubMessage& message) const
     {
-        log_iopub_message_impl(message);
+        logIopubMessageImpl(message);
     }
 
-    void Logger::log_message(const std::string& socket_info,
+    void Logger::logMessage(const std::string& socket_info,
         const json& header,
         const json& parent_header,
         const json& metadata,
         const json& content_json) const
     {
-        log_message_impl(socket_info,
+        logMessageImpl(socket_info,
             header,
             parent_header,
             metadata,

@@ -7,7 +7,7 @@ namespace datasuite
     // =========================================================================
     // DATASUITE SERVER IMPLEMENTATION
     // =========================================================================
-    void DatasuiteServer::setup_environment() {
+    void DatasuiteServer::setupEnvironment() {
         printf("[DatasuiteServer] setup_environment() called\n");
         fflush(stdout);
 
@@ -71,9 +71,9 @@ namespace datasuite
         server_thread = std::thread([this, config, on_ready]() {
             try {
                 // CRITICAL: Setup R environment BEFORE initializing R interpreter!
-                this->setup_environment();
+                this->setupEnvironment();
 
-                auto context = make_zmq_context();
+                auto context = makeZmqContext();
                 // Don't use --vanilla, it prevents loading default packages
                 char* r_argv[] = { (char*)"R", (char*)"--quiet", (char*)"--no-save", (char*)"--no-restore" };
                 int r_argc = sizeof(r_argv) / sizeof(r_argv[0]);
@@ -81,10 +81,10 @@ namespace datasuite
                 using interpreter_ptr = std::unique_ptr<RInterpreter>;
                 interpreter_ptr interpreter = interpreter_ptr(new RInterpreter(r_argc, r_argv));
 
-                auto history = make_in_memory_history_manager();
-                auto logger = make_console_logger(Logger::level::msg_type);
+                auto history = makeInMemoryHistoryManager();
+                auto logger = makeConsoleLogger(Logger::level::msg_type);
 
-                Kernel engine(config, get_user_name(), std::move(context), std::move(interpreter), make_server_default, std::move(history), std::move(logger));
+                Kernel engine(config, getUserName(), std::move(context), std::move(interpreter), makeServerDefault, std::move(history), std::move(logger));
 
                 if (on_ready) {
 					on_ready();
@@ -112,8 +112,8 @@ namespace datasuite
     // DATASUITE CLIENT IMPLEMENTATION
     // =========================================================================
     void DatasuiteClient::start(const KernelConfiguration& config) {
-        client_context = make_zmq_context();
-        zmq_client = make_client_zmq(*client_context, config);
+        client_context = makeZmqContext();
+        zmq_client = makeClientZmq(*client_context, config);
         zmq_client->connect();
         zmq_client->start();
     }
@@ -121,7 +121,7 @@ namespace datasuite
     std::string DatasuiteClient::execute(const std::string& code) {
         if (!zmq_client) return std::string();
 
-        json header = make_header("execute_request", "client_user", "session_1");
+        json header = makeHeader("execute_request", "client_user", "session_1");
         std::string msg_id = header.value("msg_id", "");
         json content = {
             {"code", code},
@@ -132,7 +132,7 @@ namespace datasuite
         };
 
         Message req({ "client_id" }, header, json::object(), json::object(), content, buffer_sequence());
-        zmq_client->send_on_shell(std::move(req));
+        zmq_client->sendOnShell(std::move(req));
 
         return msg_id;
     }
@@ -140,13 +140,13 @@ namespace datasuite
     void DatasuiteClient::stop() {
         if (!zmq_client) return;
 
-        json shut_header = make_header("shutdown_request", "client_user", "session_1");
+        json shut_header = makeHeader("shutdown_request", "client_user", "session_1");
         json shut_content = { {"restart", false} };
         Message shut_req({ "client_id" }, shut_header, json::object(), json::object(), shut_content, buffer_sequence());
 
         // Send shutdown command on the Control channel
-        zmq_client->send_on_control(std::move(shut_req));
-        zmq_client->stop_channels();
+        zmq_client->sendOnControl(std::move(shut_req));
+        zmq_client->stopChannels();
     }
 
     // =========================================================================
@@ -157,29 +157,29 @@ namespace datasuite
         // Each DatasuiteEngine embeds its own R interpreter in this process
         // and binds its own set of ZMQ ports, so a second concurrently
         // running engine (e.g. a second R session) must not collide with
-        // the first on any of them. find_free_port() (middleware.hpp) asks
+        // the first on any of them. findFreePort() (middleware.hpp) asks
         // the OS for an available ephemeral port instead of hardcoding one.
-        KernelConfiguration make_localhost_configuration()
+        KernelConfiguration makeLocalhostConfiguration()
         {
             KernelConfiguration config;
             config.m_transport = "tcp";
             config.m_ip = "127.0.0.1";
-            config.m_shellPort = find_free_port();
-            config.m_controlPort = find_free_port();
-            config.m_stdinPort = find_free_port();
-            config.m_iopubPort = find_free_port();
-            config.m_hbPort = find_free_port();
+            config.m_shellPort = findFreePort();
+            config.m_controlPort = findFreePort();
+            config.m_stdinPort = findFreePort();
+            config.m_iopubPort = findFreePort();
+            config.m_hbPort = findFreePort();
             config.m_signatureScheme = "hmac-sha256";
             config.m_key = "shared-secret-key";
             return config;
         }
     }
 
-    DatasuiteEngine::DatasuiteEngine() : config(make_localhost_configuration()), server() {
+    DatasuiteEngine::DatasuiteEngine() : config(makeLocalhostConfiguration()), server() {
     }
 
     DatasuiteEngine::DatasuiteEngine(const EnvironmentConfig& env)
-        : config(make_localhost_configuration()), env_config(env), server(env) {
+        : config(makeLocalhostConfiguration()), env_config(env), server(env) {
     }
 
     void DatasuiteEngine::init() {
@@ -212,7 +212,7 @@ namespace datasuite
         is_running = true;
 
         // 3. Start the Background Polling Thread
-        polling_thread = std::thread(&DatasuiteEngine::poll_messages, this);
+        polling_thread = std::thread(&DatasuiteEngine::pollMessages, this);
     }
 
     std::string DatasuiteEngine::execute(const std::string& code) {
@@ -236,20 +236,20 @@ namespace datasuite
         server.stop();
     }
 
-    void DatasuiteEngine::poll_messages() {
-        auto* zmq = client.get_zmq_client();
+    void DatasuiteEngine::pollMessages() {
+        auto* zmq = client.getZmqClient();
 
         while (is_running) {
             // Drain IOPUB messages (print statements, images, results)
-            while (zmq->iopub_queue_size() > 0) {
-                if (auto pub_opt = zmq->pop_iopub_message()) {
+            while (zmq->iopubQueueSize() > 0) {
+                if (auto pub_opt = zmq->popIopubMessage()) {
                     auto& msg = pub_opt.value();
 
                     json envelope = {
                         {"channel", "iopub"},
                         {"topic", msg.topic()},
                         {"msg_type", msg.header().value("msg_type", "")},
-                        {"parent_msg_id", msg.parent_header().value("msg_id", "")},
+                        {"parent_msg_id", msg.parentHeader().value("msg_id", "")},
                         {"content", msg.content()}
                     };
                     on_message_callback(envelope.dump());
@@ -257,14 +257,14 @@ namespace datasuite
             }
 
             // Check Shell messages (Execution Reply / Errors)
-            if (auto shell_opt = zmq->receive_on_shell(false)) {
+            if (auto shell_opt = zmq->receiveOnShell(false)) {
                 auto& msg = shell_opt.value();
 
                 json envelope = {
                     {"channel", "shell"},
                     {"topic", msg.header().value("msg_type", "")},
                     {"msg_type", msg.header().value("msg_type", "")},
-                    {"parent_msg_id", msg.parent_header().value("msg_id", "")},
+                    {"parent_msg_id", msg.parentHeader().value("msg_id", "")},
                     {"content", msg.content()}
                 };
                 on_message_callback(envelope.dump());

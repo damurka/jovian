@@ -17,7 +17,7 @@
 
 namespace datasuite
 {
-    Guid new_guid()
+    Guid newGuid()
     {
         static constexpr std::size_t GUID_SIZE = 16;
         std::array<unsigned char, GUID_SIZE> raw_bytes;

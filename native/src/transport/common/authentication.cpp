@@ -49,28 +49,28 @@ namespace datasuite
 
     private:
 
-        std::string sign_impl(const RawBuffer& header,
+        std::string signImpl(const RawBuffer& header,
             const RawBuffer& parent_header,
             const RawBuffer& meta_data,
             const RawBuffer& content) const override;
 
-        bool verify_impl(const RawBuffer& signature,
+        bool verifyImpl(const RawBuffer& signature,
             const RawBuffer& header,
             const RawBuffer& parent_header,
             const RawBuffer& meta_data,
             const RawBuffer& content) const override;
 
-        std::string compute_hex_signature(const RawBuffer& header,
+        std::string computeHexSignature(const RawBuffer& header,
             const RawBuffer& parent_header,
             const RawBuffer& meta_data,
             const RawBuffer& content) const;
 
-        std::string sign_impl(const RawBuffer& content) const override;
-        bool verify_impl(const RawBuffer& signature, const RawBuffer& content) const override;
-        std::string compute_hex_signature(const RawBuffer& content) const;
+        std::string signImpl(const RawBuffer& content) const override;
+        bool verifyImpl(const RawBuffer& signature, const RawBuffer& content) const override;
+        std::string computeHexSignature(const RawBuffer& content) const;
 
-        void init_hex_signature() const;
-        std::string finalize_hex_signature() const;
+        void initHexSignature() const;
+        std::string finalizeHexSignature() const;
 
         std::string m_key;
 #if OPENSSL_VERSION_NUMBER < 0x30000000L
@@ -95,19 +95,19 @@ namespace datasuite
 
     private:
 
-        std::string sign_impl(const RawBuffer& header,
+        std::string signImpl(const RawBuffer& header,
             const RawBuffer& parent_header,
             const RawBuffer& meta_data,
             const RawBuffer& content) const override;
 
-        bool verify_impl(const RawBuffer& signature,
+        bool verifyImpl(const RawBuffer& signature,
             const RawBuffer& header,
             const RawBuffer& parent_header,
             const RawBuffer& meta_data,
             const RawBuffer& content) const override;
 
-        std::string sign_impl(const RawBuffer& content) const override;
-        bool verify_impl(const RawBuffer& signature, const RawBuffer& content) const override;
+        std::string signImpl(const RawBuffer& content) const override;
+        bool verifyImpl(const RawBuffer& signature, const RawBuffer& content) const override;
     };
 
     std::string Authentication::sign(const RawBuffer& header,
@@ -115,7 +115,7 @@ namespace datasuite
         const RawBuffer& meta_data,
         const RawBuffer& content) const
     {
-        return sign_impl(header, parent_header, meta_data, content);
+        return signImpl(header, parent_header, meta_data, content);
     }
 
     bool Authentication::verify(const RawBuffer& signature,
@@ -124,20 +124,20 @@ namespace datasuite
         const RawBuffer& meta_data,
         const RawBuffer& content) const
     {
-        return verify_impl(signature, header, parent_header, meta_data, content);
+        return verifyImpl(signature, header, parent_header, meta_data, content);
     }
 
     std::string Authentication::sign(const RawBuffer& content) const
     {
-        return sign_impl(content);
+        return signImpl(content);
     }
 
     bool Authentication::verify(const RawBuffer& signature, const RawBuffer& content) const
     {
-        return verify_impl(signature, content);
+        return verifyImpl(signature, content);
     }
 
-    std::unique_ptr<Authentication> make_authentication(const std::string& scheme,
+    std::unique_ptr<Authentication> makeAuthentication(const std::string& scheme,
         const std::string& key)
     {
         if (scheme == "none")
@@ -220,34 +220,34 @@ namespace datasuite
 #endif
     }
 
-    std::string OpensslAuthentication::sign_impl(const RawBuffer& header,
+    std::string OpensslAuthentication::signImpl(const RawBuffer& header,
         const RawBuffer& parent_header,
         const RawBuffer& meta_data,
         const RawBuffer& content) const
     {
         std::lock_guard<std::mutex> lock(m_macMutex);
-        std::string hex_sig = compute_hex_signature(header, parent_header, meta_data, content);
+        std::string hex_sig = computeHexSignature(header, parent_header, meta_data, content);
         return hex_sig;
     }
 
-    bool OpensslAuthentication::verify_impl(const RawBuffer& signature,
+    bool OpensslAuthentication::verifyImpl(const RawBuffer& signature,
         const RawBuffer& header,
         const RawBuffer& parent_header,
         const RawBuffer& meta_data,
         const RawBuffer& content) const
     {
         std::lock_guard<std::mutex> lock(m_macMutex);
-        std::string hex_sig = compute_hex_signature(header, parent_header, meta_data, content);
+        std::string hex_sig = computeHexSignature(header, parent_header, meta_data, content);
         auto cmp = CRYPTO_memcmp(reinterpret_cast<const void*>(hex_sig.c_str()), signature.data(), hex_sig.size());
         return cmp == 0;
     }
 
-    std::string OpensslAuthentication::compute_hex_signature(const RawBuffer& header,
+    std::string OpensslAuthentication::computeHexSignature(const RawBuffer& header,
         const RawBuffer& parent_header,
         const RawBuffer& meta_data,
         const RawBuffer& content) const
     {
-        init_hex_signature();
+        initHexSignature();
 #if OPENSSL_VERSION_NUMBER < 0x30000000L
         HMAC_Update(m_hmac, header.data(), header.size());
         HMAC_Update(m_hmac, parent_header.data(), parent_header.size());
@@ -259,36 +259,36 @@ namespace datasuite
         EVP_MAC_update(m_evpMacCtx, meta_data.data(), meta_data.size());
         EVP_MAC_update(m_evpMacCtx, content.data(), content.size());
 #endif
-        return finalize_hex_signature();
+        return finalizeHexSignature();
     }
 
-    std::string OpensslAuthentication::sign_impl(const RawBuffer& content) const
+    std::string OpensslAuthentication::signImpl(const RawBuffer& content) const
     {
         std::lock_guard<std::mutex> lock(m_macMutex);
-        std::string hex_sig = compute_hex_signature(content);
+        std::string hex_sig = computeHexSignature(content);
         return hex_sig;
     }
 
-    bool OpensslAuthentication::verify_impl(const RawBuffer& signature, const RawBuffer& content) const
+    bool OpensslAuthentication::verifyImpl(const RawBuffer& signature, const RawBuffer& content) const
     {
         std::lock_guard<std::mutex> lock(m_macMutex);
-        std::string hex_sig = compute_hex_signature(content);
+        std::string hex_sig = computeHexSignature(content);
         auto cmp = CRYPTO_memcmp(reinterpret_cast<const void*>(hex_sig.c_str()), signature.data(), hex_sig.size());
         return cmp == 0;
     }
 
-    std::string OpensslAuthentication::compute_hex_signature(const RawBuffer& content) const
+    std::string OpensslAuthentication::computeHexSignature(const RawBuffer& content) const
     {
-        init_hex_signature();
+        initHexSignature();
 #if OPENSSL_VERSION_NUMBER < 0x30000000L
         HMAC_Update(m_hmac, content.data(), content.size());
 #else
         EVP_MAC_update(m_evpMacCtx, content.data(), content.size());
 #endif
-        return finalize_hex_signature();
+        return finalizeHexSignature();
     }
 
-    void OpensslAuthentication::init_hex_signature() const
+    void OpensslAuthentication::initHexSignature() const
     {
 #if OPENSSL_VERSION_NUMBER < 0x30000000L
         HMAC_Init_ex(m_hmac, m_key.c_str(), m_key.size(), m_evp, nullptr);
@@ -297,7 +297,7 @@ namespace datasuite
 #endif
     }
 
-    std::string OpensslAuthentication::finalize_hex_signature() const
+    std::string OpensslAuthentication::finalizeHexSignature() const
     {
 #if OPENSSL_VERSION_NUMBER < 0x30000000L
         auto sig = std::vector<unsigned char>(EVP_MD_size(m_evp));
@@ -320,7 +320,7 @@ namespace datasuite
         return hex_result;
     }
 
-    std::string NoAuthentication::sign_impl(const RawBuffer& /*header*/,
+    std::string NoAuthentication::signImpl(const RawBuffer& /*header*/,
         const RawBuffer& /*parent_header*/,
         const RawBuffer& /*meta_data*/,
         const RawBuffer& /*content*/) const
@@ -328,7 +328,7 @@ namespace datasuite
         return {};
     }
 
-    bool NoAuthentication::verify_impl(const RawBuffer& /*signature*/,
+    bool NoAuthentication::verifyImpl(const RawBuffer& /*signature*/,
         const RawBuffer& /*header*/,
         const RawBuffer& /*parent_header*/,
         const RawBuffer& /*meta_data*/,
@@ -337,12 +337,12 @@ namespace datasuite
         return true;
     }
 
-    std::string NoAuthentication::sign_impl(const RawBuffer&) const
+    std::string NoAuthentication::signImpl(const RawBuffer&) const
     {
         return {};
     }
 
-    bool NoAuthentication::verify_impl(const RawBuffer&, const RawBuffer&) const
+    bool NoAuthentication::verifyImpl(const RawBuffer&, const RawBuffer&) const
     {
         return true;
     }

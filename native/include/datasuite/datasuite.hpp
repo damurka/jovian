@@ -39,7 +39,7 @@ namespace datasuite {
 		inline constexpr int kernel_protocol_minor = 6;
 
         // Compile-time string generator to replace DATASUITE_CONCATENATE and DATASUITE_STRINGIFY
-        consteval auto make_version_string() {
+        consteval auto makeVersionString() {
             std::array<char, 16> buf{};
             int index = 0;
 
@@ -72,7 +72,7 @@ namespace datasuite {
         }
 
         // Evaluate the array into static storage at compile time
-        inline constexpr auto kernel_protocol_version_arr = make_version_string();
+        inline constexpr auto kernel_protocol_version_arr = makeVersionString();
 
         // Expose as a clean, globally readable string_view
         inline constexpr std::string_view kernel_protocol_version{ kernel_protocol_version_arr.data() };

@@ -16,7 +16,7 @@ TEST(MessageTest, MessageBaseConstruction) {
     message msg(zmq_id, header, parent_header, metadata, content, buffers);
 
     EXPECT_EQ(msg.header(), header);
-    EXPECT_EQ(msg.parent_header(), parent_header);
+    EXPECT_EQ(msg.parentHeader(), parent_header);
     EXPECT_EQ(msg.metadata(), metadata);
     EXPECT_EQ(msg.content(), content);
     EXPECT_EQ(msg.buffers().size(), 1);
@@ -56,7 +56,7 @@ TEST(MessageTest, MakeHeader) {
     std::string user_name = "test_user";
     std::string session_id = "session_123";
 
-    json header = make_header(msg_type, user_name, session_id);
+    json header = makeHeader(msg_type, user_name, session_id);
 
     EXPECT_EQ(header["msg_type"], msg_type);
     EXPECT_EQ(header["username"], user_name);

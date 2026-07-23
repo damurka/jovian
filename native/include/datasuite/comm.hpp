@@ -36,10 +36,10 @@ namespace datasuite
 
         void operator()(Comm&& c, Message request) const;
 
-        void publish_message(const std::string&, json, json, buffer_sequence) const;
+        void publishMessage(const std::string&, json, json, buffer_sequence) const;
 
-        void register_comm(Guid, Comm*) const;
-        void unregister_comm(Guid) const;
+        void registerComm(Guid, Comm*) const;
+        void unregisterComm(Guid) const;
 
     private:
 
@@ -63,7 +63,7 @@ namespace datasuite
 
         using handler_type = std::function<void(Message)>;
 
-        explicit Comm(const CommTarget* target, Guid id = datasuite::new_guid());
+        explicit Comm(const CommTarget* target, Guid id = datasuite::newGuid());
         ~Comm();
         Comm(Comm&&);
         Comm(const Comm&);
@@ -77,26 +77,26 @@ namespace datasuite
 
         const CommTarget& target() const noexcept;
 
-        void handle_message(Message request);
-        void handle_close(Message request);
+        void handleMessage(Message request);
+        void handleClose(Message request);
 
         Guid id() const noexcept;
 
         template <class T>
-        void on_message(T&& handler);
+        void onMessage(T&& handler);
         template <class T>
-        void on_close(T&& handler);
+        void onClose(T&& handler);
 
     private:
 
         friend class CommManager;
 
-        void send_comm_message(const std::string& msg_type,
+        void sendCommMessage(const std::string& msg_type,
             json metadata,
             json data,
             buffer_sequence) const;
 
-        void send_comm_message(const std::string& msg_type,
+        void sendCommMessage(const std::string& msg_type,
             json metadata,
             json data,
             buffer_sequence,
@@ -123,13 +123,13 @@ namespace datasuite
 
         using target_function_type = CommTarget::function_type;
 
-        void register_comm_target(const std::string& target_name,
+        void registerCommTarget(const std::string& target_name,
             const target_function_type& callback);
-        void unregister_comm_target(const std::string& target_name);
+        void unregisterCommTarget(const std::string& target_name);
 
-        void comm_open(Message request);
-        void comm_close(Message request);
-        void comm_msg(Message request);
+        void commOpen(Message request);
+        void commClose(Message request);
+        void commMsg(Message request);
 
         const std::map<Guid, Comm*>& comms() const noexcept;
 
@@ -139,10 +139,10 @@ namespace datasuite
 
         friend class CommTarget;
 
-        void register_comm(Guid, Comm*);
-        void unregister_comm(Guid);
+        void registerComm(Guid, Comm*);
+        void unregisterComm(Guid);
 
-        json get_metadata() const;
+        json getMetadata() const;
 
         std::map<Guid, Comm*> m_comms;
         std::map<std::string, CommTarget> m_targets;
@@ -154,13 +154,13 @@ namespace datasuite
      ************************/
 
     template <class T>
-    inline void Comm::on_message(T&& handler)
+    inline void Comm::onMessage(T&& handler)
     {
         m_messageHandler = std::forward<T>(handler);
     }
 
     template <class T>
-    inline void Comm::on_close(T&& handler)
+    inline void Comm::onClose(T&& handler)
     {
         m_closeHandler = std::forward<T>(handler);
     }

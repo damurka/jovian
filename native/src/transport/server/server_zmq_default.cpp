@@ -9,38 +9,38 @@ namespace datasuite
     {
     }
 
-    void ServerZmqDefault::start_impl(PubMessage msg)
+    void ServerZmqDefault::startImpl(PubMessage msg)
     {
-        start_publisher_thread();
-        start_heartbeat_thread();
+        startPublisherThread();
+        startHeartbeatThread();
 
         publish(std::move(msg), channel::SHELL);
 
-        while (!is_stopped())
+        while (!isStopped())
         {
-            auto msg = poll_channels(-1);
+            auto msg = pollChannels(-1);
             if (msg)
             {
                 if (msg.value().second == channel::SHELL)
                 {
-                    notify_shell_listener(std::move(msg.value().first));
+                    notifyShellListener(std::move(msg.value().first));
                 }
                 else
                 {
-                    notify_control_listener(std::move(msg.value().first));
+                    notifyControlListener(std::move(msg.value().first));
                 }
             }
         }
 
-        stop_channels();
+        stopChannels();
     }
 
-    void ServerZmqDefault::stop_impl()
+    void ServerZmqDefault::stopImpl()
     {
-        set_request_stop(true);
+        setRequestStop(true);
     }
 
-    std::unique_ptr<Server> make_server_default(Context& context,
+    std::unique_ptr<Server> makeServerDefault(Context& context,
         const configuration& config,
         json::error_handler_t eh)
     {

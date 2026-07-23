@@ -6,17 +6,17 @@
 
 namespace datasuite
 {
-    std::string get_controller_end_point(const std::string& channel)
+    std::string getControllerEndPoint(const std::string& channel)
     {
         return "inproc://" + channel + "_controller";
     }
 
-    std::string get_publisher_end_point()
+    std::string getPublisherEndPoint()
     {
         return "inproc://publisher";
     }
 
-    std::string get_end_point(const std::string& transport,
+    std::string getEndPoint(const std::string& transport,
         const std::string& ip,
         const std::string& port)
     {
@@ -24,12 +24,12 @@ namespace datasuite
         return transport + "://" + ip + sep + port;
     }
 
-    int get_socket_linger()
+    int getSocketLinger()
     {
         return 1000;
     }
 
-    std::string find_free_port_impl(zmq::socket_t& socket,
+    std::string findFreePortImpl(zmq::socket_t& socket,
         const std::string& transport,
         const std::string& ip,
         std::size_t max_tries,
@@ -45,7 +45,7 @@ namespace datasuite
         do
         {
             rd_port = std::to_string(distribution(generator));
-        } while (++tries <= max_tries && zmq_bind(socket, get_end_point(transport, ip, rd_port).c_str()) != 0);
+        } while (++tries <= max_tries && zmq_bind(socket, getEndPoint(transport, ip, rd_port).c_str()) != 0);
 
         if (tries > max_tries)
         {
@@ -55,43 +55,43 @@ namespace datasuite
         return rd_port;
     }
 
-    void init_socket(zmq::socket_t& socket,
+    void initSocket(zmq::socket_t& socket,
         const std::string& transport,
         const std::string& ip,
         const std::string& port)
     {
-        socket.set(zmq::sockopt::linger, get_socket_linger());
+        socket.set(zmq::sockopt::linger, getSocketLinger());
 
         if (!port.empty())
         {
-            socket.bind(get_end_point(transport, ip, port));
+            socket.bind(getEndPoint(transport, ip, port));
         }
         else
         {
-            find_free_port_impl(socket, transport, ip, 100, 49152, 65536);
+            findFreePortImpl(socket, transport, ip, 100, 49152, 65536);
         }
     }
 
-    void init_socket(zmq::socket_t& socket, const std::string& end_point)
+    void initSocket(zmq::socket_t& socket, const std::string& end_point)
     {
-        socket.set(zmq::sockopt::linger, get_socket_linger());
+        socket.set(zmq::sockopt::linger, getSocketLinger());
         socket.bind(end_point);
     }
 
-    std::string get_socket_port(const zmq::socket_t& socket)
+    std::string getSocketPort(const zmq::socket_t& socket)
     {
         std::string end_point = socket.get(zmq::sockopt::last_endpoint, 32);
         return end_point.substr(end_point.find_last_of(":") + 1);
     }
 
-    std::string find_free_port(std::size_t max_tries, int start, int stop)
+    std::string findFreePort(std::size_t max_tries, int start, int stop)
     {
         static const std::string transport = "tcp";
         static const std::string ip = "127.0.0.1";
         zmq::context_t ctx;
         zmq::socket_t socket(ctx, zmq::socket_type::req);
-        std::string port = find_free_port_impl(socket, transport, ip, max_tries, start, stop);
-        socket.unbind(get_end_point(transport, ip, port));
+        std::string port = findFreePortImpl(socket, transport, ip, max_tries, start, stop);
+        socket.unbind(getEndPoint(transport, ip, port));
         return port;
     }
 }

@@ -23,13 +23,13 @@ namespace datasuite
 
         ~Publisher();
 
-        std::string get_port() const;
+        std::string getPort() const;
 
         void run();
 
     private:
 
-        PubMessage create_pub_message(const std::string& topic);
+        PubMessage createPubMessage(const std::string& topic);
 
         zmq::socket_t m_publisher;
         zmq::socket_t m_listener;

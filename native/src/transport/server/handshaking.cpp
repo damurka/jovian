@@ -8,7 +8,7 @@
 
 namespace datasuite
 {
-    KernelConfiguration get_kernel_configuration(const configuration& config)
+    KernelConfiguration getKernelConfiguration(const configuration& config)
     {
         return std::visit([](const auto& conf)
             {
@@ -28,24 +28,24 @@ namespace datasuite
             }, config);
     }
 
-    void send_connection_info(
+    void sendConnectionInfo(
         zmq::context_t& context,
         const RegistrationConfiguration& regis_config,
         const KernelConfiguration& kernel_config,
         const Authentication& auth,
         json::error_handler_t error_handler)
     {
-        std::string end_point = get_end_point(
+        std::string end_point = getEndPoint(
             regis_config.m_transport,
             regis_config.m_registrationIp,
             regis_config.m_registrationPort);
         zmq::socket_t socket(context, zmq::socket_type::dealer);
-        socket.set(zmq::sockopt::linger, get_socket_linger());
+        socket.set(zmq::sockopt::linger, getSocketLinger());
         socket.set(zmq::sockopt::rcvtimeo, 5000);
         socket.connect(end_point);
 
         zmq::multipart_t wire_msg;
-        ZmqSerializer::serialize_zmq_id({}, wire_msg);
+        ZmqSerializer::serializeZmqId({}, wire_msg);
 
         json msg = {
             { "kernel_id", regis_config.m_kernelId },
@@ -57,7 +57,7 @@ namespace datasuite
         };
         std::string buffer = msg.dump(-1, ' ', false, error_handler);
         zmq::message_t content(buffer.c_str(), buffer.size());
-        std::string sig = auth.sign(ZmqSerializer::make_raw_buffer(content));
+        std::string sig = auth.sign(ZmqSerializer::makeRawBuffer(content));
         zmq::message_t signature(sig.begin(), sig.end());
         wire_msg.add(std::move(signature));
         wire_msg.add(std::move(content));
@@ -67,11 +67,11 @@ namespace datasuite
         zmq::multipart_t rep;
         rep.recv(socket);
 
-        ZmqSerializer::deserialize_zmq_id(rep);
+        ZmqSerializer::deserializeZmqId(rep);
         zmq::message_t rep_sig = rep.pop();
         zmq::message_t rep_content = rep.pop();
-        if (!auth.verify(ZmqSerializer::make_raw_buffer(rep_sig),
-            ZmqSerializer::make_raw_buffer(rep_content)))
+        if (!auth.verify(ZmqSerializer::makeRawBuffer(rep_sig),
+            ZmqSerializer::makeRawBuffer(rep_content)))
         {
             throw std::runtime_error("ERROR: Signatures don't match");
         }
