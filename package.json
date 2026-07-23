@@ -18,6 +18,11 @@
   "files": [
     "dist/lib/**/*",
     "dist/native/Release/**/*",
+    "packages/hera/DESCRIPTION",
+    "packages/hera/NAMESPACE",
+    "packages/hera/LICENSE",
+    "packages/hera/R/**/*",
+    "packages/hera/man/**/*",
     "README.md",
     "LICENSE"
   ],
@@ -35,8 +40,8 @@
     "lint:ts": "eslint lib/**/*.ts",
     "lint": "npm run lint:ts && npm run lint:cpp",
     "test": "node scripts/test.js",
-    "test:unit": "node --test --experimental-test-coverage test/unit/lib/*.test.ts",
-    "test:integration": "node --test test/integration/*.test.ts",
+    "test:unit": "node --test --test-force-exit --experimental-test-coverage test/unit/lib/*.test.ts",
+    "test:integration": "node --test --test-force-exit test/integration/*.test.ts",
     "pack:install": "npm pack && cd ../../JS/datasuite_old_with_ai && npm install ../../VS/datasuite-r/datasuite-r-1.0.0.tgz"
   },
   "keywords": [

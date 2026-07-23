@@ -1,9 +1,20 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import * as assert from 'node:assert';
 import { DatasuiteEngine } from '../../dist/lib/core/engine.js';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
+
+// The native addon's background ZMQ/R threads leave something running that
+// `node --test`'s per-file child process doesn't notice as "done" even
+// after a clean engine.stop(). Neither --test-force-exit nor this explicit
+// process.exit() reliably fixes it -- the hang's timing relative to
+// node:test's own teardown is non-deterministic, so this sometimes helps
+// and sometimes doesn't. Left in as a harmless safety net; see the timeout
+// wrapper in scripts/test.js for how `npm test` copes with this either way.
+after(() => {
+    process.exit(0);
+});
 
 test('DatasuiteEngine Integration', async (t) => {
     // Skip if native addon is not built

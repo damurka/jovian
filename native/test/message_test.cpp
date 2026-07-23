@@ -12,8 +12,8 @@ TEST(MessageTest, MessageBaseConstruction) {
     buffer_sequence buffers;
     buffers.push_back({'a', 'b', 'c'});
 
-    message::guid_list zmq_id = {"id1"};
-    message msg(zmq_id, header, parent_header, metadata, content, buffers);
+    Message::guid_list zmq_id = {"id1"};
+    Message msg(zmq_id, header, parent_header, metadata, content, buffers);
 
     EXPECT_EQ(msg.header(), header);
     EXPECT_EQ(msg.parentHeader(), parent_header);
@@ -24,14 +24,14 @@ TEST(MessageTest, MessageBaseConstruction) {
 }
 
 TEST(MessageTest, MessageConstruction) {
-    message::guid_list zmq_id = {"id1", "id2"};
+    Message::guid_list zmq_id = {"id1", "id2"};
     json header = {{"msg_id", "123"}};
     json parent_header = json::object();
     json metadata = json::object();
     json content = json::object();
     buffer_sequence buffers;
 
-    message msg(zmq_id, header, parent_header, metadata, content, buffers);
+    Message msg(zmq_id, header, parent_header, metadata, content, buffers);
 
     EXPECT_EQ(msg.identities(), zmq_id);
     EXPECT_EQ(msg.header(), header);
@@ -45,7 +45,7 @@ TEST(MessageTest, PubMessageConstruction) {
     json content = json::object();
     buffer_sequence buffers;
 
-    pub_message msg(topic, header, parent_header, metadata, content, buffers);
+    PubMessage msg(topic, header, parent_header, metadata, content, buffers);
 
     EXPECT_EQ(msg.topic(), topic);
     EXPECT_EQ(msg.header(), header);

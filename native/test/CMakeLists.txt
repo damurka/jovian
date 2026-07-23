@@ -14,6 +14,10 @@ add_library(datasuite_core STATIC ${DATASUITE_CORE_SOURCES} ${DATASUITE_PLATFORM
 target_compile_features(datasuite_core PRIVATE cxx_std_23)
 target_include_directories(datasuite_core PRIVATE ${DATASUITE_INCLUDE_DIR} ${DATASUITE_SOURCE_DIR} ${R_INCLUDE_DIR})
 target_link_libraries(datasuite_core PRIVATE nlohmann_json::nlohmann_json cppzmq OpenSSL::Crypto ${R_LIBRARIES})
+# DATASUITE_API expands to __declspec(dllimport) on Windows unless this is
+# defined, which breaks linking here since datasuite_core is a static lib,
+# not the DLL that dllimport expects to find these symbols in.
+target_compile_definitions(datasuite_core PUBLIC DATASUITE_STATIC_LIB)
 
 if (MSVC)
     target_compile_definitions(datasuite_core PRIVATE -DNOMINMAX)

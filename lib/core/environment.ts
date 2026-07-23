@@ -12,8 +12,13 @@ export class EnvironmentSetup {
         if (process.platform !== 'win32') return;
 
         if (options.rHome) {
-            const rBinDir = `${options.rHome}/bin/x64`.replace(/\//g, '\\');
-            
+            // Prefer an explicit rPath over the derived default -- otherwise
+            // this can add a *different* R bin directory to PATH than the
+            // one native/src/bridge/datasuite_engine.cpp's setupEnvironment()
+            // later uses for R_HOME/R_LIBS, since that C++ side always uses
+            // rPath verbatim when it's given.
+            const rBinDir = (options.rPath ?? `${options.rHome}/bin/x64`).replace(/\//g, '\\');
+
             if (!process.env.PATH?.includes(rBinDir)) {
                 logger.info(`Adding ${rBinDir} to PATH...`);
                 process.env.PATH = `${rBinDir};${process.env.PATH}`;

@@ -17,11 +17,18 @@ export class AddonLoader {
             const addon = requireNode(addonPath);
             logger.info('✓ Addon loaded successfully');
             
+            // Default to the 'hera' package bundled with this npm package
+            // (dist/lib/core -> package root -> packages/hera) unless the
+            // caller points at a different copy.
+            const heraSrcPath = options.heraSrcPath ?? join(__dirname, '../../../packages/hera');
+
             logger.info('Calling createEngine...');
             addon.createEngine({
                 rHome: options.rHome,
                 rPath: options.rPath,
-                rLibs: options.rLibs
+                rLibs: options.rLibs,
+                pandocPath: options.pandocPath,
+                heraSrcPath
             });
             logger.info('✓ createEngine completed');
             

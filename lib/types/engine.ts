@@ -6,6 +6,14 @@ export interface EngineOptions {
     rHome?: string;
     rPath?: string;
     rLibs?: string;
+    /** Directory containing the pandoc binary, for bundled R installs that don't ship it on PATH. */
+    pandocPath?: string;
+    /**
+     * Source directory of the 'hera' R package, used to auto-install it via
+     * remotes::install_local() into rLibs if it isn't already installed.
+     * Defaults to the copy bundled with this npm package.
+     */
+    heraSrcPath?: string;
     queueSize?: number;
     enableLogging?: boolean;
     enableMetrics?: boolean;
@@ -46,6 +54,16 @@ export interface ShinyAppOptions {
     launchBrowser?: boolean;
     /** Max time to wait for the app to start accepting connections, in ms. Defaults to 10000. */
     readyTimeout?: number;
+    /**
+     * Environment variables to set (via Sys.setenv()) in the R session
+     * before launching the app -- e.g. rmncah's app.R reads
+     * CDSUITE_SHINY_NAME/CDSUITE_SHINY_VERSION/CDSUITE_SHINY_SELECTED_FILE/
+     * CDSUITE_SHINY_LOCALE via Sys.getenv(). Applied only for the duration
+     * of this R session (not the OS process), and only take effect for code
+     * that reads them after runApp() starts, since Sys.setenv() itself runs
+     * synchronously right before it in the same execute() call.
+     */
+    env?: Record<string, string>;
 }
 
 export interface ShinyAppHandle {

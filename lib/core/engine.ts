@@ -108,8 +108,9 @@ export class DatasuiteEngine extends EventEmitter {
         const launchBrowser = options.launchBrowser ?? false;
         const readyTimeout = options.readyTimeout ?? 10000;
 
-        const appDir = options.appDir.replace(/\\/g, '/').replace(/'/g, "\\'");
-        const code = `shiny::runApp('${appDir}', port = ${port}, host = '${host}', launch.browser = ${launchBrowser ? 'TRUE' : 'FALSE'})`;
+        const appDir = rStringLiteral(options.appDir.replace(/\\/g, '/'));
+        const setEnvPrefix = buildSetEnvCode(options.env);
+        const code = `${setEnvPrefix}shiny::runApp(${appDir}, port = ${port}, host = '${host}', launch.browser = ${launchBrowser ? 'TRUE' : 'FALSE'})`;
 
         // timeout: 0 -- this call is expected to block indefinitely.
         const done = this.execute(code, { timeout: 0 });
@@ -181,4 +182,20 @@ export class DatasuiteEngine extends EventEmitter {
             this.middleware.use(new MetricsMiddleware());
         }
     }
+}
+
+function rStringLiteral(value: string): string {
+    return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+}
+
+function buildSetEnvCode(env: Record<string, string> | undefined): string {
+    if (!env || Object.keys(env).length === 0) {
+        return '';
+    }
+
+    const args = Object.entries(env)
+        .map(([key, value]) => `${rStringLiteral(key)} = ${rStringLiteral(value)}`)
+        .join(', ');
+
+    return `Sys.setenv(${args}); `;
 }

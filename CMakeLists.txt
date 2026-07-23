@@ -138,14 +138,16 @@ message(STATUS "R_VERSION_MINOR  = ${R_VERSION_MINOR}")
 message(STATUS "R_COMMAND        = ${R_COMMAND}")
 message(STATUS "R_SCRIPT_COMMAND = ${R_SCRIPT_COMMAND}")
 
-add_subdirectory(native)
-
-# Tests
+# Tests -- must be resolved before add_subdirectory(native), since
+# native/CMakeLists.txt only adds its own test/ subdirectory when
+# BUILD_TESTING is already set by the time it runs.
 include(CTest)
 if(DATASUITE_BUILD_TESTS)
     set(BUILD_TESTING ON)
     message(STATUS "tests enabled")
 else ()
     set(BUILD_TESTING OFF)
-    message(STATUS "tests disabled") 
+    message(STATUS "tests disabled")
 endif()
+
+add_subdirectory(native)

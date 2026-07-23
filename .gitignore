@@ -46,3 +46,7 @@ npm-debug.log*
 
 # clang-format cache
 .clang-format-cache
+.claude
+
+# CTest run artifacts
+native/test/Testing/

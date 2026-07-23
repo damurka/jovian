@@ -146,12 +146,57 @@ namespace datasuite
         p_interpreter = this;
     }
 
+    // Parses and evaluates a string of R code, one top-level expression at a
+    // time, via R_tryEval so an R-level error can't longjmp past our C++
+    // stack. Returns the value of the last expression (or R_NilValue on a
+    // parse failure); the caller is responsible for PROTECTing the result
+    // if it outlives this call.
+    static SEXP evalRString(const std::string& code, bool* had_error = nullptr)
+    {
+        if (had_error) *had_error = false;
+
+        SEXP code_sexp = PROTECT(Rf_mkString(code.c_str()));
+        ParseStatus status;
+        SEXP parsed = PROTECT(R_ParseVector(code_sexp, -1, &status, R_NilValue));
+
+        SEXP result = R_NilValue;
+        if (status == PARSE_OK) {
+            int n = Rf_length(parsed);
+            for (int i = 0; i < n; i++) {
+                int error_occurred = 0;
+                result = R_tryEval(VECTOR_ELT(parsed, i), R_GlobalEnv, &error_occurred);
+                if (error_occurred && had_error) *had_error = true;
+            }
+        } else if (had_error) {
+            *had_error = true;
+        }
+
+        UNPROTECT(2);
+        return result;
+    }
+
     void RInterpreter::configureImpl()
     {
         // Debug: Print R environment variables
         printf("[R Interpreter] R_HOME=%s\n", getenv("R_HOME") ? getenv("R_HOME") : "NOT SET");
         printf("[R Interpreter] R_LIBS=%s\n", getenv("R_LIBS") ? getenv("R_LIBS") : "NOT SET");
         fflush(stdout);
+
+#ifdef _WIN32
+        // Windows R defaults its "native encoding" to the system codepage
+        // unless told otherwise, which triggers spurious "strings not
+        // representable in native encoding will be translated to UTF-8"
+        // warnings for any UTF-8 content (e.g. i18n translations in a Shiny
+        // app). R 4.2+ on Windows 10 1903+ can use UTF-8 as its native
+        // encoding directly -- silently a no-op on older combinations.
+        // R itself warns that switching off the system codepage "may cause
+        // problems" -- that's the tradeoff we're intentionally making here
+        // (one expected warning instead of many unpredictable encoding
+        // ones), and R's default warning buffering meant it wasn't even
+        // showing up until interpreter teardown, looking unrelated to its
+        // actual cause. Suppress it rather than let it surface confusingly.
+        evalRString("suppressWarnings(try(Sys.setlocale('LC_ALL', '.UTF-8'), silent = TRUE))");
+#endif
 
         // Debug: Print .libPaths() from R
         SEXP get_libpaths = PROTECT(Rf_lang1(Rf_install(".libPaths")));
@@ -163,34 +208,95 @@ namespace datasuite
         fflush(stdout);
         UNPROTECT(2);
 
-        // Try to load hera - MAKE IT OPTIONAL FOR NOW
+        // Try to load hera, auto-installing from the bundled source (via
+        // remotes::install_local, into the already-configured R_LIBS path)
+        // if it's missing -- MAKE IT OPTIONAL FOR NOW, still don't throw if
+        // it ultimately can't be loaded.
         printf("[R Interpreter] Attempting to load 'hera' package...\n");
         fflush(stdout);
 
-        SEXP sym_library = PROTECT(Rf_install("require"));
-        SEXP str_hera = PROTECT(Rf_mkString("hera"));
-        SEXP sym_quietly = PROTECT(Rf_install("quietly"));
+        // Beyond "missing", an already-installed 'hera' can also be STALE: a
+        // previous session's remotes::install_local() left a compiled copy
+        // in the library, and since its DESCRIPTION Version doesn't change
+        // between dev iterations, a plain require("hera") would keep
+        // silently loading that stale copy forever even after the source
+        // under DATASUITE_HERA_SRC changes -- exactly what happened here
+        // (an old display_data() that charToRaw()'d its JSON payload before
+        // the .Call(), crashing the C side with "STRING_ELT() ... not a
+        // 'raw'" on every plot, while the fixed source on disk was never
+        // reinstalled). Comparing source file mtimes against the installed
+        // DESCRIPTION's mtime catches that without needing a version bump
+        // on every edit.
+        static const char* load_hera_code = R"(
+            local({
+                status <- "missing"
+                hera_src <- Sys.getenv("DATASUITE_HERA_SRC", unset = "")
+                has_source <- nzchar(hera_src) && dir.exists(hera_src)
 
-        SEXP call_library_hera = PROTECT(r::rCall(sym_library, str_hera, /* quietly = */ Rf_ScalarLogical(FALSE)));
-        SET_TAG(CDDR(call_library_hera), sym_quietly);
+                installed_path <- tryCatch(find.package("hera", quiet = TRUE), error = function(e) character(0))
+                is_installed <- length(installed_path) > 0
 
-        SEXP out = PROTECT(Rf_eval(call_library_hera, R_GlobalEnv));
+                is_stale <- FALSE
+                if (has_source && is_installed) {
+                    installed_desc <- file.path(installed_path, "DESCRIPTION")
+                    src_files <- list.files(file.path(hera_src, "R"), full.names = TRUE, pattern = "\\.[Rr]$")
+                    src_files <- c(src_files, file.path(hera_src, "DESCRIPTION"), file.path(hera_src, "NAMESPACE"))
+                    src_files <- src_files[file.exists(src_files)]
+                    if (file.exists(installed_desc) && length(src_files) > 0) {
+                        installed_mtime <- file.info(installed_desc)$mtime
+                        source_mtime <- max(file.info(src_files)$mtime)
+                        is_stale <- source_mtime > installed_mtime
+                    }
+                }
 
-        if (LOGICAL_ELT(out, 0) == FALSE) {
-            printf("[R Interpreter] WARNING: 'hera' package could not be loaded. Some features may not work.\n");
+                needs_install <- has_source && (!is_installed || is_stale)
+
+                if (needs_install && requireNamespace("remotes", quietly = TRUE)) {
+                    install_ok <- tryCatch({
+                        remotes::install_local(hera_src, upgrade = "never", quiet = TRUE, force = TRUE)
+                        TRUE
+                    }, error = function(e) FALSE)
+                    if (install_ok && suppressWarnings(require("hera", quietly = TRUE))) {
+                        status <- if (is_stale) "reinstalled_stale" else "auto_installed"
+                    } else {
+                        status <- "install_failed"
+                    }
+                } else if (suppressWarnings(require("hera", quietly = TRUE))) {
+                    status <- "already_loaded"
+                } else if (!has_source) {
+                    status <- if (!nzchar(hera_src)) "no_source_configured" else "source_not_found"
+                } else {
+                    status <- "remotes_unavailable"
+                }
+                status
+            })
+        )";
+
+        bool had_error = false;
+        SEXP out = PROTECT(evalRString(load_hera_code, &had_error));
+
+        std::string status = (!had_error && Rf_isString(out) && Rf_length(out) > 0)
+            ? CHAR(STRING_ELT(out, 0))
+            : "error";
+
+        if (status == "already_loaded") {
+            printf("[R Interpreter] Successfully loaded 'hera' package\n");
+        } else if (status == "auto_installed") {
+            printf("[R Interpreter] 'hera' was not installed -- auto-installed from DATASUITE_HERA_SRC and loaded successfully\n");
+        } else if (status == "reinstalled_stale") {
+            printf("[R Interpreter] Installed 'hera' was older than DATASUITE_HERA_SRC -- reinstalled and loaded successfully\n");
+        } else {
+            printf("[R Interpreter] WARNING: 'hera' package could not be loaded (status: %s). Some features may not work.\n", status.c_str());
             printf("[R Interpreter] Continuing without 'hera' for testing purposes...\n");
-            fflush(stdout);
             // DON'T throw - just warn for now
             // throw std::runtime_error(
             //     "Fatal Initialization Error: The mandatory partner library package 'hera' "
             //     "could not be loaded. Please ensure 'hera' is correctly installed."
             // );
-        } else {
-            printf("[R Interpreter] Successfully loaded 'hera' package\n");
-            fflush(stdout);
         }
+        fflush(stdout);
 
-        UNPROTECT(5);
+        UNPROTECT(1);
     }
 
     void RInterpreter::executeRequestImpl(

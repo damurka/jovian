@@ -63,6 +63,42 @@ namespace datasuite
             #endif
         }
 
+        // Set pandoc's location - RSTUDIO_PANDOC is the variable
+        // rmarkdown::find_pandoc() (used by rmarkdown/officedown/flextable
+        // rendering) checks first, so bundled R installs that don't ship
+        // pandoc on PATH can still render without a system-wide install.
+        if (!env_config.pandoc_path.empty()) {
+            #ifdef _WIN32
+            std::string pandoc_path_win = env_config.pandoc_path;
+            std::replace(pandoc_path_win.begin(), pandoc_path_win.end(), '/', '\\');
+            _putenv_s("RSTUDIO_PANDOC", pandoc_path_win.c_str());
+            std::string current_path = getenv("PATH") ? getenv("PATH") : "";
+            std::string new_path = pandoc_path_win + ";" + current_path;
+            _putenv_s("PATH", new_path.c_str());
+            printf("[DatasuiteServer] Set RSTUDIO_PANDOC=%s\n", pandoc_path_win.c_str());
+            fflush(stdout);
+            #else
+            setenv("RSTUDIO_PANDOC", env_config.pandoc_path.c_str(), 1);
+            std::string current_path = getenv("PATH") ? getenv("PATH") : "";
+            std::string new_path = env_config.pandoc_path + ":" + current_path;
+            setenv("PATH", new_path.c_str(), 1);
+            #endif
+        }
+
+        // Point RInterpreter::configureImpl() at the bundled 'hera' source
+        // so it can auto-install it into r_libs if it's missing.
+        if (!env_config.hera_src_path.empty()) {
+            #ifdef _WIN32
+            std::string hera_src_win = env_config.hera_src_path;
+            std::replace(hera_src_win.begin(), hera_src_win.end(), '/', '\\');
+            _putenv_s("DATASUITE_HERA_SRC", hera_src_win.c_str());
+            printf("[DatasuiteServer] Set DATASUITE_HERA_SRC=%s\n", hera_src_win.c_str());
+            fflush(stdout);
+            #else
+            setenv("DATASUITE_HERA_SRC", env_config.hera_src_path.c_str(), 1);
+            #endif
+        }
+
         printf("[DatasuiteServer] setup_environment() completed\n");
         fflush(stdout);
     }

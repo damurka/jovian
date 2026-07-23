@@ -35,6 +35,16 @@ Napi::Value createEngine(const Napi::CallbackInfo& info) {
             printf("[Addon] Setting R_LIBS: %s\n", env_config.r_libs.c_str());
             fflush(stdout);
         }
+        if (opts.Has("pandocPath") && opts.Get("pandocPath").IsString()) {
+            env_config.pandoc_path = opts.Get("pandocPath").As<Napi::String>().Utf8Value();
+            printf("[Addon] Setting pandoc path: %s\n", env_config.pandoc_path.c_str());
+            fflush(stdout);
+        }
+        if (opts.Has("heraSrcPath") && opts.Get("heraSrcPath").IsString()) {
+            env_config.hera_src_path = opts.Get("heraSrcPath").As<Napi::String>().Utf8Value();
+            printf("[Addon] Setting hera source path: %s\n", env_config.hera_src_path.c_str());
+            fflush(stdout);
+        }
     }
     
     // Create engine with environment configuration
