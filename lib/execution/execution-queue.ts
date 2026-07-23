@@ -12,7 +12,7 @@ interface QueuedExecution {
 
 interface PendingExecution {
     output: JupyterMessage[];
-    timer: ReturnType<typeof setTimeout>;
+    timer: ReturnType<typeof setTimeout> | undefined;
     finish: (result: ExecutionResult) => void;
     reject: (error: Error) => void;
 }
@@ -78,12 +78,20 @@ export class ExecutionQueue {
             return;
         }
 
+        // A timeout of 0 means "no timeout" -- used for long-running calls
+        // that intentionally block the R session until something external
+        // stops them (e.g. shiny::runApp(), see DatasuiteEngine.createShiny).
+        // Note this also means no *further* queued execute() calls will be
+        // sent until this one's execute_reply arrives, since R itself is
+        // single-threaded and busy running it.
         const timeoutMs = item.options.timeout ?? DEFAULT_TIMEOUT_MS;
-        const timer = setTimeout(() => {
-            this.pending.delete(msgId);
-            item.reject(new Error(`Execution timed out after ${timeoutMs}ms`));
-            this.processNext();
-        }, timeoutMs);
+        const timer = timeoutMs > 0
+            ? setTimeout(() => {
+                this.pending.delete(msgId);
+                item.reject(new Error(`Execution timed out after ${timeoutMs}ms`));
+                this.processNext();
+            }, timeoutMs)
+            : undefined;
 
         this.pending.set(msgId, {
             output: [],

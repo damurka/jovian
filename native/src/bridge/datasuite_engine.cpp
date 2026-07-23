@@ -1,4 +1,5 @@
 #include "datasuite/datasuite_engine.hpp"
+#include "datasuite/middleware.hpp"
 
 namespace datasuite
 {
@@ -151,31 +152,34 @@ namespace datasuite
     // =========================================================================
     // DATASUITE ENGINE IMPLEMENTATION (The Node.js Bridge)
     // =========================================================================
-    DatasuiteEngine::DatasuiteEngine() : server() {
-        // Generate standard Localhost configuration
-        config.m_transport = "tcp";
-        config.m_ip = "127.0.0.1";
-        config.m_shellPort = "50011";
-        config.m_controlPort = "50012";
-        config.m_stdinPort = "50013";
-        config.m_iopubPort = "50004";
-        config.m_hbPort = "50015";
-        config.m_signatureScheme = "hmac-sha256";
-        config.m_key = "shared-secret-key";
+    namespace
+    {
+        // Each DatasuiteEngine embeds its own R interpreter in this process
+        // and binds its own set of ZMQ ports, so a second concurrently
+        // running engine (e.g. a second R session) must not collide with
+        // the first on any of them. find_free_port() (middleware.hpp) asks
+        // the OS for an available ephemeral port instead of hardcoding one.
+        KernelConfiguration make_localhost_configuration()
+        {
+            KernelConfiguration config;
+            config.m_transport = "tcp";
+            config.m_ip = "127.0.0.1";
+            config.m_shellPort = find_free_port();
+            config.m_controlPort = find_free_port();
+            config.m_stdinPort = find_free_port();
+            config.m_iopubPort = find_free_port();
+            config.m_hbPort = find_free_port();
+            config.m_signatureScheme = "hmac-sha256";
+            config.m_key = "shared-secret-key";
+            return config;
+        }
     }
 
-    DatasuiteEngine::DatasuiteEngine(const EnvironmentConfig& env) : server(env) {
-        env_config = env;
-        // Generate standard Localhost configuration
-        config.m_transport = "tcp";
-        config.m_ip = "127.0.0.1";
-        config.m_shellPort = "50011";
-        config.m_controlPort = "50012";
-        config.m_stdinPort = "50013";
-        config.m_iopubPort = "50004";
-        config.m_hbPort = "50015";
-        config.m_signatureScheme = "hmac-sha256";
-        config.m_key = "shared-secret-key";
+    DatasuiteEngine::DatasuiteEngine() : config(make_localhost_configuration()), server() {
+    }
+
+    DatasuiteEngine::DatasuiteEngine(const EnvironmentConfig& env)
+        : config(make_localhost_configuration()), env_config(env), server(env) {
     }
 
     void DatasuiteEngine::init() {

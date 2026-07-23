@@ -38,9 +38,11 @@ engine2.on('stdout', (text) => process.stdout.write(`[Engine 2 Print] ${text}`))
 engine2.on('result', (res) => console.log(`[Engine 2 Result] ${res}`));
 engine2.on('error', (err) => console.error(`[Engine 2 Fatal R Error] ${err}`));
 
-// Capture detailed error information
+// Capture detailed error information (msgType is the plain Jupyter
+// msg_type, e.g. "error" — `topic` is a kernel-namespaced string like
+// "kernel_core.<id>.error" and isn't useful for this kind of matching)
 engine1.on('message', (msg) => {
-    if (msg.topic.includes('error')) {
+    if (msg.msgType === 'error') {
         console.error('\n=== Engine 1 R ERROR DETAILS ===');
         console.error('Error Name:', msg.content.ename);
         console.error('Error Value:', msg.content.evalue);
@@ -50,7 +52,7 @@ engine1.on('message', (msg) => {
 });
 
 engine2.on('message', (msg) => {
-    if (msg.topic.includes('error')) {
+    if (msg.msgType === 'error') {
         console.error('\n=== Engine 2 R ERROR DETAILS ===');
         console.error('Error Name:', msg.content.ename);
         console.error('Error Value:', msg.content.evalue);
@@ -60,38 +62,52 @@ engine2.on('message', (msg) => {
 });
 
 // (Optional) Test the new Catch-All wildcard event we just built!
-engine1.on('*', (topic, content) => {
+engine1.on('*', (msgType, content) => {
     // Uncomment this if you want to see the raw ZeroMQ JSON payloads flowing through!
-    // console.log(`[Engine 1 Raw ZeroMQ Topic: ${topic}]`);
+    // console.log(`[Engine 1 Raw ZeroMQ msg_type: ${msgType}]`);
 });
 
-engine2.on('*', (topic, content) => {
+engine2.on('*', (msgType, content) => {
     // Uncomment this if you want to see the raw ZeroMQ JSON payloads flowing through!
-    // console.log(`[Engine 2 Raw ZeroMQ Topic: ${topic}]`);
+    // console.log(`[Engine 2 Raw ZeroMQ msg_type: ${msgType}]`);
 });
 
-engine1.on('ready', () => {
+engine1.on('ready', async () => {
     console.log("\n=== Engine 1 Fully Booted & Ready ===");
-    console.log("Sending Shiny app to C++ background thread...\n");
+    console.log("Launching Shiny app via createShiny()...\n");
 
-    // 2. Execute R code!
-    // Run the actual complex Shiny app from the directory
-    // Use port = 0 to let R automatically pick an available port
     const appPath = 'c:/Users/Murage/Documents/Dev/JS/datasuite_old_with_ai/resources/shiny/rmncah';
-    const complexApp = `shiny::runApp('${appPath}', launch.browser = FALSE)`;
-    
-    console.log(`Engine 1 Loading Shiny app from: ${appPath}`);
-    engine1.execute(complexApp);
+
+    try {
+        // Resolves once the app is actually accepting connections (port is
+        // auto-assigned unless given explicitly). `handle.done` resolves
+        // separately, once the app stops -- shiny::runApp() blocks the R
+        // session for as long as it's running.
+        const handle = await engine1.createShiny({ appDir: appPath });
+        console.log(`[Engine 1] Shiny app is live at ${handle.url}`);
+
+        handle.done.then((result) => {
+            console.log('[Engine 1] Shiny app stopped:', result.success ? 'ok' : 'error');
+        });
+    } catch (err) {
+        console.error('[Engine 1] Failed to launch Shiny app:', err);
+    }
 });
 
-engine2.on('ready', () => {
-    console.log("\n=== Engine 2 Fully Booted & Ready ===");
-    console.log("Sending simple R code to C++ background thread...\n");
+// engine2.on('ready', async () => {
+//     console.log("\n=== Engine 2 Fully Booted & Ready ===");
+//     console.log("Sending simple R code to C++ background thread...\n");
 
-    engine2.execute('print("Hello from Engine 2!")');
-    engine2.execute('1 + 1');
-});
+//     const helloResult = await engine2.execute('print("Hello from Engine 2!")');
+//     console.log('[Engine 2] print() result:', helloResult);
 
-// Boot the kernels
+//     const mathResult = await engine2.execute('1 + 1');
+//     console.log('[Engine 2] 1 + 1 result:', mathResult);
+// });
+
+// Boot the kernels — each embeds its own R session in this process and now
+// gets its own OS-assigned ZMQ ports (see find_free_port() in
+// native/src/transport/common/middleware.cpp), so running both concurrently
+// no longer collides on the old hardcoded 50011-50015 range.
 engine1.start();
-engine2.start();
+// engine2.start();

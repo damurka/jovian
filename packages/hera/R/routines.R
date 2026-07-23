@@ -16,13 +16,13 @@ publish_stream <- function(name, text) {
 display_data <- function(data = NULL, metadata = NULL) {
   invisible(hera_dot_call("datasuite_display_data",
                           enc2utf8(toJSON(data, auto_unbox = TRUE)),
-                          enc2utf8(toJSON(metadata, auto_unbox = TRUE)))
+                          enc2utf8(toJSON(metadata, auto_unbox = TRUE))))
 }
 
 update_display_data <- function(data = NULL, metadata = NULL) {
   invisible(hera_dot_call("datasuite_update_display_data",
                           enc2utf8(toJSON(data, auto_unbox = TRUE)),
-                          enc2utf8(toJSON(metadata, auto_unbox = TRUE)))
+                          enc2utf8(toJSON(metadata, auto_unbox = TRUE))))
 }
 
 kernel_info_request <- function() {
