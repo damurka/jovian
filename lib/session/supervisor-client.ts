@@ -123,11 +123,9 @@ export class SupervisorClient {
     }
 }
 
-// Finds the supervisor binary built alongside the addon (see
-// native/CMakeLists.txt's DATASUITE_BUILD_SUPERVISOR target and
-// CMAKE_RUNTIME_OUTPUT_DIRECTORY = dist/native/$<CONFIG>, which
-// scripts/build.js copies/references the same way addon-loader.ts does for
-// datasuite_addon.node).
+// Finds the supervisor binary (see native/CMakeLists.txt's
+// DATASUITE_BUILD_SUPERVISOR target and CMAKE_RUNTIME_OUTPUT_DIRECTORY =
+// dist/native/$<CONFIG>).
 function resolveSupervisorExecutable(): string {
     const exeName = process.platform === 'win32' ? 'datasuite-supervisor.exe' : 'datasuite-supervisor';
     const candidate = join(__dirname, '../../native/Release', exeName);

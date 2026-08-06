@@ -82,14 +82,16 @@ async function main() {
         const vcpkgRoot = process.env.VCPKG_ROOT || '';
         const toolchainFile = vcpkgRoot ? `${vcpkgRoot}/scripts/buildsystems/vcpkg.cmake` : '';
 
-        const cmakeArgs = ['compile', '--out', 'dist/native-test', '--CDDATASUITE_BUILD_TESTS=ON'];
+        const configureArgs = ['-S', '.', '-B', 'dist/native-test', '-DDATASUITE_BUILD_TESTS=ON'];
         if (toolchainFile) {
-            cmakeArgs.push(`--CDCMAKE_TOOLCHAIN_FILE="${toolchainFile}"`);
+            configureArgs.push(`-DCMAKE_TOOLCHAIN_FILE="${toolchainFile}"`);
         }
-
-        await run('npx', ['cmake-js', ...cmakeArgs]);
-        // Run the tests using CTest
-        await run('ctest', ['--test-dir', 'dist/native-test', '--output-on-failure']);
+        await run('cmake', configureArgs);
+        await run('cmake', ['--build', 'dist/native-test', '--config', 'Release']);
+        // Run the tests using CTest. -C Release: required for multi-config
+        // generators (e.g. Visual Studio) -- without it ctest reports every
+        // test "Not Run" ("Missing -C <config>?") instead of executing them.
+        await run('ctest', ['--test-dir', 'dist/native-test', '-C', 'Release', '--output-on-failure']);
         console.log('✅ C++ tests complete\n');
     } catch (err) {
         console.error('❌ C++ tests failed:', err.message);

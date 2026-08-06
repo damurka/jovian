@@ -21,17 +21,17 @@ async function run(cmd, args) {
 async function main() {
     console.log('🚀 Starting development mode...\n');
     
-    console.log('📦 Building C++ addon...');
+    console.log('📦 Building native targets...');
     const vcpkgRoot = process.env.VCPKG_ROOT || '';
     const toolchainFile = vcpkgRoot ? `${vcpkgRoot}/scripts/buildsystems/vcpkg.cmake` : '';
-    
-    const cmakeArgs = ['compile', '--out', 'dist/native'];
+
+    const configureArgs = ['-S', '.', '-B', 'dist/native'];
     if (toolchainFile) {
-        cmakeArgs.push(`--CDCMAKE_TOOLCHAIN_FILE="${toolchainFile}"`);
+        configureArgs.push(`-DCMAKE_TOOLCHAIN_FILE="${toolchainFile}"`);
     }
-    
-    await run('npx', ['cmake-js', ...cmakeArgs]);
-    console.log('✅ Native addon built\n');
+    await run('cmake', configureArgs);
+    await run('cmake', ['--build', 'dist/native', '--config', 'Release']);
+    console.log('✅ Native targets built\n');
     
     console.log('👀 Watching TypeScript files...');
     await run('npx', ['tsc', '--watch']);

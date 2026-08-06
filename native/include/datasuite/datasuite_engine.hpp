@@ -18,7 +18,6 @@
 #include "interpreter_r.hpp"
 #include "logger.hpp"
 #include "history_manager.hpp"
-#include "transport/client/client_zmq.hpp"
 
 namespace datasuite
 {
@@ -42,7 +41,12 @@ namespace datasuite
     };
 
     // =========================================================================
-    // 1. THE SERVER CLASS
+    // THE SERVER: boots an embedded R Kernel on a background thread. This is
+    // the piece the standalone kernel executable (native/src/datasuite-r.cpp)
+    // reuses as-is -- it has no dependency on how the resulting Kernel gets
+    // talked to (formerly an in-process DatasuiteClient/DatasuiteEngine
+    // facade for the Node addon; now a separate datasuite-supervisor process
+    // over ZMQ, see native/src/supervisor/session_registry.cpp).
     // =========================================================================
     class DATASUITE_API DatasuiteServer {
     private:
@@ -58,58 +62,6 @@ namespace datasuite
         void stop();
     private:
         void setupEnvironment();
-    };
-
-    // =========================================================================
-    // 2. THE CLIENT CLASS
-    // =========================================================================
-    class DATASUITE_API DatasuiteClient {
-    private:
-        std::unique_ptr<Context> client_context;
-        std::unique_ptr<ClientZmq> zmq_client;
-
-    public:
-        DatasuiteClient() = default;
-        ~DatasuiteClient() { stop(); }
-
-        void start(const KernelConfiguration& config);
-        std::string execute(const std::string& code);
-        void stop();
-
-        // Expose the underlying client for the Engine's polling thread
-        ClientZmq* getZmqClient() { return zmq_client.get(); }
-    };
-
-    // =========================================================================
-    // 3. THE COMBINED ENGINE (Facade for Node.js)
-    // =========================================================================
-    class DATASUITE_API DatasuiteEngine
-    {
-    public:
-        DatasuiteEngine();
-        explicit DatasuiteEngine(const EnvironmentConfig& env);
-        ~DatasuiteEngine() { stop(); }
-
-		void init();
-        void start(std::function<void(std::string)> callback);
-        std::string execute(const std::string& code);
-        void stop();
-
-    private:
-        KernelConfiguration config;
-        EnvironmentConfig env_config;
-        DatasuiteServer server;
-        DatasuiteClient client;
-
-        std::thread polling_thread;
-        std::atomic<bool> is_running{ false };
-		std::atomic<bool> is_initialized{ false };
-
-        // Callback used to send a JSON envelope back to TypeScript:
-        // {channel, topic, msg_type, parent_msg_id, content}
-        std::function<void(std::string)> on_message_callback;
-
-        void pollMessages();
     };
 }
 

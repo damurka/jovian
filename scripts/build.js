@@ -28,22 +28,20 @@ async function main() {
         mkdirSync(DIST, { recursive: true });
     }
     
-    console.log('📦 Step 1/2: Building native targets (addon + datasuite-r + datasuite-supervisor)...');
+    console.log('📦 Step 1/2: Building native targets (datasuite-r + datasuite-supervisor)...');
     const vcpkgRoot = process.env.VCPKG_ROOT || '';
     const toolchainFile = vcpkgRoot ? `${vcpkgRoot}/scripts/buildsystems/vcpkg.cmake` : '';
 
-    const cmakeArgs = ['compile', '--out', 'dist/native'];
+    // Plain CMake now that there's no Node addon target needing cmake-js's
+    // Node-ABI-aware configure step (CMAKE_JS_INC/LIB, forced /MT runtime).
+    // DATASUITE_BUILD_KERNEL_EXE/SUPERVISOR are independent options (both
+    // default ON), so this single configure+build produces both targets.
+    const configureArgs = ['-S', '.', '-B', 'dist/native'];
     if (toolchainFile) {
-        cmakeArgs.push(`--CDCMAKE_TOOLCHAIN_FILE="${toolchainFile}"`);
+        configureArgs.push(`-DCMAKE_TOOLCHAIN_FILE="${toolchainFile}"`);
     }
-
-    // cmake-js configures the whole native/CMakeLists.txt project and runs a
-    // plain `cmake --build` with no --target restriction, so this single
-    // invocation already builds all three targets (datasuite_addon,
-    // datasuite-r, datasuite-supervisor) -- they're independent options
-    // (DATASUITE_BUILD_ADDON/KERNEL_EXE/SUPERVISOR, all default ON) in one
-    // configure, not three separate builds.
-    await run('npx', ['cmake-js', ...cmakeArgs]);
+    await run('cmake', configureArgs);
+    await run('cmake', ['--build', 'dist/native', '--config', 'Release']);
     console.log('✅ Native targets built\n');
     
     console.log('📦 Step 2/2: Building TypeScript...');

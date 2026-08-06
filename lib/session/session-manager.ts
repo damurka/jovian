@@ -2,7 +2,6 @@ import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
 import type { EngineOptions, ExecutionOptions, ExecutionResult, LogLevel, ShinyAppHandle, ShinyAppOptions } from '../types/index.js';
 import { Logger } from '../utils/logger.js';
-import { rStringLiteral, buildSetEnvCode } from '../core/engine.js';
 import { MessageRouter } from '../messaging/message-router.js';
 import { ExecutionQueue } from '../execution/execution-queue.js';
 import { MiddlewareChain } from '../middleware/middleware-chain.js';
@@ -15,8 +14,7 @@ import { DisplayHandler } from '../handlers/display-handler.js';
 import { findFreePort, waitForPort } from '../utils/network.js';
 import { SupervisorClient, type SessionConnectionInfo } from './supervisor-client.js';
 
-// Reuses lib/types/engine.ts's ShinyAppHandle (the same shape
-// DatasuiteEngine.createShiny() already returns) instead of declaring a
+// Reuses lib/types/engine.ts's ShinyAppHandle instead of declaring a
 // second, structurally-identical interface here -- lib/index.ts used to
 // re-export this one under a SessionShinyAppHandle alias purely to dodge a
 // name collision with `export * from './types/index.js'`; now that this is
@@ -31,20 +29,15 @@ interface WsFrame {
 /**
  * One R session running in its own OS process (datasuite-r, spawned and
  * supervised by datasuite-supervisor -- see lib/session/supervisor-client.ts),
- * proxying execute()/createShiny()/stop() over a per-session WebSocket
- * instead of the Node child_process IPC this class used to speak directly
- * to a Node-hosted addon worker. The supervisor is the only process in this
- * tree that ever links a native ZMQ binding; this class only ever does
- * plain HTTP/WS, so it's safe to run inside Electron/VS Code's Shared
- * Process without the addon-loading workarounds session-manager.ts used to
- * need (see the removed resolveNodeExecutable()/ELECTRON_RUN_AS_NODE logic
- * this replaces).
+ * proxying execute()/createShiny()/stop() over a per-session WebSocket. The
+ * supervisor is the only process in this tree that ever links a native ZMQ
+ * binding; this class only ever does plain HTTP/WS, so it's safe to run
+ * inside Electron/VS Code's Shared Process without any native-addon-loading
+ * concerns.
  *
- * Reuses the same MessageRouter/handlers/ExecutionQueue/MiddlewareChain
- * classes lib/core/engine.ts's DatasuiteEngine uses -- that pipeline never
- * depended on being addon-adjacent, it just consumed raw JSON envelope
- * strings, which is exactly what arrives over the WebSocket's 'message'
- * frames now instead of the addon's in-process callback.
+ * The MessageRouter/handlers/ExecutionQueue/MiddlewareChain pipeline below
+ * doesn't care where its raw JSON envelope strings come from -- here, that's
+ * the WebSocket's 'message' frames.
  */
 export class Session extends EventEmitter {
     private ws: WebSocket | undefined;
@@ -317,4 +310,20 @@ export class SessionManager {
             this.supervisor.kill();
         });
     }
+}
+
+function rStringLiteral(value: string): string {
+    return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+}
+
+function buildSetEnvCode(env: Record<string, string> | undefined): string {
+    if (!env || Object.keys(env).length === 0) {
+        return '';
+    }
+
+    const args = Object.entries(env)
+        .map(([key, value]) => `${rStringLiteral(key)} = ${rStringLiteral(value)}`)
+        .join(', ');
+
+    return `Sys.setenv(${args}); `;
 }

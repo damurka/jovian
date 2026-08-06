@@ -81,11 +81,6 @@ set(DATASUITE_TRANSPORT_SOURCES
     ${DATASUITE_SOURCE_DIR}/transport/common/zmq_serializer.hpp
 )
 
-set(DATASUITE_BRIDGE_SOURCES
-    ${DATASUITE_SOURCE_DIR}/bridge/addon.cpp
-    ${DATASUITE_SOURCE_DIR}/bridge/datasuite_engine.cpp
-)
-
 set(DATASUITE_PLATFORM_SOURCES
     ${DATASUITE_SOURCE_DIR}/platform/guid.cpp
     ${DATASUITE_SOURCE_DIR}/platform/system.cpp
@@ -156,35 +151,33 @@ set(DATASUITE_SUPERVISOR_SOURCES
 set(DATASUITE_KERNEL_EXE_SOURCES
     ${DATASUITE_SOURCE_DIR}/datasuite-r.cpp
     # DatasuiteServer (env setup + boot the Kernel on a background thread,
-    # block until shutdown) is exactly what a standalone kernel process
-    # needs -- reused as-is from the addon's bridge layer. Only
-    # bridge/addon.cpp itself depends on N-API; this file does not.
+    # block until shutdown) -- the only consumer of bridge/datasuite_engine.cpp
+    # now that the Node addon (which used to share it) is gone.
     ${DATASUITE_SOURCE_DIR}/bridge/datasuite_engine.cpp
 )
 
-# Combine all sources (addon target only)
-set(DATASUITE_SOURCES
+# Create source groups for IDE organization
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source Files" FILES
     ${DATASUITE_CORE_SOURCES}
     ${DATASUITE_TRANSPORT_SOURCES}
-    ${DATASUITE_BRIDGE_SOURCES}
     ${DATASUITE_PLATFORM_SOURCES}
     ${DATASUITE_R_SOURCES}
     ${DATASUITE_UTILS_SOURCES}
+    ${DATASUITE_SUPERVISOR_SOURCES}
+    ${DATASUITE_KERNEL_EXE_SOURCES}
 )
-
-# Create source groups for IDE organization
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source Files" FILES ${DATASUITE_SOURCES})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/include PREFIX "Header Files" FILES ${DATASUITE_HEADERS})
 
 # ==========================================
 # TARGET SELECTION
 # ==========================================
-# The three targets below are independent, not mutually exclusive: nothing
-# stops a Node addon, a standalone kernel executable, and a supervisor from
-# all being built out of the same configure. They previously lived behind a
-# single hardcoded either/or that only ever built the addon.
+# Two independent, coexisting targets: the standalone kernel executable
+# (embeds R, one per session) and the supervisor (spawns/monitors kernel
+# processes over ZMQ, exposes them over HTTP+WS). There used to be a third,
+# a Node N-API addon -- removed once nothing depended on it anymore (see
+# lib/session/session-manager.ts, which now talks to the supervisor instead
+# of an in-process addon).
 
-option(DATASUITE_BUILD_ADDON "Build the Node.js N-API addon (datasuite_addon.node)" ON)
 option(DATASUITE_BUILD_KERNEL_EXE "Build the standalone kernel executable (datasuite-r)" ON)
 option(DATASUITE_BUILD_SUPERVISOR "Build the kernel supervisor executable (datasuite-supervisor)" ON)
 
@@ -200,60 +193,12 @@ function(datasuite_apply_platform_guid_define target_name)
     endif ()
 endfunction()
 
-if (DATASUITE_BUILD_ADDON)
-    message(STATUS "Building Node.js Addon (datasuite_addon.node)...")
-
-    # ==========================================
-    # NODE.JS ADDON TARGET
-    # ==========================================
-    if (DEFINED CMAKE_JS_INC)
-        include_directories(${CMAKE_JS_INC})
-    endif()
-
-    execute_process(COMMAND node -e "console.log(require('node-addon-api').include.replace(/\"/g, ''))"
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-            OUTPUT_VARIABLE NODE_ADDON_API_DIR
-            OUTPUT_STRIP_TRAILING_WHITESPACE)
-
-    file(TO_CMAKE_PATH "${NODE_ADDON_API_DIR}" NODE_ADDON_API_DIR)
-    include_directories(${NODE_ADDON_API_DIR})
-
-    # Build addon with all sources (not linking to library)
-    add_library(datasuite_addon MODULE ${DATASUITE_SOURCES} ${DATASUITE_HEADERS})
-    target_compile_features(datasuite_addon PRIVATE cxx_std_23)
-
-    target_include_directories(datasuite_addon PRIVATE
-        ${DATASUITE_INCLUDE_DIR}
-        ${DATASUITE_SOURCE_DIR}
-        ${R_INCLUDE_DIR}
-    )
-
-    target_link_libraries(datasuite_addon PRIVATE
-        ${CMAKE_JS_LIB}
-        nlohmann_json::nlohmann_json
-        cppzmq
-        OpenSSL::Crypto
-        ${R_LIBRARIES}
-    )
-
-    target_compile_definitions(datasuite_addon PRIVATE DATASUITE_EXPORTS)
-    datasuite_apply_platform_guid_define(datasuite_addon)
-
-    set_target_properties(datasuite_addon PROPERTIES PREFIX "" SUFFIX ".node")
-endif ()
-
 if (DATASUITE_BUILD_KERNEL_EXE)
     message(STATUS "Building standalone kernel executable (datasuite-r)...")
 
     # ==========================================
     # STANDALONE KERNEL EXECUTABLE TARGET
     # ==========================================
-    # Same core/transport/R sources as the addon, minus the N-API bridge
-    # itself (bridge/addon.cpp) -- bridge/datasuite_engine.cpp (DatasuiteServer)
-    # has no N-API dependency and is reused as-is (see DATASUITE_KERNEL_EXE_
-    # SOURCES above). This target has its own entry point (datasuite-r.cpp)
-    # that boots the kernel directly and registers with a supervisor instead
-    # of an in-process Node callback.
     add_executable(datasuite-r
         ${DATASUITE_CORE_SOURCES}
         ${DATASUITE_TRANSPORT_SOURCES}
@@ -280,19 +225,14 @@ if (DATASUITE_BUILD_KERNEL_EXE)
     )
 
     # DATASUITE_API (datasuite.hpp) expands to __declspec(dllimport) unless
-    # DATASUITE_EXPORTS is defined -- fine for the addon (a .node DLL that
-    # defines DATASUITE_EXPORTS already), but this target compiles every
-    # datasuite:: symbol directly into a plain .exe with nothing external to
-    # import from, so without this define the linker looks for import stubs
-    # that don't exist ("unresolved external symbol ... dllimport ...").
+    # DATASUITE_EXPORTS is defined -- this target compiles every datasuite::
+    # symbol directly into a plain .exe with nothing external to import
+    # from, so without this define the linker looks for import stubs that
+    # don't exist ("unresolved external symbol ... dllimport ...").
     target_compile_definitions(datasuite-r PRIVATE DATASUITE_EXPORTS)
 
-    # cmake-js forces the static CRT (/MT) project-wide via
-    # CMAKE_MSVC_RUNTIME_LIBRARY, needed for Node addon ABI compatibility --
-    # irrelevant here, and actively wrong for vcpkg's x64-windows triplet,
-    # whose prebuilt/built packages default to the dynamic CRT (/MD). This
-    # target isn't Node-ABI-constrained, so it overrides back to match what
-    # its vcpkg dependencies were actually built against.
+    # Matches vcpkg's x64-windows triplet, which builds its packages
+    # (cppzmq/zeromq/openssl) against the dynamic CRT (/MD) by default.
     set_target_properties(datasuite-r PROPERTIES
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
@@ -337,7 +277,7 @@ if (DATASUITE_BUILD_SUPERVISOR)
     # issues apply here: DATASUITE_API needs DATASUITE_EXPORTS to resolve
     # datasuite:: symbols within this .exe instead of expecting a DLL to
     # import them from, and the CRT linkage needs to match vcpkg's
-    # x64-windows triplet (/MD) rather than cmake-js's Node-ABI-driven /MT.
+    # x64-windows triplet (/MD).
     target_compile_definitions(datasuite-supervisor PRIVATE DATASUITE_EXPORTS)
     set_target_properties(datasuite-supervisor PROPERTIES
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")

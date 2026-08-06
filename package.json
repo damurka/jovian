@@ -31,7 +31,7 @@
     "build:native": "cmake --build dist/native --config Release",
     "build:lib": "tsc --build",
     "build": "node scripts/build.js",
-    "compile": "cmake-js compile --out dist/native --CDCMAKE_TOOLCHAIN_FILE=\"%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake\"",
+    "compile": "cmake -S . -B dist/native -DCMAKE_TOOLCHAIN_FILE=\"%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake\" && cmake --build dist/native --config Release",
     "rebuild": "npm run clean && npm run build",
     "dev": "node scripts/dev.js",
     "format": "node scripts/format.js",
@@ -53,15 +53,11 @@
   ],
   "author": "",
   "license": "ISC",
-  "dependencies": {
-    "node-addon-api": "^8.9.0"
-  },
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "clang-format": "^1.8.0",
-    "cmake-js": "^8.0.0",
     "eslint": "^9.0.0",
     "glob": "^13.0.6",
     "rimraf": "^6.1.3",

@@ -91,7 +91,8 @@ export class ExecutionQueue {
 
         // A timeout of 0 means "no timeout" -- used for long-running calls
         // that intentionally block the R session until something external
-        // stops them (e.g. shiny::runApp(), see DatasuiteEngine.createShiny).
+        // stops them (e.g. shiny::runApp(), see Session.createShiny in
+        // lib/session/session-manager.ts).
         // Note this also means no *further* queued execute() calls will be
         // sent until this one's execute_reply arrives, since R itself is
         // single-threaded and busy running it.
