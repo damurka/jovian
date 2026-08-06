@@ -91,6 +91,15 @@ if (TARGET datasuite-r)
         "DATASUITE_TEST_KERNEL_EXE=\"$<TARGET_FILE:datasuite-r>\"")
 endif ()
 
+# R_HOME here is the same variable find_package(R REQUIRED) in the root
+# CMakeLists.txt already resolved for this machine (cmake/FindR.cmake) --
+# reusing it instead of guessing at a path keeps the test portable across
+# whichever R installation/OS actually built this configure.
+if (R_HOME)
+    target_compile_definitions(session_registry_test PRIVATE
+        "DATASUITE_TEST_R_HOME=\"${R_HOME}\"")
+endif ()
+
 add_test(NAME SessionRegistryTest COMMAND session_registry_test)
 # In practice this suite runs in ~2s; 60s is a wide margin over that,
 # not a tuned expectation -- this only needs to catch the case where
@@ -98,3 +107,21 @@ add_test(NAME SessionRegistryTest COMMAND session_registry_test)
 # ClientHandshakeZmqImpl::waitForConfiguration() noted in
 # session_registry.cpp) rather than the happy path's normal latency.
 set_tests_properties(SessionRegistryTest PROPERTIES TIMEOUT 60)
+
+# ==========================================
+# PURE-FUNCTION / UNIT-LEVEL TESTS
+# ==========================================
+# No R, no spawned process, no ZMQ sockets -- these run in milliseconds and
+# don't need SessionRegistryTest's fixture, R detection, or kernel exe.
+
+add_executable(middleware_test middleware_test.cpp)
+target_compile_features(middleware_test PRIVATE cxx_std_23)
+target_include_directories(middleware_test PRIVATE ${DATASUITE_INCLUDE_DIR} ${DATASUITE_SOURCE_DIR})
+target_link_libraries(middleware_test PRIVATE datasuite_supervisor_core GTest::gtest_main)
+add_test(NAME MiddlewareTest COMMAND middleware_test)
+
+add_executable(authentication_test authentication_test.cpp)
+target_compile_features(authentication_test PRIVATE cxx_std_23)
+target_include_directories(authentication_test PRIVATE ${DATASUITE_INCLUDE_DIR} ${DATASUITE_SOURCE_DIR})
+target_link_libraries(authentication_test PRIVATE datasuite_supervisor_core GTest::gtest_main)
+add_test(NAME AuthenticationTest COMMAND authentication_test)

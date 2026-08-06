@@ -30,14 +30,20 @@ using namespace datasuite::supervisor;
 
 namespace
 {
+    // R_HOME env var first (lets a developer/CI override), then the R
+    // installation CMake itself already found and validated at configure
+    // time (find_package(R REQUIRED) in the root CMakeLists.txt, propagated
+    // here as DATASUITE_TEST_R_HOME) -- not a path guessed at from one
+    // machine. Neither present means no usable fallback; SetUp() skips the
+    // test rather than pointing R_HOME at somewhere that doesn't exist.
     std::string resolveRHome()
     {
         if (const char* fromEnv = std::getenv("R_HOME"))
         {
             return fromEnv;
         }
-#ifdef _WIN32
-        return "C:/Program Files/R/R-4.6.0";
+#ifdef DATASUITE_TEST_R_HOME
+        return DATASUITE_TEST_R_HOME;
 #else
         return "";
 #endif
@@ -109,6 +115,49 @@ namespace
     // waitForConfiguration() no-timeout limitation noted in
     // session_registry.cpp), not the happy path's normal latency.
     constexpr int kTimeoutMs = 90000;
+}
+
+// Doesn't need R or a real kernel process at all -- getSession()/
+// listSessions()/stopSession() on a registry that never had a session
+// created are pure state queries against an empty m_sessions map. Plain
+// TEST() rather than TEST_F(SessionRegistryTest, ...) deliberately: sharing
+// that fixture would gate these on an R installation they don't need,
+// exactly the kind of environment dependency this covers avoiding.
+// Deliberately leaked for the same reason as SessionRegistryTest's fixture
+// member (see its comment above) -- consistent behavior, not just a
+// borrowed pattern.
+TEST(SessionRegistryEmptyStateTest, GetSessionOnUnknownIdReturnsNull)
+{
+    auto* registry = new SessionRegistry("unused-kernel-exe-path", "127.0.0.1");
+    registry->startRegistrationListener();
+
+    EXPECT_EQ(registry->getSession("does-not-exist"), nullptr);
+}
+
+TEST(SessionRegistryEmptyStateTest, ListSessionsOnEmptyRegistryReturnsEmptyArray)
+{
+    auto* registry = new SessionRegistry("unused-kernel-exe-path", "127.0.0.1");
+    registry->startRegistrationListener();
+
+    json sessions = registry->listSessions();
+    EXPECT_TRUE(sessions.is_array());
+    EXPECT_TRUE(sessions.empty());
+}
+
+TEST(SessionRegistryEmptyStateTest, StopSessionOnUnknownIdReturnsFalse)
+{
+    auto* registry = new SessionRegistry("unused-kernel-exe-path", "127.0.0.1");
+    registry->startRegistrationListener();
+
+    EXPECT_FALSE(registry->stopSession("does-not-exist"));
+}
+
+TEST(SessionRegistryEmptyStateTest, SendExecuteOnUnknownIdReturnsFalse)
+{
+    auto* registry = new SessionRegistry("unused-kernel-exe-path", "127.0.0.1");
+    registry->startRegistrationListener();
+
+    EXPECT_FALSE(registry->sendExecute("does-not-exist", "msg-1", "1 + 1", json::object()));
 }
 
 TEST_F(SessionRegistryTest, CreateSessionRegistersAndTracksARealKernel)
