@@ -1,172 +1,186 @@
-import { spawn, type ChildProcess } from 'child_process';
-import { existsSync } from 'fs';
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
-import { fileURLToPath } from 'url';
-import { delimiter, dirname, join } from 'path';
-import type { EngineOptions, ExecutionOptions, ExecutionResult, ShinyAppOptions } from '../types/index.js';
+import type { EngineOptions, ExecutionOptions, ExecutionResult, LogLevel, ShinyAppHandle, ShinyAppOptions } from '../types/index.js';
+import { Logger } from '../utils/logger.js';
+import { rStringLiteral, buildSetEnvCode } from '../core/engine.js';
+import { MessageRouter } from '../messaging/message-router.js';
+import { ExecutionQueue } from '../execution/execution-queue.js';
+import { MiddlewareChain } from '../middleware/middleware-chain.js';
+import { LoggingMiddleware } from '../middleware/plugins/logging-plugin.js';
+import { MetricsMiddleware } from '../middleware/plugins/metrics-plugin.js';
+import { StreamHandler } from '../handlers/stream-handler.js';
+import { ResultHandler } from '../handlers/result-handler.js';
+import { ErrorHandler } from '../handlers/error-handler.js';
+import { DisplayHandler } from '../handlers/display-handler.js';
+import { findFreePort, waitForPort } from '../utils/network.js';
+import { SupervisorClient, type SessionConnectionInfo } from './supervisor-client.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const WORKER_PATH = join(__dirname, 'session-worker.js');
+// Reuses lib/types/engine.ts's ShinyAppHandle (the same shape
+// DatasuiteEngine.createShiny() already returns) instead of declaring a
+// second, structurally-identical interface here -- lib/index.ts used to
+// re-export this one under a SessionShinyAppHandle alias purely to dodge a
+// name collision with `export * from './types/index.js'`; now that this is
+// the same binding, the alias is just a second name for the same type.
+export type { ShinyAppHandle };
 
-/**
- * Finds a real Node.js executable to run the R session with. Under plain
- * Node, process.execPath already is one. Under Electron (e.g. VS Code's
- * Shared Process), child_process.fork() always targets process.execPath --
- * Electron's own binary -- and even with ELECTRON_RUN_AS_NODE=1, loading
- * this addon there reliably crashes (0xC0000005) on Windows: reproduced
- * with fork() and with direct in-process creation, and with both a
- * plain-Node-built and an Electron-ABI-built addon, so it isn't a fork
- * mechanism or ABI issue -- something about the addon's native startup
- * (AllocConsole()/freopen_s() in RInterpreter's constructor) doesn't
- * tolerate Electron's process/sandbox model. A genuinely separate,
- * real node.exe process is the one thing that worked in every test.
- */
-function resolveNodeExecutable(): string {
-    if (!process.versions.electron) {
-        return process.execPath;
-    }
-
-    if (process.env.DATASUITE_NODE_PATH && existsSync(process.env.DATASUITE_NODE_PATH)) {
-        return process.env.DATASUITE_NODE_PATH;
-    }
-
-    const exeName = process.platform === 'win32' ? 'node.exe' : 'node';
-    for (const dir of (process.env.PATH ?? '').split(delimiter)) {
-        const candidate = join(dir, exeName);
-        if (existsSync(candidate)) {
-            return candidate;
-        }
-    }
-
-    throw new Error(
-        'datasuite-r: running inside Electron and could not find a standalone Node.js executable on PATH ' +
-        '(required to run R sessions outside Electron\'s own runtime). Set DATASUITE_NODE_PATH to a node ' +
-        'executable, or ensure Node.js is installed and on PATH.'
-    );
-}
-
-export interface ShinyAppHandle {
-    host: string;
-    port: number;
-    url: string;
-    done: Promise<ExecutionResult>;
-}
-
-interface Pending {
-    resolve: (value: any) => void;
-    reject: (error: Error) => void;
-}
-
-function reviveResult(raw: any): ExecutionResult {
-    return {
-        ...raw,
-        error: raw?.error ? Object.assign(new Error(raw.error.message), { name: raw.error.name }) : undefined
-    };
+interface WsFrame {
+    type: string;
+    [key: string]: unknown;
 }
 
 /**
- * One R session running in its own OS process (via child_process.fork()),
- * proxying execute()/createShiny()/stop() over IPC. This is what makes
- * concurrent sessions safe: each process embeds exactly one R interpreter,
- * matching R's own one-per-process limit, instead of sharing one across
- * multiple DatasuiteEngine objects in the same process (which starves
- * whichever session isn't currently holding it -- see the crash this
- * replaces: a Shiny app blocking the interpreter while a second session's
- * execute() call timed out waiting for a turn that never came).
+ * One R session running in its own OS process (datasuite-r, spawned and
+ * supervised by datasuite-supervisor -- see lib/session/supervisor-client.ts),
+ * proxying execute()/createShiny()/stop() over a per-session WebSocket
+ * instead of the Node child_process IPC this class used to speak directly
+ * to a Node-hosted addon worker. The supervisor is the only process in this
+ * tree that ever links a native ZMQ binding; this class only ever does
+ * plain HTTP/WS, so it's safe to run inside Electron/VS Code's Shared
+ * Process without the addon-loading workarounds session-manager.ts used to
+ * need (see the removed resolveNodeExecutable()/ELECTRON_RUN_AS_NODE logic
+ * this replaces).
+ *
+ * Reuses the same MessageRouter/handlers/ExecutionQueue/MiddlewareChain
+ * classes lib/core/engine.ts's DatasuiteEngine uses -- that pipeline never
+ * depended on being addon-adjacent, it just consumed raw JSON envelope
+ * strings, which is exactly what arrives over the WebSocket's 'message'
+ * frames now instead of the addon's in-process callback.
  */
 export class Session extends EventEmitter {
-    private readonly child: ChildProcess;
-    private readonly pending = new Map<string, Pending>();
-    private readonly shinyDoneWaiters = new Map<string, (result: ExecutionResult) => void>();
+    private ws: WebSocket | undefined;
+    private readonly info: SessionConnectionInfo;
+    private readonly supervisor: SupervisorClient;
+    private readonly logger: Logger;
+    private readonly router: MessageRouter;
+    private readonly middleware: MiddlewareChain;
+    private readonly queue: ExecutionQueue;
     private readonly readyPromise: Promise<void>;
     private stopped = false;
 
-    constructor(options: EngineOptions) {
+    constructor(info: SessionConnectionInfo, options: EngineOptions, supervisor: SupervisorClient) {
         super();
+        this.info = info;
+        this.supervisor = supervisor;
+        this.logger = new Logger(options.logger);
 
-        // spawn(), not fork(): fork() always targets process.execPath, which
-        // under Electron is Electron's own binary -- see
-        // resolveNodeExecutable()'s comment for why that reliably crashes
-        // this addon regardless of ELECTRON_RUN_AS_NODE. spawn() with an
-        // explicit, genuinely separate node executable plus stdio: [...,
-        // 'ipc'] gives the exact same fork()-style IPC (child.send() /
-        // 'message' events) without ever touching Electron's binary.
-        this.child = spawn(resolveNodeExecutable(), [WORKER_PATH], {
-            // 'pipe', not 'inherit': the parent may not have real console
-            // stdio at all (e.g. VS Code's Shared Process is a headless
-            // background process) -- inheriting whatever it has is risky
-            // given the native addon's RInterpreter constructor calls
-            // AllocConsole()+freopen_s() on Windows right at startup, before
-            // any R code runs. 'pipe' gives the child well-defined,
-            // Node-managed stdio regardless of the parent's own state.
-            stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-            env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
-        });
+        this.router = new MessageRouter(this);
+        this.router.registerHandler('stream', new StreamHandler());
+        this.router.registerHandler('execute_result', new ResultHandler());
+        this.router.registerHandler('display_data', new DisplayHandler());
+        this.router.registerHandler('error', new ErrorHandler());
 
-        // Forward the piped output for visibility (e.g. during interactive
-        // debugging) now that it's no longer inherited automatically.
-        this.child.stdout?.on('data', (chunk: Buffer) => process.stdout.write(chunk));
-        this.child.stderr?.on('data', (chunk: Buffer) => process.stderr.write(chunk));
+        this.middleware = new MiddlewareChain();
+        if (options.enableLogging) {
+            this.middleware.use(new LoggingMiddleware());
+        }
+        if (options.enableMetrics) {
+            this.middleware.use(new MetricsMiddleware());
+        }
+
+        // Adapter exposing the same `{ execute(code): msgId }` shape the
+        // native addon used to provide directly -- ExecutionQueue's
+        // single-flight/timeout/msgId-correlation logic
+        // (lib/execution/execution-queue.ts) is reused completely
+        // unmodified, it just sends over the WebSocket now instead of
+        // calling into an in-process addon. The id is generated here
+        // (client-side) rather than returned from the "addon", since the
+        // supervisor has no synchronous return path over a WS send.
+        const wsAddon = {
+            execute: (code: string): string => {
+                const id = randomUUID();
+                this.send({ type: 'execute', id, code });
+                return id;
+            }
+        };
+        this.queue = new ExecutionQueue(wsAddon, this, options.queueSize, this.logger);
 
         this.readyPromise = new Promise((resolve, reject) => {
-            const onMessage = (message: any) => {
-                if (message.type === 'workerReady') {
-                    cleanup();
-                    resolve();
-                } else if (message.type === 'startError') {
-                    cleanup();
-                    reject(new Error(message.error));
-                }
-            };
-            const onExit = (code: number | null) => {
-                if (!this.stopped) {
-                    cleanup();
-                    reject(new Error(`Session process exited before it was ready (code ${code})`));
-                }
+            const url = `${info.wsBase}/sessions/${info.sessionId}/messages`;
+            this.logger.debug(`Connecting to session ${info.sessionId} at ${url}`);
+            const ws = new WebSocket(url);
+            this.ws = ws;
+
+            const onOpenError = () => reject(new Error(`WebSocket connection to session ${info.sessionId} failed`));
+            const onCloseBeforeReady = () => reject(new Error(`Session ${info.sessionId} closed before it was ready`));
+            const onReady = () => {
+                cleanup();
+                resolve();
             };
             const cleanup = () => {
-                this.child.off('message', onMessage);
-                this.child.off('exit', onExit);
+                ws.removeEventListener('error', onOpenError);
+                ws.removeEventListener('close', onCloseBeforeReady);
             };
 
-            this.child.on('message', onMessage);
-            this.child.on('error', reject);
-            this.child.on('exit', onExit);
+            ws.addEventListener('error', onOpenError);
+            ws.addEventListener('close', onCloseBeforeReady);
+            ws.addEventListener('message', (event: MessageEvent) => {
+                void this.handleFrame(String(event.data), onReady);
+            });
         });
 
-        this.child.on('message', (message: any) => this.handleMessage(message));
-        this.child.send({ type: 'init', options });
+        // Unlike the ready-phase close handler above (removed once ready
+        // resolves), this listener stays for the session's whole lifetime.
+        // Without it, a kernel crash mid-execution left every pending
+        // execute()/createShiny() call hanging forever -- nothing else ever
+        // settles those promises. Mirrors the old child.on('exit') handler
+        // this replaces.
+        this.ws?.addEventListener('close', () => {
+            if (this.stopped) {
+                return;
+            }
+            this.logger.error(`Session ${info.sessionId} connection closed unexpectedly`);
+            this.emit('exit', {});
+            this.queue.clear();
+        });
     }
 
-    private handleMessage(message: any): void {
-        switch (message.type) {
-            case 'event':
-                this.emit(message.event, ...message.args);
+    private send(frame: Record<string, unknown>): void {
+        this.ws?.send(JSON.stringify(frame));
+    }
+
+    private async handleFrame(text: string, onReady: () => void): Promise<void> {
+        let frame: WsFrame;
+        try {
+            frame = JSON.parse(text);
+        } catch {
+            return;
+        }
+
+        switch (frame.type) {
+            case 'ready':
+                onReady();
                 break;
-            case 'executeResult':
-                this.pending.get(message.id)?.resolve(reviveResult(message.result));
-                this.pending.delete(message.id);
+
+            case 'message':
+                try {
+                    const processed = await this.middleware.process(text);
+                    await this.router.route(processed);
+                } catch (error) {
+                    this.logger.error('Error handling message', error);
+                    this.emit('error', error);
+                }
                 break;
-            case 'executeError':
-                this.pending.get(message.id)?.reject(new Error(message.error));
-                this.pending.delete(message.id);
+
+            case 'log': {
+                // A logger callback can't cross the process boundary to the
+                // supervisor/kernel, so log output arrives as
+                // {type:'log', level, message, data} frames instead and gets
+                // replayed through this session's own Logger (built from the
+                // original caller-supplied callback) here.
+                const level: LogLevel = (frame.level as LogLevel) ?? 'info';
+                this.logger[level](String(frame.message ?? ''), frame.data);
                 break;
-            case 'shinyReady':
-                this.pending.get(message.id)?.resolve({ host: message.host, port: message.port, url: message.url });
-                this.pending.delete(message.id);
+            }
+
+            case 'kernelExit':
+                if (!this.stopped) {
+                    this.logger.error(`R session process for ${this.info.sessionId} exited unexpectedly`);
+                    this.emit('exit', {});
+                    this.queue.clear();
+                }
                 break;
-            case 'shinyStartError':
-                this.pending.get(message.id)?.reject(new Error(message.error));
-                this.pending.delete(message.id);
-                break;
-            case 'shinyDone':
-                this.shinyDoneWaiters.get(message.id)?.(reviveResult(message.result));
-                this.shinyDoneWaiters.delete(message.id);
-                break;
-            case 'stopped':
-                this.stopped = true;
+
+            default:
                 break;
         }
     }
@@ -178,51 +192,87 @@ export class Session extends EventEmitter {
 
     async execute(code: string, options: ExecutionOptions = {}): Promise<ExecutionResult> {
         await this.readyPromise;
-        const id = randomUUID();
-        return new Promise((resolve, reject) => {
-            this.pending.set(id, { resolve, reject });
-            this.child.send({ id, type: 'execute', code, options });
-        });
+        return this.queue.execute(code, options);
     }
 
+    /**
+     * Launches a Shiny app in this session's R process and resolves once
+     * it's actually accepting connections. shiny::runApp() blocks the R
+     * session for as long as the app runs, so -- unlike execute() --
+     * resolving here does not mean the app is done; that's what the
+     * returned `done` promise is for.
+     */
     async createShiny(options: ShinyAppOptions): Promise<ShinyAppHandle> {
         await this.readyPromise;
-        const id = randomUUID();
 
-        const done = new Promise<ExecutionResult>((resolve) => {
-            this.shinyDoneWaiters.set(id, resolve);
+        const host = options.host ?? '127.0.0.1';
+        const port = options.port ?? await findFreePort(host);
+        const launchBrowser = options.launchBrowser ?? false;
+        const readyTimeout = options.readyTimeout ?? 10000;
+
+        const appDir = rStringLiteral(options.appDir.replace(/\\/g, '/'));
+        const setEnvPrefix = buildSetEnvCode(options.env);
+        const code = `${setEnvPrefix}shiny::runApp(${appDir}, port = ${port}, host = '${host}', launch.browser = ${launchBrowser ? 'TRUE' : 'FALSE'})`;
+
+        this.logger.info('Starting Shiny app', { appDir: options.appDir, host, port, readyTimeout });
+
+        // timeout: 0 -- this call is expected to block indefinitely.
+        const done = this.execute(code, { timeout: 0 });
+        done.then(
+            (result) => this.logger.info(`Shiny app at ${host}:${port} exited`, { success: result.success }),
+            (error) => this.logger.error(`Shiny app at ${host}:${port} execution failed`, error)
+        );
+
+        const earlyExit = done.then((result) => {
+            throw new Error(
+                `Shiny app exited before it started listening (status: ${result.success ? 'ok' : 'error'})`
+            );
         });
+        earlyExit.catch(() => {});
 
-        const { host, port, url } = await new Promise<{ host: string; port: number; url: string }>((resolve, reject) => {
-            this.pending.set(id, { resolve, reject });
-            this.child.send({ id, type: 'createShiny', options });
-        });
+        try {
+            await Promise.race([waitForPort(host, port, readyTimeout), earlyExit]);
+        } catch (error) {
+            this.logger.error(`Shiny app at ${host}:${port} failed to start`, error);
+            throw error;
+        }
 
-        return { host, port, url, done };
+        this.logger.info(`Shiny app listening at http://${host}:${port}`);
+        return { host, port, url: `http://${host}:${port}`, done };
     }
 
     /** Stops the R session and waits for its process to exit. */
     async stop(): Promise<void> {
-        if (this.stopped) return;
-        await new Promise<void>((resolve) => {
-            this.child.once('exit', () => resolve());
-            this.child.send({ type: 'stop' });
-        });
+        if (this.stopped) {
+            return;
+        }
+        this.stopped = true;
+        this.logger.info(`Stopping session ${this.info.sessionId}`);
+        this.queue.clear();
+        await this.supervisor.stopSession(this.info);
+        this.ws?.close();
+        this.emit('stopped');
     }
 
     /** Skips the graceful shutdown protocol -- only for cleanup on the way out. */
     kill(): void {
-        if (!this.stopped) this.child.kill();
+        if (!this.stopped) {
+            this.stopped = true;
+            this.logger.warn(`Force-closing session ${this.info.sessionId}`);
+            this.ws?.close();
+        }
     }
 }
 
 export class SessionManager {
+    private readonly supervisor = new SupervisorClient(new Logger());
     private readonly sessions = new Set<Session>();
     private exitHandlerRegistered = false;
 
     /** Creates a new R session in its own OS process and waits for it to be ready. */
     async createSession(options: EngineOptions = {}): Promise<Session> {
-        const session = new Session(options);
+        const info = await this.supervisor.createSession(options);
+        const session = new Session(info, options, this.supervisor);
         this.sessions.add(session);
         this.registerExitHandler();
 
@@ -240,28 +290,31 @@ export class SessionManager {
     async stopAll(): Promise<void> {
         await Promise.all([...this.sessions].map((session) => session.stop()));
         this.sessions.clear();
+        this.supervisor.kill();
     }
 
     /**
-     * Forcibly terminates every session's process. Prefer stopAll(), but a
-     * session whose R interpreter is blocked in a long-running call (e.g.
-     * shiny::runApp()) can't process a graceful shutdown_request until that
-     * call returns -- callers wanting a bounded-time exit (e.g. a Ctrl+C
+     * Forcibly terminates every session. Prefer stopAll(), but a session
+     * whose R interpreter is blocked in a long-running call (e.g.
+     * shiny::runApp()) can't process a graceful shutdown until that call
+     * returns -- callers wanting a bounded-time exit (e.g. a Ctrl+C
      * handler) should race stopAll() against a timeout and fall back to this.
      */
     killAll(): void {
         for (const session of this.sessions) session.kill();
         this.sessions.clear();
+        this.supervisor.kill();
     }
 
     // Safety net: if the parent process exits (including via Ctrl+C) without
-    // an explicit stopAll(), don't leave child processes (and whatever R
-    // session/Shiny app they're running) orphaned in the background.
+    // an explicit stopAll(), don't leave the supervisor and its spawned
+    // kernel processes orphaned in the background.
     private registerExitHandler(): void {
         if (this.exitHandlerRegistered) return;
         this.exitHandlerRegistered = true;
         process.once('exit', () => {
             for (const session of this.sessions) session.kill();
+            this.supervisor.kill();
         });
     }
 }

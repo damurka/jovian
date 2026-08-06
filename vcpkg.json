@@ -6,7 +6,9 @@
     "cppzmq",
     "zeromq",
     "openssl",
-    "gtest"
+    "gtest",
+    "cpp-httplib",
+    "ixwebsocket"
   ],
   "builtin-baseline": "f87344cac03158cbf1467264565f1fd36b382a24"
 }

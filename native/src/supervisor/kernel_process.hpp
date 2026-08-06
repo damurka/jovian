@@ -1,0 +1,60 @@
+#ifndef DATASUITE_SUPERVISOR_KERNEL_PROCESS_HPP
+#define DATASUITE_SUPERVISOR_KERNEL_PROCESS_HPP
+
+#include <atomic>
+#include <string>
+#include <thread>
+#include <vector>
+
+namespace datasuite::supervisor
+{
+    struct KernelProcessOptions
+    {
+        std::string kernelExePath;
+        std::string rHome;
+        std::string rPath;
+        std::string rLibs;
+        std::string pandocPath;
+        std::string heraSrcPath;
+        std::string registrationIp;
+        std::string registrationPort;
+        std::string key;
+    };
+
+    // Spawns/owns one `datasuite-r` child process. Deliberately minimal --
+    // the supervisor never talks to the kernel through this class after
+    // spawning it; all runtime traffic (execute, interrupt, shutdown) goes
+    // over the ZMQ ClientZmq connection established once the kernel
+    // registers (see session_registry.cpp). This class only covers what
+    // process supervision needs: start, liveness, and a last-resort kill.
+    class KernelProcess
+    {
+    public:
+        explicit KernelProcess(const KernelProcessOptions& options);
+        ~KernelProcess();
+
+        KernelProcess(const KernelProcess&) = delete;
+        KernelProcess& operator=(const KernelProcess&) = delete;
+
+        void start();
+        bool isAlive() const;
+        void kill();
+
+    private:
+        void startOutputPump(void* readHandle);
+
+        KernelProcessOptions m_options;
+        std::thread m_outputThread;
+        std::atomic<bool> m_running{ false };
+
+#ifdef _WIN32
+        void* m_processHandle = nullptr;
+        unsigned long m_processId = 0;
+#else
+        int m_processId = -1;
+        int m_stdoutFd = -1;
+#endif
+    };
+}
+
+#endif

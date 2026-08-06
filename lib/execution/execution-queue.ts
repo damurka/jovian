@@ -1,6 +1,7 @@
 import type { EventEmitter } from 'events';
 import type { ExecutionOptions, ExecutionResult } from '../types/index.js';
 import type { JupyterMessage } from '../types/messages.js';
+import type { Logger } from '../utils/logger.js';
 
 interface QueuedExecution {
     code: string;
@@ -25,19 +26,24 @@ export class ExecutionQueue {
     private addon: any;
     private maxSize: number;
     private pending: Map<string, PendingExecution> = new Map();
+    private logger?: Logger;
 
-    constructor(addon: any, emitter: EventEmitter, maxSize: number = 100) {
+    constructor(addon: any, emitter: EventEmitter, maxSize: number = 100, logger?: Logger) {
         this.addon = addon;
         this.maxSize = maxSize;
+        this.logger = logger;
         emitter.on('message', (message: JupyterMessage) => this.handleMessage(message));
     }
 
     execute(code: string, options: ExecutionOptions = {}): Promise<ExecutionResult> {
         return new Promise((resolve, reject) => {
             if (this.queue.length >= this.maxSize) {
+                this.logger?.error(`Execution queue is full (maxSize=${this.maxSize}); rejecting new request`);
                 reject(new Error('Execution queue is full'));
                 return;
             }
+
+            this.logger?.trace(`Queued execution (queue depth: ${this.queue.length + 1})`, { timeout: options.timeout });
 
             this.queue.push({
                 code,
@@ -62,21 +68,26 @@ export class ExecutionQueue {
 
         this.executing = true;
         const item = this.queue.shift()!;
+        const queuedMs = Date.now() - item.timestamp;
 
         let msgId: string;
         try {
             msgId = this.addon.execute(item.code);
         } catch (error) {
+            this.logger?.error('Native addon threw while starting execution', { error, queuedMs });
             item.reject(error as Error);
             this.processNext();
             return;
         }
 
         if (!msgId) {
+            this.logger?.error('Native addon did not return a message id for this execution', { queuedMs });
             item.reject(new Error('Native addon did not return a message id for this execution'));
             this.processNext();
             return;
         }
+
+        this.logger?.trace(`Execution ${msgId} started after ${queuedMs}ms in queue`);
 
         // A timeout of 0 means "no timeout" -- used for long-running calls
         // that intentionally block the R session until something external
@@ -87,6 +98,7 @@ export class ExecutionQueue {
         const timeoutMs = item.options.timeout ?? DEFAULT_TIMEOUT_MS;
         const timer = timeoutMs > 0
             ? setTimeout(() => {
+                this.logger?.error(`Execution ${msgId} timed out after ${timeoutMs}ms`, { code: previewCode(item.code) });
                 this.pending.delete(msgId);
                 item.reject(new Error(`Execution timed out after ${timeoutMs}ms`));
                 this.processNext();
@@ -99,12 +111,14 @@ export class ExecutionQueue {
             finish: (result) => {
                 clearTimeout(timer);
                 this.pending.delete(msgId);
+                this.logger?.trace(`Execution ${msgId} finished`, { success: result.success, outputMessages: result.output?.length ?? 0 });
                 item.resolve(result);
                 this.processNext();
             },
             reject: (error) => {
                 clearTimeout(timer);
                 this.pending.delete(msgId);
+                this.logger?.error(`Execution ${msgId} rejected`, { error });
                 item.reject(error);
             }
         });
@@ -125,6 +139,7 @@ export class ExecutionQueue {
 
             case 'error':
                 pending.output.push(message);
+                this.logger?.error(`Execution ${message.parentMsgId} reported an R error`, { evalue: message.content?.evalue });
                 pending.finish({
                     success: false,
                     output: pending.output,
@@ -146,6 +161,10 @@ export class ExecutionQueue {
     }
 
     clear(): void {
+        if (this.queue.length > 0 || this.pending.size > 0) {
+            this.logger?.warn(`Clearing execution queue (${this.queue.length} queued, ${this.pending.size} in flight)`);
+        }
+
         this.queue.forEach(item => {
             item.reject(new Error('Queue cleared'));
         });
@@ -161,4 +180,9 @@ export class ExecutionQueue {
     get size(): number {
         return this.queue.length;
     }
+}
+
+function previewCode(code: string, maxLength: number = 200): string {
+    const singleLine = code.replace(/\s+/g, ' ').trim();
+    return singleLine.length > maxLength ? `${singleLine.slice(0, maxLength)}…` : singleLine;
 }

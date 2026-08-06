@@ -1,0 +1,299 @@
+#include "kernel_process.hpp"
+
+#include <cstdio>
+#include <iostream>
+#include <sstream>
+#include <stdexcept>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <vector>
+#endif
+
+namespace datasuite::supervisor
+{
+    namespace
+    {
+        std::string quoteArg(const std::string& value)
+        {
+            // Minimal Windows-style quoting -- arguments here are always
+            // filesystem paths or generated keys/ids, never user-controlled
+            // shell metacharacters, so this doesn't need to be exhaustive.
+            std::string quoted = "\"";
+            for (char c : value)
+            {
+                if (c == '"')
+                {
+                    quoted += '\\';
+                }
+                quoted += c;
+            }
+            quoted += "\"";
+            return quoted;
+        }
+
+        std::vector<std::pair<std::string, std::string>> toArgPairs(const KernelProcessOptions& options)
+        {
+            return {
+                { "--r-home", options.rHome },
+                { "--r-path", options.rPath },
+                { "--r-libs", options.rLibs },
+                { "--pandoc-path", options.pandocPath },
+                { "--hera-src-path", options.heraSrcPath },
+                { "--registration-ip", options.registrationIp },
+                { "--registration-port", options.registrationPort },
+                { "--key", options.key },
+            };
+        }
+    }
+
+    KernelProcess::KernelProcess(const KernelProcessOptions& options) : m_options(options) {}
+
+    KernelProcess::~KernelProcess()
+    {
+        kill();
+    }
+
+    // Reads lines from the kernel's stdout/stderr (redirected into one pipe
+    // by start()) and relays them to the supervisor's own stderr, prefixed
+    // for attribution -- without this there is no visibility at all into
+    // why a spawned kernel failed to reach registration (R startup errors,
+    // package load failures, etc. would otherwise vanish into a pipe no one
+    // reads).
+    void KernelProcess::startOutputPump(void* readHandle)
+    {
+        m_running = true;
+#ifdef _WIN32
+        HANDLE handle = static_cast<HANDLE>(readHandle);
+        m_outputThread = std::thread([this, handle]() {
+            char buffer[4096];
+            std::string carry;
+            DWORD bytesRead = 0;
+            while (m_running && ReadFile(handle, buffer, sizeof(buffer), &bytesRead, nullptr) && bytesRead > 0)
+            {
+                carry.append(buffer, bytesRead);
+                std::size_t pos;
+                while ((pos = carry.find('\n')) != std::string::npos)
+                {
+                    std::cerr << "[datasuite-r] " << carry.substr(0, pos) << std::endl;
+                    carry.erase(0, pos + 1);
+                }
+            }
+            if (!carry.empty())
+            {
+                std::cerr << "[datasuite-r] " << carry << std::endl;
+            }
+            CloseHandle(handle);
+        });
+#else
+        int fd = static_cast<int>(reinterpret_cast<intptr_t>(readHandle));
+        m_outputThread = std::thread([this, fd]() {
+            char buffer[4096];
+            std::string carry;
+            ssize_t bytesRead;
+            while (m_running && (bytesRead = read(fd, buffer, sizeof(buffer))) > 0)
+            {
+                carry.append(buffer, static_cast<std::size_t>(bytesRead));
+                std::size_t pos;
+                while ((pos = carry.find('\n')) != std::string::npos)
+                {
+                    std::cerr << "[datasuite-r] " << carry.substr(0, pos) << std::endl;
+                    carry.erase(0, pos + 1);
+                }
+            }
+            if (!carry.empty())
+            {
+                std::cerr << "[datasuite-r] " << carry << std::endl;
+            }
+            close(fd);
+        });
+#endif
+    }
+
+#ifdef _WIN32
+    void KernelProcess::start()
+    {
+        std::ostringstream cmd;
+        cmd << quoteArg(m_options.kernelExePath);
+        for (const auto& [flag, value] : toArgPairs(m_options))
+        {
+            if (value.empty())
+            {
+                continue;
+            }
+            cmd << " " << flag << " " << quoteArg(value);
+        }
+        std::string commandLine = cmd.str();
+
+        SECURITY_ATTRIBUTES pipeAttrs{};
+        pipeAttrs.nLength = sizeof(pipeAttrs);
+        pipeAttrs.bInheritHandle = TRUE;
+
+        HANDLE readHandle = nullptr;
+        HANDLE writeHandle = nullptr;
+        if (!CreatePipe(&readHandle, &writeHandle, &pipeAttrs, 0))
+        {
+            throw std::runtime_error("Failed to create output pipe for datasuite-r process");
+        }
+        // The write end must not be inherited by the *supervisor* itself
+        // (only by the child, via STARTUPINFOA below) -- otherwise the pipe
+        // never sees EOF after the child exits, since the supervisor would
+        // still be holding its own copy of the write handle open.
+        SetHandleInformation(readHandle, HANDLE_FLAG_INHERIT, 0);
+
+        STARTUPINFOA startupInfo{};
+        startupInfo.cb = sizeof(startupInfo);
+        startupInfo.dwFlags = STARTF_USESTDHANDLES;
+        startupInfo.hStdOutput = writeHandle;
+        startupInfo.hStdError = writeHandle;
+        startupInfo.hStdInput = nullptr;
+        PROCESS_INFORMATION processInfo{};
+
+        // CREATE_NO_WINDOW: the supervisor itself may be spawned headlessly
+        // (e.g. from VS Code's Shared Process, same reasoning that led
+        // session-manager.ts to avoid inheriting stdio for the addon-based
+        // child) -- kernel processes should never pop a console window.
+        // bInheritHandles=TRUE is required for hStdOutput/hStdError above to
+        // actually take effect.
+        BOOL ok = CreateProcessA(
+            nullptr,
+            commandLine.data(),
+            nullptr,
+            nullptr,
+            TRUE,
+            CREATE_NO_WINDOW,
+            nullptr,
+            nullptr,
+            &startupInfo,
+            &processInfo);
+
+        // This process's copy of the write end must be closed regardless of
+        // outcome -- on success the child owns the handle it inherited; on
+        // failure there's nothing to write to it for.
+        CloseHandle(writeHandle);
+
+        if (!ok)
+        {
+            CloseHandle(readHandle);
+            throw std::runtime_error("Failed to spawn datasuite-r process (CreateProcess failed)");
+        }
+
+        m_processHandle = processInfo.hProcess;
+        m_processId = processInfo.dwProcessId;
+        CloseHandle(processInfo.hThread);
+
+        startOutputPump(readHandle);
+    }
+
+    bool KernelProcess::isAlive() const
+    {
+        if (!m_processHandle)
+        {
+            return false;
+        }
+        DWORD exitCode = 0;
+        if (!GetExitCodeProcess(static_cast<HANDLE>(m_processHandle), &exitCode))
+        {
+            return false;
+        }
+        return exitCode == STILL_ACTIVE;
+    }
+
+    void KernelProcess::kill()
+    {
+        m_running = false;
+        if (m_processHandle)
+        {
+            TerminateProcess(static_cast<HANDLE>(m_processHandle), 1);
+            CloseHandle(static_cast<HANDLE>(m_processHandle));
+            m_processHandle = nullptr;
+        }
+        if (m_outputThread.joinable())
+        {
+            m_outputThread.join();
+        }
+    }
+#else
+    void KernelProcess::start()
+    {
+        std::vector<std::string> argStorage = { m_options.kernelExePath };
+        for (const auto& [flag, value] : toArgPairs(m_options))
+        {
+            if (value.empty())
+            {
+                continue;
+            }
+            argStorage.push_back(flag);
+            argStorage.push_back(value);
+        }
+
+        std::vector<char*> argv;
+        argv.reserve(argStorage.size() + 1);
+        for (auto& arg : argStorage)
+        {
+            argv.push_back(arg.data());
+        }
+        argv.push_back(nullptr);
+
+        int pipeFds[2];
+        if (pipe(pipeFds) != 0)
+        {
+            throw std::runtime_error("Failed to create output pipe for datasuite-r process");
+        }
+
+        pid_t pid = fork();
+        if (pid < 0)
+        {
+            close(pipeFds[0]);
+            close(pipeFds[1]);
+            throw std::runtime_error("Failed to fork datasuite-r process");
+        }
+        if (pid == 0)
+        {
+            close(pipeFds[0]);
+            dup2(pipeFds[1], STDOUT_FILENO);
+            dup2(pipeFds[1], STDERR_FILENO);
+            close(pipeFds[1]);
+            execv(m_options.kernelExePath.c_str(), argv.data());
+            _exit(127);
+        }
+
+        close(pipeFds[1]);
+        m_processId = pid;
+        m_stdoutFd = pipeFds[0];
+        startOutputPump(reinterpret_cast<void*>(static_cast<intptr_t>(m_stdoutFd)));
+    }
+
+    bool KernelProcess::isAlive() const
+    {
+        if (m_processId <= 0)
+        {
+            return false;
+        }
+        int status = 0;
+        pid_t result = waitpid(m_processId, &status, WNOHANG);
+        return result == 0;
+    }
+
+    void KernelProcess::kill()
+    {
+        m_running = false;
+        if (m_processId > 0)
+        {
+            ::kill(m_processId, SIGKILL);
+            int status = 0;
+            waitpid(m_processId, &status, 0);
+            m_processId = -1;
+        }
+        if (m_outputThread.joinable())
+        {
+            m_outputThread.join();
+        }
+    }
+#endif
+}

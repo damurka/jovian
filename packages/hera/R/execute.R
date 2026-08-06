@@ -144,7 +144,7 @@ execute <- function(code, execution_counter, silent = FALSE, eval_env = rlang::g
         # data     = toJSON(bundle$data, auto_unbox = TRUE),
         # metadata = toJSON(bundle$metadata, auto_unbox = TRUE)
         # Before toJSON, ensure data is UTF-8
-        data = enc2utf8(toJSON(bundle$data, auto_unbox = TRUE)),
+        data = enc2utf8(toJSON(sanitize_raw_for_json(bundle$data), auto_unbox = TRUE)),
         metadata = enc2utf8(toJSON(bundle$metadata, auto_unbox = TRUE))
       )
     )

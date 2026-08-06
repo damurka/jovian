@@ -42,7 +42,7 @@
     "test": "node scripts/test.js",
     "test:unit": "node --test --test-force-exit --experimental-test-coverage test/unit/lib/*.test.ts",
     "test:integration": "node --test --test-force-exit test/integration/*.test.ts",
-    "pack:install": "npm pack && cd ../../JS/datasuite_old_with_ai && npm install ../../VS/datasuite-r/datasuite-r-1.0.0.tgz"
+    "pack:install": "npm pack && cd ../../JS/vscode && npm install ../../VS/datasuite-r/datasuite-r-1.0.0.tgz"
   },
   "keywords": [
     "r",

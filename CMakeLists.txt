@@ -127,6 +127,14 @@ endif ()
 find_package(OpenSSL REQUIRED)
 find_package(R REQUIRED)
 
+# Used by the kernel supervisor (native/src/supervisor) for its REST +
+# WebSocket API -- not needed by the addon or the standalone kernel
+# executable, but resolved unconditionally here to match how the other
+# dependencies above are already handled regardless of which targets end up
+# being built (see DATASUITE_BUILD_SUPERVISOR in native/CMakeLists.txt).
+find_package(httplib REQUIRED)
+find_package(ixwebsocket REQUIRED)
+
 message(STATUS "R_HOME           = ${R_HOME}")
 message(STATUS "R_INCLUDE_DIR    = ${R_INCLUDE_DIR}")
 message(STATUS "R_LDFLAGS        = ${R_LDFLAGS}")

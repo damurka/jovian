@@ -1,6 +1,8 @@
 import type { JupyterMessage } from './messages.js';
 
-export type LoggerFunction = (level: 'info' | 'warn' | 'error', message: string, data?: any) => void;
+export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error';
+
+export type LoggerFunction = (level: LogLevel, message: string, data?: any) => void;
 
 export interface EngineOptions {
     rHome?: string;

@@ -47,7 +47,7 @@ export class DatasuiteEngine extends EventEmitter {
         
         // Initialize execution queue (listens to router 'message' events on
         // `this` to correlate replies back to the execute() call that sent them)
-        this.queue = new ExecutionQueue(this.addon, this, options.queueSize);
+        this.queue = new ExecutionQueue(this.addon, this, options.queueSize, this.logger);
         
         // Initialize middleware chain
         this.middleware = new MiddlewareChain();
@@ -112,8 +112,14 @@ export class DatasuiteEngine extends EventEmitter {
         const setEnvPrefix = buildSetEnvCode(options.env);
         const code = `${setEnvPrefix}shiny::runApp(${appDir}, port = ${port}, host = '${host}', launch.browser = ${launchBrowser ? 'TRUE' : 'FALSE'})`;
 
+        this.logger.info(`Starting Shiny app`, { appDir: options.appDir, host, port, readyTimeout });
+
         // timeout: 0 -- this call is expected to block indefinitely.
         const done = this.execute(code, { timeout: 0 });
+        done.then(
+            (result) => this.logger.info(`Shiny app at ${host}:${port} exited`, { success: result.success }),
+            (error) => this.logger.error(`Shiny app at ${host}:${port} execution failed`, error)
+        );
 
         // Race "app is listening" against "R already returned/errored", so a
         // Shiny app that fails to start (bad path, missing package, port
@@ -129,7 +135,14 @@ export class DatasuiteEngine extends EventEmitter {
         });
         earlyExit.catch(() => {});
 
-        await Promise.race([waitForPort(host, port, readyTimeout), earlyExit]);
+        try {
+            await Promise.race([waitForPort(host, port, readyTimeout), earlyExit]);
+        } catch (error) {
+            this.logger.error(`Shiny app at ${host}:${port} failed to start`, error);
+            throw error;
+        }
+
+        this.logger.info(`Shiny app listening at http://${host}:${port}`);
 
         return { host, port, url: `http://${host}:${port}`, done };
     }
@@ -158,11 +171,19 @@ export class DatasuiteEngine extends EventEmitter {
         try {
             // Apply middleware chain before routing
             const processedMessage = await this.middleware.process(rawMessage);
-            
+
             // Route to appropriate handlers
             await this.router.route(processedMessage);
         } catch (error) {
-            this.logger.error('Error handling message', error);
+            // rawMessage can be arbitrarily large (e.g. a base64-encoded plot
+            // image); log a bounded preview alongside the full error/stack
+            // rather than either dumping the whole payload or, as before,
+            // just the bare error with no way to tell which message failed.
+            this.logger.error('Error handling message', {
+                error,
+                stack: error instanceof Error ? error.stack : undefined,
+                messagePreview: previewRawMessage(rawMessage)
+            });
             this.emit('error', error);
         }
     }
@@ -184,11 +205,23 @@ export class DatasuiteEngine extends EventEmitter {
     }
 }
 
-function rStringLiteral(value: string): string {
+// Bounded preview of a raw engine message for error logs: long enough to
+// identify the msg_type/content shape that failed, short enough to never
+// flood the log with a full base64-encoded image payload.
+function previewRawMessage(rawMessage: string, maxLength: number = 500): string {
+    return rawMessage.length > maxLength ? `${rawMessage.slice(0, maxLength)}… (${rawMessage.length} chars total)` : rawMessage;
+}
+
+// Exported for lib/session/session-manager.ts's Session.createShiny(), which
+// needs to build the same R code string client-side now that there's no
+// addon-backed DatasuiteEngine running inside the kernel process to do it
+// (see native/src/datasuite-r.cpp) -- reused rather than re-derived so the
+// two paths' quoting/escaping behavior can't silently drift apart.
+export function rStringLiteral(value: string): string {
     return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
 
-function buildSetEnvCode(env: Record<string, string> | undefined): string {
+export function buildSetEnvCode(env: Record<string, string> | undefined): string {
     if (!env || Object.keys(env).length === 0) {
         return '';
     }
