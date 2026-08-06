@@ -202,16 +202,25 @@ namespace datasuite
     {
         Message::guid_list zmq_id;
         zmq::message_t frame = wire_msg.pop();
+        bool foundDelimiter = isDelimiter(frame);
 
-        // ZMQ identites
-        while (!isDelimiter(frame) && wire_msg.size() != 0)
+        // ZMQ identities
+        while (!foundDelimiter && wire_msg.size() != 0)
         {
             zmq_id.emplace_back(frame.data<const char>(), frame.size());
             frame = wire_msg.pop();
+            foundDelimiter = isDelimiter(frame);
         }
 
-        // if wire_msg is empty, that means frame doesn't contain <IDS|MSG>
-        if (wire_msg.size() == 0)
+        // Whether the delimiter was ever found -- not whether wire_msg is
+        // now empty, which used to be conflated here (see
+        // native/test/zmq_serializer_test.cpp): if the delimiter happened
+        // to be the *last* frame in wire_msg (nothing following it, e.g. a
+        // caller testing serializeZmqId()/deserializeZmqId() in isolation
+        // rather than as a prefix of a full serialize()'d message), popping
+        // it also drains wire_msg to empty, and the old check treated that
+        // successful parse as "delimiter not present".
+        if (!foundDelimiter)
         {
             throw std::runtime_error("ERROR: Delimiter not present in message");
         }

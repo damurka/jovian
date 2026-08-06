@@ -1,3 +1,15 @@
+# Debug info for a Release build (default MSVC Release flags omit it) --
+# needed for OpenCppCoverage (scripts/test.js's --coverage step) to map
+# instruction hits back to source lines/PDBs. Scoped to this test-only
+# CMakeLists via add_compile_options/add_link_options (CMake applies both
+# only to targets added afterward, and link options aren't used for static
+# libraries), so it never touches the production addon/kernel-exe/supervisor
+# targets built from native/CMakeLists.txt.
+if (MSVC)
+    add_compile_options(/Zi /FS)
+    add_link_options(/DEBUG /INCREMENTAL:NO)
+endif ()
+
 add_executable(message_test message_test.cpp)
 
 target_compile_features(message_test PRIVATE cxx_std_23)
@@ -125,3 +137,28 @@ target_compile_features(authentication_test PRIVATE cxx_std_23)
 target_include_directories(authentication_test PRIVATE ${DATASUITE_INCLUDE_DIR} ${DATASUITE_SOURCE_DIR})
 target_link_libraries(authentication_test PRIVATE datasuite_supervisor_core GTest::gtest_main)
 add_test(NAME AuthenticationTest COMMAND authentication_test)
+
+add_executable(zmq_serializer_test zmq_serializer_test.cpp)
+target_compile_features(zmq_serializer_test PRIVATE cxx_std_23)
+target_include_directories(zmq_serializer_test PRIVATE ${DATASUITE_INCLUDE_DIR} ${DATASUITE_SOURCE_DIR})
+target_link_libraries(zmq_serializer_test PRIVATE datasuite_supervisor_core cppzmq GTest::gtest_main)
+add_test(NAME ZmqSerializerTest COMMAND zmq_serializer_test)
+
+add_executable(kernel_configuration_test kernel_configuration_test.cpp)
+target_compile_features(kernel_configuration_test PRIVATE cxx_std_23)
+target_include_directories(kernel_configuration_test PRIVATE ${DATASUITE_INCLUDE_DIR} ${DATASUITE_SOURCE_DIR})
+target_link_libraries(kernel_configuration_test PRIVATE datasuite_supervisor_core GTest::gtest_main)
+add_test(NAME KernelConfigurationTest COMMAND kernel_configuration_test)
+
+# Standalone dummy helper kernel_process_test.cpp spawns instead of a real
+# datasuite-r.exe -- see dummy_process_helper.cpp's own comment for why.
+add_executable(dummy_process_helper dummy_process_helper.cpp)
+target_compile_features(dummy_process_helper PRIVATE cxx_std_23)
+
+add_executable(kernel_process_test kernel_process_test.cpp)
+target_compile_features(kernel_process_test PRIVATE cxx_std_23)
+target_include_directories(kernel_process_test PRIVATE ${DATASUITE_INCLUDE_DIR} ${DATASUITE_SOURCE_DIR})
+target_link_libraries(kernel_process_test PRIVATE datasuite_supervisor_core GTest::gtest_main)
+target_compile_definitions(kernel_process_test PRIVATE
+    "DATASUITE_TEST_DUMMY_PROCESS_EXE=\"$<TARGET_FILE:dummy_process_helper>\"")
+add_test(NAME KernelProcessTest COMMAND kernel_process_test)

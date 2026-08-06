@@ -1,7 +1,21 @@
 #!/usr/bin/env node
 import { spawn, execSync } from 'child_process';
+import { existsSync } from 'fs';
+import { runCoverage } from './coverage.js';
 
 const ROOT = process.cwd();
+const OPENCPPCOVERAGE_FALLBACK = 'C:\\Program Files\\OpenCppCoverage\\OpenCppCoverage.exe';
+
+function hasOpenCppCoverage() {
+    if (process.env.OPENCPPCOVERAGE_PATH) return true;
+    if (existsSync(OPENCPPCOVERAGE_FALLBACK)) return true;
+    try {
+        execSync('where OpenCppCoverage', { stdio: 'ignore' });
+        return true;
+    } catch {
+        return false;
+    }
+}
 
 async function run(cmd, args) {
     return new Promise((resolve, reject) => {
@@ -91,7 +105,16 @@ async function main() {
         // Run the tests using CTest. -C Release: required for multi-config
         // generators (e.g. Visual Studio) -- without it ctest reports every
         // test "Not Run" ("Missing -C <config>?") instead of executing them.
-        await run('ctest', ['--test-dir', 'dist/native-test', '-C', 'Release', '--output-on-failure']);
+        if (hasOpenCppCoverage()) {
+            // Wraps the same ctest invocation instead of running it twice --
+            // OpenCppCoverage instruments the process it launches directly
+            // (debugger-API based, no separate instrumented binary), so this
+            // *is* the test run, not an extra pass after it.
+            await runCoverage(ROOT);
+        } else {
+            console.log('ℹ OpenCppCoverage not found -- skipping C++ coverage report (install from https://github.com/OpenCppCoverage/OpenCppCoverage/releases to enable).');
+            await run('ctest', ['--test-dir', 'dist/native-test', '-C', 'Release', '--output-on-failure']);
+        }
         console.log('✅ C++ tests complete\n');
     } catch (err) {
         console.error('❌ C++ tests failed:', err.message);
