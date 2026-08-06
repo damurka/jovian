@@ -80,13 +80,26 @@ namespace
                 GTEST_SKIP() << "datasuite-r executable not found at " DATASUITE_TEST_KERNEL_EXE;
             }
             m_rHome = rHome;
-            m_registry = std::make_unique<SessionRegistry>(DATASUITE_TEST_KERNEL_EXE, "127.0.0.1");
+            // Deliberately leaked (not a unique_ptr): ~SessionRegistry()'s
+            // implicit member teardown -- specifically something downstream
+            // of the registration listener's ZMQ context/socket -- was
+            // confirmed (via native/test/plain_diag.cpp, not part of this
+            // suite) to hang on process exit even though every explicit
+            // SessionRegistry/Session call involved returns normally.
+            // Production code never hits this either way: datasuite-
+            // supervisor's own process is always force-killed by its parent
+            // (SupervisorClient.kill() in lib/session/supervisor-client.ts),
+            // never gracefully destructed. Leaking here and relying on
+            // std::_Exit() (this file's main(), below) to reclaim the
+            // process's resources sidesteps a destructor that's confirmed
+            // broken rather than papering over it with a guess.
+            m_registry = new SessionRegistry(DATASUITE_TEST_KERNEL_EXE, "127.0.0.1");
             m_registry->startRegistrationListener();
 #endif
         }
 
         std::string m_rHome;
-        std::unique_ptr<SessionRegistry> m_registry;
+        SessionRegistry* m_registry = nullptr;
     };
 
     // 90s: generous on purpose. A real R startup (Rf_initEmbeddedR + loading
@@ -200,20 +213,15 @@ TEST_F(SessionRegistryTest, StopSessionMarksItStoppedAndTerminatesTheProcess)
     EXPECT_EQ(session->status.load(), SessionStatus::Stopped);
 }
 
-// Own main() instead of linking GTest::gtest_main: process exit after a
-// clean stopSession() intermittently hung in testing here, with the kernel
-// process already gone and every C++ call (stopSession() itself included)
-// already returned per manual tracing -- something in ordinary static/
-// global teardown for the ZMQ-based client stack was not reliably
-// unblocking. This is the same class of issue already documented and
-// accepted elsewhere in this codebase (see test/integration/engine.test.ts's
-// comment on native addon background threads outliving node --test's own
-// teardown, and scripts/test.js's corresponding hard-kill-after-timeout
-// workaround): std::_Exit() after RUN_ALL_TESTS() reports its result skips
-// normal static/global destructors entirely, so whatever isn't unblocking
-// on its own can no longer hang the process -- CTest's own TIMEOUT
-// (native/test/CMakeLists.txt) remains the backstop for a genuine in-test
-// hang, this only covers the exit path once results are already in hand.
+// Own main() instead of linking GTest::gtest_main, as a second line of
+// defense alongside the deliberate SessionRegistry leak in SetUp() above:
+// std::_Exit() after RUN_ALL_TESTS() reports its result skips ordinary
+// static/global destructors entirely (unlike a normal return from main()),
+// so anything else that doesn't unblock on its own -- some other object's
+// teardown, GTest's own internals -- can no longer hang the process either.
+// CTest's own TIMEOUT (native/test/CMakeLists.txt) remains the backstop for
+// a genuine in-test hang; this only covers the exit path once results are
+// already in hand.
 int main(int argc, char** argv)
 {
     ::testing::InitGoogleTest(&argc, argv);

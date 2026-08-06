@@ -92,9 +92,9 @@ if (TARGET datasuite-r)
 endif ()
 
 add_test(NAME SessionRegistryTest COMMAND session_registry_test)
-# Generous but bounded: a real R startup + registration handshake can
-# legitimately take several seconds; this only needs to catch the case
-# where something is genuinely hung (see the no-timeout limitation on
+# In practice this suite runs in ~2s; 60s is a wide margin over that,
+# not a tuned expectation -- this only needs to catch the case where
+# something is genuinely hung (see the no-timeout limitation on
 # ClientHandshakeZmqImpl::waitForConfiguration() noted in
 # session_registry.cpp) rather than the happy path's normal latency.
-set_tests_properties(SessionRegistryTest PROPERTIES TIMEOUT 180)
+set_tests_properties(SessionRegistryTest PROPERTIES TIMEOUT 60)
