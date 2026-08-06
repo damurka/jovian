@@ -160,6 +160,95 @@ TEST(SessionRegistryEmptyStateTest, SendExecuteOnUnknownIdReturnsFalse)
     EXPECT_FALSE(registry->sendExecute("does-not-exist", "msg-1", "1 + 1", json::object()));
 }
 
+TEST(SessionRegistryEmptyStateTest, SendInterruptOnUnknownIdReturnsFalse)
+{
+    auto* registry = new SessionRegistry("unused-kernel-exe-path", "127.0.0.1");
+    registry->startRegistrationListener();
+
+    EXPECT_FALSE(registry->sendInterrupt("does-not-exist", "msg-1"));
+}
+
+TEST(SessionRegistryEmptyStateTest, RestartSessionOnUnknownIdReturnsErrorAndEmptyId)
+{
+    auto* registry = new SessionRegistry("unused-kernel-exe-path", "127.0.0.1");
+    registry->startRegistrationListener();
+
+    std::string error;
+    std::string id = registry->restartSession("does-not-exist", error);
+
+    EXPECT_TRUE(id.empty());
+    EXPECT_FALSE(error.empty());
+}
+
+TEST(SessionRegistryEmptyStateTest, CreateSessionSurfacesAKernelSpawnFailureAsAnError)
+{
+    // No R installation needed: a nonexistent kernel exe path fails inside
+    // KernelProcess::start() (CreateProcessA) before anything R-related
+    // happens, hitting createSessionWithId()'s catch block
+    // (session_registry.cpp) rather than the registration-handshake path.
+    auto* registry = new SessionRegistry("C:\\this\\path\\does\\not\\exist\\datasuite-r.exe", "127.0.0.1");
+    registry->startRegistrationListener();
+
+    SessionOptions options;
+    std::string error;
+    std::string id = registry->createSession(options, error);
+
+    EXPECT_TRUE(id.empty());
+    EXPECT_FALSE(error.empty());
+}
+
+TEST(SessionStructTest, ToStringCoversEveryStatusIncludingUnknown)
+{
+    EXPECT_EQ(toString(SessionStatus::Starting), "starting");
+    EXPECT_EQ(toString(SessionStatus::Ready), "ready");
+    EXPECT_EQ(toString(SessionStatus::Stopped), "stopped");
+    EXPECT_EQ(toString(SessionStatus::Crashed), "crashed");
+    EXPECT_EQ(toString(static_cast<SessionStatus>(999)), "unknown");
+}
+
+TEST(SessionStructTest, EmitKernelExitInvokesTheRegisteredCallback)
+{
+    Session session;
+    bool invoked = false;
+    {
+        std::lock_guard<std::mutex> lock(session.callbackMutex);
+        session.onKernelExit = [&]() { invoked = true; };
+    }
+
+    session.emitKernelExit();
+
+    EXPECT_TRUE(invoked);
+}
+
+TEST(SessionStructTest, EmitKernelExitWithNoCallbackRegisteredIsANoOp)
+{
+    Session session;
+    EXPECT_NO_THROW(session.emitKernelExit());
+}
+
+TEST(SessionStructTest, DestructorJoinsAStillRunningPollThread)
+{
+    // Mirrors the shape SessionRegistry::startPolling() sets up (polling +
+    // a thread that loops on it), without needing a real client/kernel --
+    // Session::~Session() (session_registry.cpp) just needs polling=true
+    // and a joinable thread to exercise its join() branch.
+    auto session = std::make_unique<Session>();
+    // Captures the raw Session*, not the unique_ptr by reference: reset()
+    // nulls out the unique_ptr's stored pointer *before* ~Session() runs
+    // (which is what actually joins this thread), so a lambda reading
+    // through the unique_ptr itself would dereference null mid-join.
+    Session* raw = session.get();
+    raw->polling = true;
+    raw->pollThread = std::thread([raw]() {
+        while (raw->polling)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    EXPECT_NO_THROW(session.reset());
+}
+
 TEST_F(SessionRegistryTest, CreateSessionRegistersAndTracksARealKernel)
 {
     SessionOptions options;
@@ -260,6 +349,70 @@ TEST_F(SessionRegistryTest, StopSessionMarksItStoppedAndTerminatesTheProcess)
     auto session = m_registry->getSession(id);
     ASSERT_TRUE(session != nullptr);
     EXPECT_EQ(session->status.load(), SessionStatus::Stopped);
+}
+
+TEST_F(SessionRegistryTest, SendInterruptOnARealSessionReturnsTrue)
+{
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+
+    EXPECT_TRUE(m_registry->sendInterrupt(id, "interrupt-1"));
+
+    m_registry->stopSession(id);
+}
+
+TEST_F(SessionRegistryTest, RestartSessionReplacesTheKernelButKeepsTheSameId)
+{
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+
+    std::string restartError;
+    std::string restartedId = m_registry->restartSession(id, restartError);
+
+    ASSERT_FALSE(restartedId.empty()) << "restartSession failed: " << restartError;
+    EXPECT_EQ(restartedId, id);
+
+    auto session = m_registry->getSession(restartedId);
+    ASSERT_TRUE(session != nullptr);
+    EXPECT_EQ(session->status.load(), SessionStatus::Ready);
+
+    // Prove the restarted session has a genuinely working (not stale) kernel
+    // behind it, not just a status flag flipped back to Ready.
+    std::vector<json> received;
+    std::mutex receivedMutex;
+    {
+        std::lock_guard<std::mutex> lock(session->callbackMutex);
+        session->onMessage = [&](const std::string& text) {
+            std::lock_guard<std::mutex> lock2(receivedMutex);
+            received.push_back(json::parse(text));
+        };
+    }
+
+    const std::string msgId = "test-restart-exec";
+    ASSERT_TRUE(m_registry->sendExecute(restartedId, msgId, "1 + 1", json::object()));
+
+    bool gotReply = waitFor([&]() {
+        std::lock_guard<std::mutex> lock(receivedMutex);
+        for (const auto& msg : received)
+        {
+            if (msg.value("msg_type", "") == "execute_reply" && msg.value("parent_msg_id", "") == msgId)
+            {
+                return true;
+            }
+        }
+        return false;
+    }, kTimeoutMs);
+    ASSERT_TRUE(gotReply) << "restarted session never replied to an execute_request";
+
+    m_registry->stopSession(restartedId);
 }
 
 // Own main() instead of linking GTest::gtest_main, as a second line of

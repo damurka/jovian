@@ -162,3 +162,29 @@ target_link_libraries(kernel_process_test PRIVATE datasuite_supervisor_core GTes
 target_compile_definitions(kernel_process_test PRIVATE
     "DATASUITE_TEST_DUMMY_PROCESS_EXE=\"$<TARGET_FILE:dummy_process_helper>\"")
 add_test(NAME KernelProcessTest COMMAND kernel_process_test)
+
+# Drives ClientZmqImpl/ClientZmq/DealerChannel/ClientIopub against a
+# hand-rolled fake kernel (bare ROUTER/PUB sockets) -- no R, no spawned
+# process -- to reach poll()/waitForMessage()/listener-callback paths that
+# SessionRegistry itself never exercises (see client_zmq_test.cpp's own
+# comment for why).
+add_executable(client_zmq_test client_zmq_test.cpp)
+target_compile_features(client_zmq_test PRIVATE cxx_std_23)
+target_include_directories(client_zmq_test PRIVATE ${DATASUITE_INCLUDE_DIR} ${DATASUITE_SOURCE_DIR})
+target_link_libraries(client_zmq_test PRIVATE datasuite_supervisor_core cppzmq GTest::gtest_main)
+add_test(NAME ClientZmqTest COMMAND client_zmq_test)
+
+# ClientHeartbeat in isolation, with short custom timeout/max_retry values
+# -- see client_heartbeat_test.cpp's own comment for why this can't be
+# exercised through ClientZmqImpl's hardcoded 20s/3-retry constants.
+add_executable(client_heartbeat_test client_heartbeat_test.cpp)
+target_compile_features(client_heartbeat_test PRIVATE cxx_std_23)
+target_include_directories(client_heartbeat_test PRIVATE ${DATASUITE_INCLUDE_DIR} ${DATASUITE_SOURCE_DIR})
+target_link_libraries(client_heartbeat_test PRIVATE datasuite_supervisor_core cppzmq GTest::gtest_main)
+add_test(NAME ClientHeartbeatTest COMMAND client_heartbeat_test)
+
+add_executable(client_handshake_zmq_test client_handshake_zmq_test.cpp)
+target_compile_features(client_handshake_zmq_test PRIVATE cxx_std_23)
+target_include_directories(client_handshake_zmq_test PRIVATE ${DATASUITE_INCLUDE_DIR} ${DATASUITE_SOURCE_DIR})
+target_link_libraries(client_handshake_zmq_test PRIVATE datasuite_supervisor_core cppzmq GTest::gtest_main)
+add_test(NAME ClientHandshakeZmqTest COMMAND client_handshake_zmq_test)

@@ -79,3 +79,23 @@ TEST(AuthenticationTest, MultiBufferVerifyFailsWhenOneFieldChanges)
     EXPECT_FALSE(auth->verify(
         toBuffer(signature), toBuffer(header), toBuffer(parentHeader), toBuffer(metadata), toBuffer(differentContent)));
 }
+
+TEST(AuthenticationTest, NoneSchemeAlwaysSignsEmptyAndVerifiesAnything)
+{
+    // makeAuthentication("none", ...) (authentication.cpp's NoAuthentication)
+    // is what an unauthenticated connection file (no "signature_scheme")
+    // resolves to via KernelConfiguration -- never exercised until now,
+    // since every other test in this suite uses "hmac-sha256".
+    auto auth = makeAuthentication("none", "");
+    std::string content = "anything at all";
+
+    EXPECT_EQ(auth->sign(toBuffer(content)), "");
+    EXPECT_TRUE(auth->verify(toBuffer("this signature is ignored"), toBuffer(content)));
+
+    std::string header = R"({"msg_id":"1"})";
+    std::string parentHeader = "{}";
+    std::string metadata = "{}";
+    EXPECT_EQ(auth->sign(toBuffer(header), toBuffer(parentHeader), toBuffer(metadata), toBuffer(content)), "");
+    EXPECT_TRUE(auth->verify(
+        toBuffer("ignored"), toBuffer(header), toBuffer(parentHeader), toBuffer(metadata), toBuffer(content)));
+}

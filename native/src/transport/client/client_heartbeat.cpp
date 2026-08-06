@@ -20,6 +20,16 @@ namespace datasuite
     {
         m_heartbeat.set(zmq::sockopt::req_relaxed, 1);
         m_heartbeat.set(zmq::sockopt::req_correlate, 1);
+        // Default ZMQ_LINGER is -1 (block on close until every queued
+        // message is delivered). m_controller gets a bounded linger via
+        // initSocket() below, but this socket never did -- normally masked
+        // in production because a live kernel's heartbeat port actually
+        // accepts the connection, so pings never sit undelivered. A kernel
+        // that's dead/never started (nothing listening) leaves the last
+        // ping queued forever, and closing this socket -- or the owning
+        // zmq::context_t -- then blocks indefinitely instead of tearing
+        // down.
+        m_heartbeat.set(zmq::sockopt::linger, 0);
 
         m_heartbeatEndPoint = getEndPoint(config.m_transport, config.m_ip, config.m_hbPort);
         m_heartbeat.connect(m_heartbeatEndPoint);
@@ -44,12 +54,21 @@ namespace datasuite
         };
 
         zmq::poll(&items[0], 2, std::chrono::milliseconds(timeout));
+        // Must reflect whether a pong actually arrived, not just whether
+        // poll() returned without throwing -- run()'s retry/dead-kernel
+        // logic below treats `false` as "no answer this round", and a plain
+        // timeout (nothing in items[0].revents, no exception) is exactly
+        // that case. Returning unconditional `true` here made
+        // notifyKernelDead() unreachable from a real missed heartbeat: the
+        // only way run() ever saw `false` was a genuine ZMQ exception.
+        bool gotAnswer = false;
         try
         {
             if (items[0].revents & ZMQ_POLLIN)
             {
                 zmq::multipart_t wire_msg;
                 wire_msg.recv(m_heartbeat);
+                gotAnswer = true;
             }
 
             if (items[1].revents & ZMQ_POLLIN)
@@ -61,7 +80,7 @@ namespace datasuite
                 m_requestStop = true;
             }
 
-            return true;
+            return gotAnswer;
         }
         catch (std::exception& e)
         {

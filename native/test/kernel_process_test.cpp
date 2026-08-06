@@ -4,6 +4,7 @@
 // slowly -- R startup takes real time) through SessionRegistryTest.
 #include <chrono>
 #include <functional>
+#include <stdexcept>
 #include <thread>
 
 #include <gtest/gtest.h>
@@ -89,6 +90,18 @@ TEST(KernelProcessTest, KillIsSafeToCallOnAnAlreadyExitedProcess)
     process.kill();
 
     SUCCEED();
+}
+
+TEST(KernelProcessTest, StartThrowsWhenTheExecutableDoesNotExist)
+{
+    // Covers KernelProcess::start()'s CreateProcessA failure branch
+    // (native/src/supervisor/kernel_process.cpp) -- previously untested,
+    // every other test here spawns a real (dummy) executable successfully.
+    KernelProcessOptions options;
+    options.kernelExePath = "C:\\this\\path\\does\\not\\exist\\datasuite-r.exe";
+
+    KernelProcess process(options);
+    EXPECT_THROW(process.start(), std::runtime_error);
 }
 
 TEST(KernelProcessTest, DestructorKillsAStillRunningProcess)

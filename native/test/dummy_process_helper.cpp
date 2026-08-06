@@ -12,10 +12,19 @@
 // actually terminating it).
 #include <chrono>
 #include <cstring>
+#include <iostream>
 #include <thread>
 
 int main(int argc, char** argv)
 {
+    // No trailing '\n' on purpose: exercises KernelProcess::startOutputPump()'s
+    // (native/src/supervisor/kernel_process.cpp) leftover-partial-line flush,
+    // which only fires once the pipe closes (this process exiting/being
+    // killed) with unflushed data still in `carry` -- real R kernel output
+    // always ends in a newline, so that branch had zero coverage before this.
+    std::cout << "no-trailing-newline";
+    std::cout.flush();
+
     for (int i = 0; i + 1 < argc; ++i)
     {
         if (std::strcmp(argv[i], "--key") == 0 && std::strcmp(argv[i + 1], "quick-exit") == 0)
