@@ -1,6 +1,7 @@
 #include "session_registry.hpp"
 
 #include <chrono>
+#include <iostream>
 #include <thread>
 
 #include "datasuite/guid.hpp"
@@ -112,9 +113,20 @@ namespace datasuite::supervisor
 
     SessionRegistry::~SessionRegistry()
     {
+        // Safety net only, for sessions the caller never explicitly
+        // stopped -- skip anything stopSession() already tore down.
+        // stopChannels()/kill() aren't safe to call twice: stopChannels()
+        // signals and joins the client's iopub/heartbeat threads, and a
+        // second call blocks forever sending a stop signal nothing is
+        // listening for anymore (those threads already exited after the
+        // first call), which hung this exact path before this guard.
         std::lock_guard<std::mutex> lock(m_sessionsMutex);
         for (auto& [id, session] : m_sessions)
         {
+            if (session->status.load() == SessionStatus::Stopped)
+            {
+                continue;
+            }
             if (session->client)
             {
                 session->client->stopChannels();
@@ -217,6 +229,24 @@ namespace datasuite::supervisor
         session->client = datasuite::makeClientZmq(*session->zmqContext, kernelConfig);
         session->client->connect();
         session->client->start();
+
+        // client->start() spawns ClientZmqImpl's iopub/heartbeat threads
+        // (client_zmq_impl.cpp) but returns as soon as they're constructed,
+        // not once they've reached their own listening loops. Those loops
+        // are what ClientMessenger::stopChannels() (client_messenger.cpp)
+        // signals via a REQ/REP "stop" round trip -- if stopSession() runs
+        // fast enough after this (e.g. a session stopped almost immediately
+        // after creation, with little else happening in between), the
+        // "stop" REQ can be sent before the REP side is listening, and
+        // ClientMessenger::stopChannels() then blocks forever on a reply
+        // that was never going to come (found via
+        // test/session_registry_test.cpp: an intermittent hang, present
+        // only on fast create-then-stop sequences). No readiness signal
+        // exists to wait on instead; this settle delay is a pragmatic
+        // mitigation for a startup race in shared client code, not a fix
+        // to it -- a real fix belongs in ClientIopub/ClientHeartbeat
+        // themselves (e.g. signaling readiness before entering their loop).
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
         std::weak_ptr<Session> weakSession = session;
         session->client->registerKernelStatusListener([weakSession](bool dead) {
@@ -366,6 +396,23 @@ namespace datasuite::supervisor
             json shutContent = { { "restart", false } };
             datasuite::Message shutReq({ "client_id" }, shutHeader, json::object(), json::object(), shutContent, datasuite::buffer_sequence());
             session->client->sendOnControl(std::move(shutReq));
+        }
+
+        // Stop and join the poll thread *before* tearing down the client:
+        // pollLoop() (below) calls client->iopubQueueSize()/popIopubMessage()/
+        // receiveOnShell() concurrently from its own thread, so calling
+        // client->stopChannels() first -- while that thread might still be
+        // mid-call on the same ClientZmq -- raced the two against each
+        // other and hung (found via test/session_registry_test.cpp; the
+        // symptom was stopSession() itself never returning).
+        session->polling = false;
+        if (session->pollThread.joinable())
+        {
+            session->pollThread.join();
+        }
+
+        if (session->client)
+        {
             session->client->stopChannels();
         }
 
@@ -382,7 +429,6 @@ namespace datasuite::supervisor
             session->process->kill();
         }
 
-        session->polling = false;
         session->status = SessionStatus::Stopped;
         return true;
     }

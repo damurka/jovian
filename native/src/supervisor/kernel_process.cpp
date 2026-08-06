@@ -4,6 +4,7 @@
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -12,7 +13,6 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#include <vector>
 #endif
 
 namespace datasuite::supervisor
@@ -146,31 +146,67 @@ namespace datasuite::supervisor
         // still be holding its own copy of the write handle open.
         SetHandleInformation(readHandle, HANDLE_FLAG_INHERIT, 0);
 
-        STARTUPINFOA startupInfo{};
-        startupInfo.cb = sizeof(startupInfo);
-        startupInfo.dwFlags = STARTF_USESTDHANDLES;
-        startupInfo.hStdOutput = writeHandle;
-        startupInfo.hStdError = writeHandle;
-        startupInfo.hStdInput = nullptr;
+        // Plain bInheritHandles=TRUE doesn't just hand the child hStdOutput/
+        // hStdError -- it inherits *every* currently-inheritable handle in
+        // this process (any other open pipe end, ZMQ-internal handles,
+        // etc). If the child ends up with an extra copy of writeHandle (or
+        // anything else backing this pipe) through that side door, this
+        // process's ReadFile() in startOutputPump() never sees EOF even
+        // after the child exits, since some handle to the write end is
+        // still open somewhere -- found via test/session_registry_test.cpp
+        // as an intermittent post-test hang with the kernel process already
+        // gone. PROC_THREAD_ATTRIBUTE_HANDLE_LIST restricts inheritance to
+        // exactly the one handle the child actually needs.
+        SIZE_T attrListSize = 0;
+        InitializeProcThreadAttributeList(nullptr, 1, 0, &attrListSize);
+        std::vector<char> attrListBuffer(attrListSize);
+        auto* attrList = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attrListBuffer.data());
+        if (!InitializeProcThreadAttributeList(attrList, 1, 0, &attrListSize))
+        {
+            CloseHandle(writeHandle);
+            CloseHandle(readHandle);
+            throw std::runtime_error("Failed to initialize process attribute list for datasuite-r process");
+        }
+        HANDLE inheritList[] = { writeHandle };
+        if (!UpdateProcThreadAttribute(
+                attrList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                inheritList, sizeof(inheritList), nullptr, nullptr))
+        {
+            DeleteProcThreadAttributeList(attrList);
+            CloseHandle(writeHandle);
+            CloseHandle(readHandle);
+            throw std::runtime_error("Failed to set inherited handle list for datasuite-r process");
+        }
+
+        STARTUPINFOEXA startupInfo{};
+        startupInfo.StartupInfo.cb = sizeof(startupInfo);
+        startupInfo.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+        startupInfo.StartupInfo.hStdOutput = writeHandle;
+        startupInfo.StartupInfo.hStdError = writeHandle;
+        startupInfo.StartupInfo.hStdInput = nullptr;
+        startupInfo.lpAttributeList = attrList;
         PROCESS_INFORMATION processInfo{};
 
         // CREATE_NO_WINDOW: the supervisor itself may be spawned headlessly
         // (e.g. from VS Code's Shared Process, same reasoning that led
         // session-manager.ts to avoid inheriting stdio for the addon-based
         // child) -- kernel processes should never pop a console window.
-        // bInheritHandles=TRUE is required for hStdOutput/hStdError above to
-        // actually take effect.
+        // bInheritHandles=TRUE is still required for the handle list above
+        // to take effect; EXTENDED_STARTUPINFO_PRESENT is what makes
+        // CreateProcess honor lpAttributeList at all.
         BOOL ok = CreateProcessA(
             nullptr,
             commandLine.data(),
             nullptr,
             nullptr,
             TRUE,
-            CREATE_NO_WINDOW,
+            CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
             nullptr,
             nullptr,
-            &startupInfo,
+            &startupInfo.StartupInfo,
             &processInfo);
+
+        DeleteProcThreadAttributeList(attrList);
 
         // This process's copy of the write end must be closed regardless of
         // outcome -- on success the child owns the handle it inherited; on
