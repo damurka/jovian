@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>datasuite-r playground</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161922;
+    --panel-2: #1d212c;
+    --border: #2a2f3a;
+    --text: #e6e9ef;
+    --text-dim: #8b92a3;
+    --accent: #5b8cff;
+    --ok: #3ecf8e;
+    --warn: #e8b339;
+    --err: #ff6b6b;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  }
+  body { display: flex; flex-direction: column; }
+
+  header {
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; gap: 10px; flex-shrink: 0;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header span { color: var(--text-dim); font-size: 13px; }
+
+  .layout { flex: 1; display: flex; min-height: 0; }
+
+  aside {
+    width: 300px; flex-shrink: 0; border-right: 1px solid var(--border);
+    background: var(--panel); display: flex; flex-direction: column;
+    overflow-y: auto;
+  }
+  .side-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .side-section h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--text-dim); margin: 0 0 10px;
+  }
+  .field { margin-bottom: 8px; }
+  .field label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 3px; }
+  .field input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px; padding: 6px 8px; font-size: 12px;
+    font-family: var(--mono);
+  }
+  button {
+    cursor: pointer; border: 1px solid var(--border); background: var(--panel-2);
+    color: var(--text); border-radius: 6px; padding: 7px 12px; font-size: 13px;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  button:hover:not(:disabled) { background: #262b38; border-color: #3a4152; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover:not(:disabled) { background: #4a7dff; }
+  button.danger { border-color: #5a2a2a; color: var(--err); }
+  button.danger:hover:not(:disabled) { background: #2a1717; }
+  button.full { width: 100%; }
+
+  .session-list { display: flex; flex-direction: column; gap: 4px; }
+  .session-item {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+    border-radius: 6px; cursor: pointer; font-size: 12px; font-family: var(--mono);
+    border: 1px solid transparent;
+  }
+  .session-item:hover { background: var(--panel-2); }
+  .session-item.active { background: var(--panel-2); border-color: var(--accent); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot.ready { background: var(--ok); }
+  .dot.starting { background: var(--warn); animation: pulse 1s infinite; }
+  .dot.stopped { background: var(--text-dim); }
+  .dot.crashed { background: var(--err); }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  .session-item .label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .empty-state {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    color: var(--text-dim); font-size: 14px; text-align: center; padding: 40px;
+  }
+
+  .session-header {
+    padding: 10px 18px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  }
+  .session-header .title { font-family: var(--mono); font-size: 13px; }
+  .session-header .status-badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .session-header .spacer { flex: 1; }
+
+  .console {
+    flex: 1; overflow-y: auto; padding: 14px 18px; font-family: var(--mono);
+    font-size: 12.5px; line-height: 1.55; background: var(--bg);
+  }
+  .entry { margin-bottom: 6px; white-space: pre-wrap; word-break: break-word; }
+  .entry .tag {
+    display: inline-block; font-size: 10px; letter-spacing: 0.04em; padding: 0 5px;
+    border-radius: 3px; margin-right: 6px; vertical-align: 1px;
+  }
+  .entry.stdout { color: var(--text); }
+  .entry.stderr { color: var(--warn); }
+  .entry.stderr .tag { background: #3a2f10; color: var(--warn); }
+  .entry.result { color: var(--ok); }
+  .entry.result .tag { background: #123326; color: var(--ok); }
+  .entry.error { color: var(--err); background: #2a1414; border: 1px solid #4a2020; border-radius: 6px; padding: 8px 10px; }
+  .entry.error .tag { background: #4a2020; color: var(--err); }
+  .entry.system { color: var(--text-dim); font-style: italic; }
+  .entry.log { color: #6f7684; font-size: 11.5px; }
+  .entry.code-echo { color: var(--accent); opacity: 0.85; }
+  .entry.code-echo .tag { background: #17233e; color: var(--accent); }
+  .entry img { max-width: 100%; border-radius: 6px; margin-top: 4px; display: block; }
+
+  .composer { border-top: 1px solid var(--border); padding: 12px 18px; flex-shrink: 0; }
+  .composer textarea {
+    width: 100%; min-height: 70px; resize: vertical; background: var(--panel);
+    border: 1px solid var(--border); color: var(--text); border-radius: 8px;
+    padding: 10px 12px; font-family: var(--mono); font-size: 13px;
+  }
+  .composer-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .composer-actions .hint { color: var(--text-dim); font-size: 11px; flex: 1; }
+
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .presets button { font-size: 11.5px; padding: 5px 10px; }
+  .presets button.kind-error { border-color: #5a2a2a; color: var(--err); }
+  .presets button.kind-crash { border-color: #5a2a2a; color: var(--err); background: #1c0f0f; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>datasuite-r playground</h1>
+  <span>real SessionManager sessions, driven from the browser</span>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="side-section">
+      <h2>R Environment</h2>
+      <div class="field"><label>R_HOME</label><input id="cfg-rhome" spellcheck="false" /></div>
+      <div class="field"><label>R_PATH</label><input id="cfg-rpath" spellcheck="false" /></div>
+      <div class="field"><label>R_LIBS (optional)</label><input id="cfg-rlibs" spellcheck="false" /></div>
+      <button class="primary full" id="btn-new-session">+ New Session</button>
+    </div>
+    <div class="side-section" style="flex:1;">
+      <h2>Sessions</h2>
+      <div class="session-list" id="session-list"></div>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div class="empty-state" id="empty-state">
+      No sessions yet. Configure R above and click <strong>+ New Session</strong> to spawn a real
+      R kernel process and start sending it code.
+    </div>
+  </main>
+</div>
+
+<template id="session-view-template">
+  <div class="session-header">
+    <span class="title"></span>
+    <span class="status-badge"></span>
+    <div class="spacer"></div>
+    <button class="btn-restart">Restart</button>
+    <button class="btn-stop">Stop</button>
+    <button class="btn-kill danger">Kill</button>
+  </div>
+  <div class="console"></div>
+  <div class="composer">
+    <textarea placeholder="R code&#10;Ctrl+Enter (or Cmd+Enter) to run"></textarea>
+    <div class="composer-actions">
+      <span class="hint">Ctrl+Enter to run</span>
+      <button class="btn-run primary">Run</button>
+    </div>
+    <div class="presets"></div>
+  </div>
+</template>
+
+<script>
+const PRESETS = [
+  { label: 'Hello world', code: `print("Hello from the playground!")` },
+  { label: 'Math', code: `sum(1:100)` },
+  { label: 'Data table', code: `head(mtcars)` },
+  { label: 'Plot (display_data)', code: `plot(1:10, main = "Playground Plot")` },
+  { label: 'Streaming loop', code: `for (i in 1:5) {\n  cat("tick", i, "\\n")\n  Sys.sleep(0.4)\n}` },
+  { label: 'Warning', code: `warning("This is a simulated warning")` },
+  { label: 'R error (stop)', kind: 'kind-error', code: `stop("Simulated error from the playground")` },
+  { label: 'Runtime error', kind: 'kind-error', code: `nonexistent_variable_xyz + 1` },
+  { label: 'Timeout (3s cap)', kind: 'kind-error', code: `Sys.sleep(30)`, timeout: 3000 },
+  // Crash detection is heartbeat-based (ClientHeartbeat, hardcoded 20s
+  // timeout x 3 retries in ClientZmqImpl) -- there's no faster process-exit
+  // signal wired up, so this genuinely takes up to ~60-80s before the
+  // "Kernel process exited unexpectedly" system entry appears. That's the
+  // real system's actual detection latency, not a bug in this tool.
+  { label: 'Crash kernel (quit — ~60s detection)', kind: 'kind-crash', code: `quit(save = "no")` },
+];
+
+/** @type {Record<string, {id:string, status:string, es?: EventSource, el?: HTMLElement, entries: any[]}>} */
+const sessions = {};
+let activeId = null;
+
+const els = {
+  rhome: document.getElementById('cfg-rhome'),
+  rpath: document.getElementById('cfg-rpath'),
+  rlibs: document.getElementById('cfg-rlibs'),
+  newSessionBtn: document.getElementById('btn-new-session'),
+  sessionList: document.getElementById('session-list'),
+  main: document.getElementById('main'),
+  emptyState: document.getElementById('empty-state'),
+  template: document.getElementById('session-view-template'),
+};
+
+async function loadDefaults() {
+  try {
+    const res = await fetch('/api/defaults');
+    const defaults = await res.json();
+    els.rhome.value = defaults.rHome ?? '';
+    els.rpath.value = defaults.rPath ?? '';
+    els.rlibs.value = defaults.rLibs ?? '';
+  } catch (err) {
+    console.error('Failed to load defaults', err);
+  }
+}
+
+function statusLabel(status) {
+  switch (status) {
+    case 'starting': return 'starting…';
+    case 'ready': return 'ready';
+    case 'stopped': return 'stopped';
+    case 'crashed': return 'crashed';
+    default: return status;
+  }
+}
+
+function renderSessionList() {
+  els.sessionList.innerHTML = '';
+  for (const s of Object.values(sessions)) {
+    const item = document.createElement('div');
+    item.className = 'session-item' + (s.id === activeId ? ' active' : '');
+    item.innerHTML = `<span class="dot ${s.status}"></span><span class="label">${s.id.slice(0, 8)}</span>`;
+    item.addEventListener('click', () => selectSession(s.id));
+    els.sessionList.appendChild(item);
+  }
+}
+
+function appendEntry(id, cls, tag, text) {
+  const s = sessions[id];
+  if (!s) return;
+  s.entries.push({ cls, tag, text, html: false });
+  if (id === activeId) renderEntryToConsole(s.entries[s.entries.length - 1]);
+}
+
+function appendHtmlEntry(id, cls, tag, html) {
+  const s = sessions[id];
+  if (!s) return;
+  s.entries.push({ cls, tag, html: true, text: html });
+  if (id === activeId) renderEntryToConsole(s.entries[s.entries.length - 1]);
+}
+
+function renderEntryToConsole(entry) {
+  const consoleEl = document.querySelector(`#session-${activeId} .console`);
+  if (!consoleEl) return;
+  const div = document.createElement('div');
+  div.className = 'entry ' + entry.cls;
+  const tagHtml = entry.tag ? `<span class="tag">${entry.tag}</span>` : '';
+  if (entry.html) {
+    div.innerHTML = tagHtml + entry.text;
+  } else {
+    const span = document.createElement('span');
+    span.textContent = entry.text;
+    div.innerHTML = tagHtml;
+    div.appendChild(span);
+  }
+  consoleEl.appendChild(div);
+  consoleEl.scrollTop = consoleEl.scrollHeight;
+}
+
+function redrawConsole(id) {
+  const consoleEl = document.querySelector(`#session-${id} .console`);
+  if (!consoleEl) return;
+  consoleEl.innerHTML = '';
+  for (const entry of sessions[id].entries) {
+    const div = document.createElement('div');
+    div.className = 'entry ' + entry.cls;
+    const tagHtml = entry.tag ? `<span class="tag">${entry.tag}</span>` : '';
+    if (entry.html) {
+      div.innerHTML = tagHtml + entry.text;
+    } else {
+      const span = document.createElement('span');
+      span.textContent = entry.text;
+      div.innerHTML = tagHtml;
+      div.appendChild(span);
+    }
+    consoleEl.appendChild(div);
+  }
+  consoleEl.scrollTop = consoleEl.scrollHeight;
+}
+
+function formatMimeData(data) {
+  if (!data) return null;
+  if (data['image/png']) {
+    const src = String(data['image/png']).startsWith('data:')
+      ? data['image/png']
+      : `data:image/png;base64,${data['image/png']}`;
+    return { html: `<img src="${src}" alt="plot" />`, isHtml: true };
+  }
+  if (data['text/plain'] !== undefined) {
+    const v = data['text/plain'];
+    return { html: Array.isArray(v) ? v.join('\n') : String(v), isHtml: false };
+  }
+  return { html: JSON.stringify(data), isHtml: false };
+}
+
+function handleStreamEvent(id, payload) {
+  const msg = payload.message;
+  switch (msg.msgType) {
+    case 'stream': {
+      const isErr = msg.content?.name === 'stderr';
+      appendEntry(id, isErr ? 'stderr' : 'stdout', isErr ? 'stderr' : null, msg.content?.text ?? '');
+      break;
+    }
+    case 'execute_result':
+    case 'display_data': {
+      const formatted = formatMimeData(msg.content?.data);
+      if (!formatted) break;
+      if (formatted.isHtml) {
+        appendHtmlEntry(id, 'result', 'out', formatted.html);
+      } else {
+        appendEntry(id, 'result', 'out', formatted.html);
+      }
+      break;
+    }
+    case 'error': {
+      const c = msg.content ?? {};
+      const traceback = Array.isArray(c.traceback) ? c.traceback.join('\n') : '';
+      appendEntry(id, 'error', 'error', `${c.ename ?? 'Error'}: ${c.evalue ?? ''}${traceback ? '\n' + traceback : ''}`);
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+function openStream(id) {
+  const es = new EventSource(`/api/sessions/${id}/stream`);
+  es.onmessage = (event) => {
+    let payload;
+    try { payload = JSON.parse(event.data); } catch { return; }
+    const s = sessions[id];
+    if (!s) return;
+
+    switch (payload.event) {
+      case 'connected':
+        break;
+      case 'message':
+        handleStreamEvent(id, payload);
+        break;
+      case 'log':
+        appendEntry(id, 'log', payload.level, `[${payload.level}] ${payload.message}`);
+        break;
+      case 'exit':
+        s.status = 'crashed';
+        appendEntry(id, 'system', 'system', 'Kernel process exited unexpectedly (crash simulated or real).');
+        renderSessionList();
+        updateSessionHeader(id);
+        break;
+      case 'stopped':
+        s.status = 'stopped';
+        appendEntry(id, 'system', 'system', 'Session stopped.');
+        renderSessionList();
+        updateSessionHeader(id);
+        break;
+      case 'restarted':
+        s.status = 'ready';
+        appendEntry(id, 'system', 'system', 'Session restarted -- fresh kernel, same session id.');
+        renderSessionList();
+        updateSessionHeader(id);
+        break;
+      case 'connectionError':
+        appendEntry(id, 'error', 'conn', `Connection error: ${payload.message}`);
+        break;
+      default:
+        break;
+    }
+  };
+  es.onerror = () => { /* EventSource retries automatically */ };
+  sessions[id].es = es;
+}
+
+function updateSessionHeader(id) {
+  const header = document.querySelector(`#session-${id} .session-header`);
+  if (!header) return;
+  const status = sessions[id].status;
+  const badge = header.querySelector('.status-badge');
+  badge.textContent = statusLabel(status);
+
+  const isStopped = status === 'stopped';
+  const isCrashed = status === 'crashed';
+  const isStarting = status === 'starting';
+
+  // Stop/Kill: only truly pointless once the session is already stopped --
+  // still useful to finalize a crashed one instead of restarting it.
+  header.querySelector('.btn-stop').disabled = isStopped;
+  header.querySelector('.btn-kill').disabled = isStopped;
+  // Restart: needs either a healthy session (Jupyter-style "Restart Kernel")
+  // or a crashed one to recover -- not while still connecting, and not
+  // after an explicit stop/kill (that intent was to end the session).
+  header.querySelector('.btn-restart').disabled = isStopped || isStarting;
+
+  const view = document.getElementById(`session-${id}`);
+  const runBtn = view.querySelector('.btn-run');
+  const presetBtns = view.querySelectorAll('.presets button');
+  const canRun = !isStopped && !isCrashed && !isStarting;
+  runBtn.disabled = !canRun;
+  presetBtns.forEach((b) => (b.disabled = !canRun));
+}
+
+function buildSessionView(id) {
+  const frag = els.template.content.cloneNode(true);
+  const root = document.createElement('div');
+  root.id = `session-${id}`;
+  root.style.display = 'flex';
+  root.style.flexDirection = 'column';
+  root.style.flex = '1';
+  root.style.minHeight = '0';
+  root.appendChild(frag);
+
+  root.querySelector('.title').textContent = id;
+
+  const presetsEl = root.querySelector('.presets');
+  for (const preset of PRESETS) {
+    const btn = document.createElement('button');
+    btn.textContent = preset.label;
+    if (preset.kind) btn.classList.add(preset.kind);
+    btn.addEventListener('click', () => {
+      const textarea = root.querySelector('textarea');
+      textarea.value = preset.code;
+      runCode(id, preset.code, preset.timeout);
+    });
+    presetsEl.appendChild(btn);
+  }
+
+  const textarea = root.querySelector('textarea');
+  const runBtn = root.querySelector('.btn-run');
+  const run = () => runCode(id, textarea.value, undefined);
+  runBtn.addEventListener('click', run);
+  textarea.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      run();
+    }
+  });
+
+  root.querySelector('.btn-restart').addEventListener('click', () => restartSession(id));
+  root.querySelector('.btn-stop').addEventListener('click', () => stopSession(id));
+  root.querySelector('.btn-kill').addEventListener('click', () => killSession(id));
+
+  return root;
+}
+
+async function runCode(id, code, timeout) {
+  if (!code || !code.trim()) return;
+  const view = document.getElementById(`session-${id}`);
+  const runBtn = view.querySelector('.btn-run');
+  appendEntry(id, 'code-echo', 'in', code);
+  runBtn.disabled = true;
+  try {
+    const res = await fetch(`/api/sessions/${id}/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, timeout })
+    });
+    const result = await res.json();
+    if (!result.success) {
+      appendEntry(id, 'system', 'done', `✗ Execution failed${result.error ? ': ' + result.error : ''}`);
+    } else {
+      appendEntry(id, 'system', 'done', `✓ Execution finished${typeof result.executionCount === 'number' ? ' [' + result.executionCount + ']' : ''}`);
+    }
+  } catch (err) {
+    appendEntry(id, 'error', 'error', `Request failed: ${err.message}`);
+  } finally {
+    if (sessions[id] && sessions[id].status !== 'stopped' && sessions[id].status !== 'crashed') {
+      runBtn.disabled = false;
+    }
+  }
+}
+
+async function restartSession(id) {
+  const s = sessions[id];
+  if (!s) return;
+  s.status = 'starting';
+  appendEntry(id, 'system', 'system', 'Restarting session (spawning a fresh kernel, same session id)…');
+  renderSessionList();
+  updateSessionHeader(id);
+
+  try {
+    const res = await fetch(`/api/sessions/${id}/restart`, { method: 'POST' });
+    const body = await res.json();
+    if (!res.ok || !body.ok) {
+      appendEntry(id, 'error', 'error', `Restart failed: ${body.error ?? res.statusText}`);
+      s.status = 'crashed';
+      renderSessionList();
+      updateSessionHeader(id);
+    }
+    // On success the 'restarted' SSE event (not this response) is what
+    // flips status back to 'ready' -- it fires from the same server-side
+    // listener regardless of which client asked for the restart, so this
+    // stays correct even with more than one browser tab open.
+  } catch (err) {
+    appendEntry(id, 'error', 'error', `Restart request failed: ${err.message}`);
+    s.status = 'crashed';
+    renderSessionList();
+    updateSessionHeader(id);
+  }
+}
+
+async function stopSession(id) {
+  await fetch(`/api/sessions/${id}/stop`, { method: 'POST' });
+}
+
+async function killSession(id) {
+  await fetch(`/api/sessions/${id}/kill`, { method: 'POST' });
+}
+
+function selectSession(id) {
+  activeId = id;
+  renderSessionList();
+  els.main.innerHTML = '';
+  els.emptyState.remove ? null : null;
+  const view = buildSessionView(id);
+  els.main.appendChild(view);
+  updateSessionHeader(id);
+  redrawConsole(id);
+}
+
+async function createSession() {
+  els.newSessionBtn.disabled = true;
+  try {
+    const res = await fetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        rHome: els.rhome.value,
+        rPath: els.rpath.value,
+        rLibs: els.rlibs.value
+      })
+    });
+    const body = await res.json();
+    if (!res.ok) {
+      alert('Failed to create session: ' + (body.error ?? res.statusText));
+      return;
+    }
+    const id = body.id;
+    sessions[id] = { id, status: 'ready', entries: [] };
+    openStream(id);
+    renderSessionList();
+    selectSession(id);
+  } catch (err) {
+    alert('Failed to create session: ' + err.message);
+  } finally {
+    els.newSessionBtn.disabled = false;
+  }
+}
+
+els.newSessionBtn.addEventListener('click', createSession);
+
+loadDefaults();
+</script>
+</body>
+</html>

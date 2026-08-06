@@ -114,6 +114,22 @@ export class SupervisorClient {
         }
     }
 
+    /**
+     * Replaces a session's kernel process in place (SessionRegistry::
+     * restartSession() on the native side stops the old kernel, spawns a
+     * fresh one, and re-registers it under the *same* session id) -- so
+     * unlike stopSession(), nothing about `info` changes here. Works both
+     * to recover a crashed session and, same as Jupyter's "Restart Kernel",
+     * to reset a healthy one.
+     */
+    async restartSession(info: SessionConnectionInfo): Promise<void> {
+        const res = await fetch(`${info.httpBase}/sessions/${info.sessionId}/restart`, { method: 'POST' });
+        const body = await res.json() as CreateSessionResponse;
+        if (!res.ok || !body.sessionId) {
+            throw new Error(body.error ?? `Supervisor failed to restart session ${info.sessionId} (HTTP ${res.status})`);
+        }
+    }
+
     /** Skips graceful per-session shutdown -- only for cleanup on the way out. */
     kill(): void {
         if (this.child && !this.child.killed) {

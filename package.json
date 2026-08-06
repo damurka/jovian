@@ -42,6 +42,8 @@
     "test": "node scripts/test.js",
     "test:unit": "node --test --test-force-exit --experimental-test-coverage test/unit/lib/*.test.ts",
     "test:integration": "node --test --test-force-exit test/integration/*.test.ts",
+    "playground": "node tools/playground/server.js",
+    "playground:repl": "node tools/playground/repl.js",
     "pack:install": "npm pack && cd ../../JS/vscode && npm install ../../VS/datasuite-r/datasuite-r-1.0.0.tgz"
   },
   "keywords": [

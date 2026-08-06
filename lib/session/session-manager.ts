@@ -47,7 +47,7 @@ export class Session extends EventEmitter {
     private readonly router: MessageRouter;
     private readonly middleware: MiddlewareChain;
     private readonly queue: ExecutionQueue;
-    private readonly readyPromise: Promise<void>;
+    private readyPromise: Promise<void>;
     private stopped = false;
 
     constructor(info: SessionConnectionInfo, options: EngineOptions, supervisor: SupervisorClient) {
@@ -87,14 +87,32 @@ export class Session extends EventEmitter {
         };
         this.queue = new ExecutionQueue(wsAddon, this, options.queueSize, this.logger);
 
-        this.readyPromise = new Promise((resolve, reject) => {
-            const url = `${info.wsBase}/sessions/${info.sessionId}/messages`;
-            this.logger.debug(`Connecting to session ${info.sessionId} at ${url}`);
+        this.readyPromise = this.connect();
+    }
+
+    /**
+     * (Re)establishes the WebSocket to this.info's session and resolves
+     * once it's ready. Used both by the constructor and by restart() --
+     * info.sessionId/httpBase/wsBase don't change across a restart
+     * (SessionRegistry::restartSession() replaces the kernel in place under
+     * the same id), so reconnecting to the exact same URL is enough to pick
+     * back up a session the supervisor just gave a fresh kernel.
+     */
+    private connect(): Promise<void> {
+        // Defensive, not just for restart()'s benefit: closing an
+        // already-closed/undefined socket is a no-op, so this is safe to
+        // call unconditionally even from the constructor where this.ws is
+        // still undefined.
+        this.ws?.close();
+
+        return new Promise((resolve, reject) => {
+            const url = `${this.info.wsBase}/sessions/${this.info.sessionId}/messages`;
+            this.logger.debug(`Connecting to session ${this.info.sessionId} at ${url}`);
             const ws = new WebSocket(url);
             this.ws = ws;
 
-            const onOpenError = () => reject(new Error(`WebSocket connection to session ${info.sessionId} failed`));
-            const onCloseBeforeReady = () => reject(new Error(`Session ${info.sessionId} closed before it was ready`));
+            const onOpenError = () => reject(new Error(`WebSocket connection to session ${this.info.sessionId} failed`));
+            const onCloseBeforeReady = () => reject(new Error(`Session ${this.info.sessionId} closed before it was ready`));
             const onReady = () => {
                 cleanup();
                 resolve();
@@ -109,22 +127,59 @@ export class Session extends EventEmitter {
             ws.addEventListener('message', (event: MessageEvent) => {
                 void this.handleFrame(String(event.data), onReady);
             });
-        });
 
-        // Unlike the ready-phase close handler above (removed once ready
-        // resolves), this listener stays for the session's whole lifetime.
-        // Without it, a kernel crash mid-execution left every pending
-        // execute()/createShiny() call hanging forever -- nothing else ever
-        // settles those promises. Mirrors the old child.on('exit') handler
-        // this replaces.
-        this.ws?.addEventListener('close', () => {
-            if (this.stopped) {
-                return;
-            }
-            this.logger.error(`Session ${info.sessionId} connection closed unexpectedly`);
-            this.emit('exit', {});
-            this.queue.clear();
+            // Unlike the ready-phase handlers above (removed once ready
+            // resolves), this listener stays for this socket's whole
+            // lifetime. Without it, a kernel crash mid-execution left every
+            // pending execute()/createShiny() call hanging forever --
+            // nothing else ever settles those promises. Mirrors the old
+            // child.on('exit') handler this replaces.
+            //
+            // `this.ws !== ws` guards against a stale event from a socket
+            // restart() already superseded: closing the old one above is
+            // async from the browser/runtime WebSocket's perspective, so
+            // its 'close' can still fire after this.ws has moved on to a
+            // newer connection.
+            ws.addEventListener('close', () => {
+                if (this.stopped || this.ws !== ws) {
+                    return;
+                }
+                this.logger.error(`Session ${this.info.sessionId} connection closed unexpectedly`);
+                this.emit('exit', {});
+                this.queue.clear();
+            });
         });
+    }
+
+    /**
+     * Replaces this session's kernel process in place, keeping the same
+     * session id -- recovers a crashed session (kernelExit/unexpected close
+     * leaves the Session object itself alive but every execute() rejecting
+     * forever otherwise), and doubles as Jupyter's "Restart Kernel" for a
+     * still-healthy one. Not available after an explicit stop()/kill(): at
+     * that point the caller's intent was to end the session, not reset it
+     * -- create a new one instead via SessionManager.createSession().
+     */
+    async restart(): Promise<void> {
+        if (this.stopped) {
+            throw new Error(`Cannot restart session ${this.info.sessionId}: it was already stopped`);
+        }
+
+        this.logger.info(`Restarting session ${this.info.sessionId}`);
+        this.queue.clear();
+
+        // Reassigned synchronously, before awaiting anything below, so a
+        // concurrent execute()/createShiny() call that reads this.readyPromise
+        // while the restart is still in flight waits for the new connection
+        // instead of racing the old (already-dead-or-dying) one.
+        this.readyPromise = (async () => {
+            await this.supervisor.restartSession(this.info);
+            await this.connect();
+        })();
+
+        await this.readyPromise;
+        this.logger.info(`Session ${this.info.sessionId} restarted`);
+        this.emit('restarted');
     }
 
     private send(frame: Record<string, unknown>): void {
@@ -252,6 +307,10 @@ export class Session extends EventEmitter {
         if (!this.stopped) {
             this.stopped = true;
             this.logger.warn(`Force-closing session ${this.info.sessionId}`);
+            // Without this, an execute() call still in flight when kill()
+            // runs (e.g. one blocked waiting on a crashed kernel) never
+            // settles -- closing the socket alone doesn't reject it.
+            this.queue.clear();
             this.ws?.close();
         }
     }
