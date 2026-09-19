@@ -17,6 +17,13 @@
 #include "Rversion.h"
 
 #ifndef _WIN32
+// Rinterface.h guards its ptr_R_WriteConsole/ptr_R_WriteConsoleEx/
+// ptr_R_ReadConsole (etc.) extern declarations behind R_INTERFACE_PTRS --
+// without defining it first, they simply don't exist, and the assignments
+// below (the non-Windows console-hook wiring) fail to compile. MSVC never
+// takes this branch at all (it includes <windows.h> instead), which is why
+// this went unnoticed until building on a non-Windows OS for the first time.
+#define R_INTERFACE_PTRS 1
 #include "Rinterface.h"
 #else
 #include <windows.h>

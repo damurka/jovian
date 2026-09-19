@@ -64,10 +64,26 @@ jobs:
           restore-keys: |
             vcpkg-archives-${{ runner.os }}-
 
+      # r-lib/actions/setup-r puts Rtools' mingw/GCC toolchain on PATH, which
+      # CMake's compiler auto-detection prefers over MSVC when no generator
+      # is specified -- discovered because it silently built the project as
+      # a GCC/mingw "Unix Makefiles" configuration instead of MSVC, which
+      # then couldn't find libuuid (the MSVC branch of
+      # jovian_apply_platform_guid_define never needs it) and, even had that
+      # resolved, would have tried to link GCC-compiled objects against
+      # vcpkg's MSVC-built x64-windows dependencies -- incompatible ABIs.
+      # The rest of this CMakeLists.txt assumes MSVC throughout (compile
+      # options, MSVC_RUNTIME_LIBRARY matching vcpkg's triplet, the /STACK
+      # linker option), so force it explicitly here rather than relying on
+      # whichever compiler happens to be first on PATH.
       - name: Configure native (Release)
         shell: bash
         run: |
-          cmake -S . -B dist/native \
+          GENERATOR_ARGS=()
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            GENERATOR_ARGS=(-G "Visual Studio 17 2022" -A x64)
+          fi
+          cmake -S . -B dist/native "${GENERATOR_ARGS[@]}" \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DCMAKE_BUILD_TYPE=Release
 
@@ -80,7 +96,11 @@ jobs:
       - name: Configure native tests
         shell: bash
         run: |
-          cmake -S . -B dist/native-test -DJOVIAN_BUILD_TESTS=ON \
+          GENERATOR_ARGS=()
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            GENERATOR_ARGS=(-G "Visual Studio 17 2022" -A x64)
+          fi
+          cmake -S . -B dist/native-test "${GENERATOR_ARGS[@]}" -DJOVIAN_BUILD_TESTS=ON \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DCMAKE_BUILD_TYPE=Release
 

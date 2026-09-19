@@ -1,6 +1,7 @@
 #ifndef ELARA_R_INTERPRETER_HPP
 #define ELARA_R_INTERPRETER_HPP
 
+#include <sstream>
 #include <string>
 #include <memory>
 
