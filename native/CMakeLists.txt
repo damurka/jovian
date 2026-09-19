@@ -193,6 +193,14 @@ function(jovian_apply_platform_guid_define target_name)
         target_compile_definitions(${target_name} PRIVATE -DGUID_CFUUID)
     else ()
         target_compile_definitions(${target_name} PRIVATE -DGUID_LIBUUID)
+        # guid.cpp's GUID_LIBUUID branch calls uuid_generate() (<uuid/uuid.h>),
+        # which on Linux lives in libuuid, not libc -- cmake/FindLibUUID.cmake
+        # (present in this repo but previously unused by any target) locates
+        # it. Without this, every non-Windows, non-Apple target fails at link
+        # time with "undefined reference to uuid_generate" the moment it's
+        # actually built there (never caught before there was Linux CI).
+        find_package(LibUUID REQUIRED)
+        target_link_libraries(${target_name} PRIVATE LibUUID::LibUUID)
     endif ()
 endfunction()
 

@@ -26,9 +26,11 @@
 #include "adrastea/json.hpp"
 #include "supervisor/session_registry.hpp"
 
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <tlhelp32.h>
+#endif
 
 using namespace adrastea;
 using namespace themisto;
@@ -79,6 +81,13 @@ namespace
     // otherwise show up as a C++-level assertion failure of any kind.
     // Explicitly the *W (wide) API regardless of this target's own
     // UNICODE setting, so szExeFile's element type isn't ambiguous.
+    //
+    // Windows-only (Toolhelp32Snapshot): the two tests that call this
+    // (below) skip themselves on other platforms rather than getting a
+    // /proc or libproc reimplementation here -- first-time Linux/macOS CI
+    // is what surfaced this gap, and porting the OS-level process count is
+    // follow-up work, not something to improvise while standing up CI.
+#ifdef _WIN32
     int countProcessesNamed(const std::wstring& exeName)
     {
         HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -102,6 +111,7 @@ namespace
         CloseHandle(snapshot);
         return count;
     }
+#endif
 
     class SessionRegistryTest : public ::testing::Test
     {
@@ -458,6 +468,10 @@ TEST_F(SessionRegistryTest, RestartSessionReplacesTheKernelButKeepsTheSameId)
 
 TEST_F(SessionRegistryTest, ConcurrentRestartsForTheSameSessionDontLeakAnExtraKernelProcess)
 {
+#ifndef _WIN32
+    GTEST_SKIP() << "countProcessesNamed() is Windows-only (Toolhelp32Snapshot); "
+                    "a /proc or libproc equivalent hasn't been written yet.";
+#endif
     // Regression test for a real, reproduced bug: two overlapping
     // restartSession() calls for the same id used to race -- each
     // independently stopped the old kernel and spawned its own new one
@@ -510,6 +524,10 @@ TEST_F(SessionRegistryTest, ConcurrentRestartsForTheSameSessionDontLeakAnExtraKe
 
 TEST_F(SessionRegistryTest, ConcurrentExecuteDuringARestartDoesNotCrashOrLeak)
 {
+#ifndef _WIN32
+    GTEST_SKIP() << "countProcessesNamed() is Windows-only (Toolhelp32Snapshot); "
+                    "a /proc or libproc equivalent hasn't been written yet.";
+#endif
     // sendExecute()/sendInterrupt() used to look up a session and call
     // straight into its ClientZmq with no serialization against a
     // concurrent stopSession()/restartSession() for that same id -- a

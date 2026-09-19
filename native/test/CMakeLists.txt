@@ -39,6 +39,10 @@ elseif (APPLE)
     target_compile_definitions(adrastea_core PRIVATE -DGUID_CFUUID)
 else ()
     target_compile_definitions(adrastea_core PRIVATE -DGUID_LIBUUID)
+    # See the matching comment on jovian_apply_platform_guid_define
+    # (native/CMakeLists.txt) -- guid.cpp's uuid_generate() needs libuuid.
+    find_package(LibUUID REQUIRED)
+    target_link_libraries(adrastea_core PRIVATE LibUUID::LibUUID)
 endif ()
 
 find_package(GTest REQUIRED)
@@ -83,6 +87,10 @@ elseif (APPLE)
     target_compile_definitions(themisto_core PRIVATE -DGUID_CFUUID)
 else ()
     target_compile_definitions(themisto_core PRIVATE -DGUID_LIBUUID)
+    # See the matching comment on jovian_apply_platform_guid_define
+    # (native/CMakeLists.txt) -- guid.cpp's uuid_generate() needs libuuid.
+    find_package(LibUUID REQUIRED)
+    target_link_libraries(themisto_core PRIVATE LibUUID::LibUUID)
 endif ()
 
 add_executable(session_registry_test session_registry_test.cpp)
