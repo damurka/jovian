@@ -10,6 +10,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #else
+#include <cerrno>
+#include <cstring>
+#include <fcntl.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -380,24 +383,68 @@ namespace themisto
             throw std::runtime_error("Failed to create output pipe for elara process");
         }
 
+        // The "self-pipe trick": fork() succeeding only means the OS made a
+        // new process, not that it's actually running this executable --
+        // execv() itself runs in the child, and if it fails there (e.g. a
+        // nonexistent path), that failure previously vanished into a
+        // process that just exits with code 127 moments later, with no way
+        // for the parent to distinguish that synchronously from "started
+        // fine and exited almost immediately for some other reason" (unlike
+        // the Windows branch above, where CreateProcess's own return value
+        // reports this directly). FD_CLOEXEC on the write end means a
+        // successful execv() closes it automatically; the parent's
+        // blocking read() then returns 0 (EOF, nothing was ever written).
+        // If execv() fails instead, it returns, and the child writes errno
+        // before exiting -- the parent's read() then returns that errno.
+        int execStatusFds[2];
+        if (pipe(execStatusFds) != 0)
+        {
+            close(pipeFds[0]);
+            close(pipeFds[1]);
+            throw std::runtime_error("Failed to create exec-status pipe for elara process");
+        }
+        fcntl(execStatusFds[1], F_SETFD, FD_CLOEXEC);
+
         pid_t pid = fork();
         if (pid < 0)
         {
             close(pipeFds[0]);
             close(pipeFds[1]);
+            close(execStatusFds[0]);
+            close(execStatusFds[1]);
             throw std::runtime_error("Failed to fork elara process");
         }
         if (pid == 0)
         {
             close(pipeFds[0]);
+            close(execStatusFds[0]);
             dup2(pipeFds[1], STDOUT_FILENO);
             dup2(pipeFds[1], STDERR_FILENO);
             close(pipeFds[1]);
             execv(m_options.kernelExePath.c_str(), argv.data());
+            int execErrno = errno;
+            // Best-effort: if this write is ever short/interrupted, the
+            // parent's read() below still detects *some* failure (it gets
+            // 0 < n < sizeof(int) bytes, still != 0), just possibly without
+            // a decodable errno -- still strictly better than reporting
+            // success.
+            (void)write(execStatusFds[1], &execErrno, sizeof(execErrno));
             _exit(127);
         }
 
         close(pipeFds[1]);
+        close(execStatusFds[1]);
+
+        int execErrno = 0;
+        ssize_t bytesRead = read(execStatusFds[0], &execErrno, sizeof(execErrno));
+        close(execStatusFds[0]);
+        if (bytesRead > 0)
+        {
+            close(pipeFds[0]);
+            waitpid(pid, nullptr, 0); // reap the child so it doesn't linger as a zombie
+            throw std::runtime_error("Failed to spawn elara process (execv failed: " + std::string(std::strerror(execErrno)) + ")");
+        }
+
         m_processId = pid;
         m_stdoutFd = pipeFds[0];
         startOutputPump(reinterpret_cast<void*>(static_cast<intptr_t>(m_stdoutFd)));

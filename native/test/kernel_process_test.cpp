@@ -121,7 +121,15 @@ TEST(KernelProcessTest, DescribeStatusReportsTheExitCodeAfterANaturalExit)
     process.start();
     ASSERT_TRUE(waitFor([&]() { return !process.isAlive(); }, 5000));
 
+    // Same underlying exit code (0) on both platforms, but describeStatus()
+    // formats it differently: hex on Windows (its case labels below are
+    // NTSTATUS codes, conventionally written in hex, e.g. 0xC0000005), plain
+    // decimal on POSIX (the WEXITSTATUS() convention -- `echo $?` et al.).
+#ifdef _WIN32
     EXPECT_NE(process.describeStatus().find("exited with code 0x0"), std::string::npos);
+#else
+    EXPECT_NE(process.describeStatus().find("exited with code 0"), std::string::npos);
+#endif
 }
 
 TEST(KernelProcessTest, DescribeStatusBeforeStartingReportsNeverStarted)
