@@ -188,6 +188,15 @@ Priority Queue:
 
 ## Threading Model
 
+> Also stale: within Elara, R and the kernel's polling loop now run on the
+> *same* thread (`elara::Server::start()`, `native/src/bridge/engine.cpp`)
+> deliberately, not the two separate threads implied below -- see that
+> function's own comment for why (R's C-stack-bounds auto-detection assumes
+> it's running on the process's real main thread). The `std::thread`s that
+> do exist today all belong to Themisto (`native/src/supervisor/`): one for
+> its HTTP listener, one per spawned kernel process (pumping its stdout),
+> and one per session (polling that session's ZMQ client).
+
 ### C++ Threads
 1. **Main Thread** - R interpreter (single-threaded)
 2. **Server Thread** - Kernel server polling loop
@@ -213,9 +222,9 @@ Priority Queue:
 
 ### Unified Build
 ```bash
-npm run build:all    # Build both C++ and TypeScript
-npm run clean        # Clean all artifacts
-npm run dev          # Watch mode for TypeScript
+npm run build    # Build both C++ (elara + themisto) and TypeScript
+npm run clean    # Clean all artifacts
+npm run dev      # Watch mode for TypeScript
 ```
 
 ## Style Guide
@@ -228,14 +237,13 @@ npm run dev          # Watch mode for TypeScript
 ## Testing Strategy
 
 ### Unit Tests
-- `test/unit/native/` - C++ unit tests
+- `native/test/` - C++ unit tests (GoogleTest, run via `ctest`; see `native/test/CMakeLists.txt`)
 - `test/unit/lib/` - TypeScript unit tests
 
 ### Integration Tests
-- `test/integration/` - End-to-end message flow
+- `test/integration/` - Drives a real `Session`/`SessionManager` (and the `elara`/`themisto` processes behind them) end to end
 
-### E2E Tests
-- `test/e2e/` - Full engine lifecycle tests
+`test/unit/native/` and `test/e2e/` are placeholder directories the CI/test setup doesn't use -- C++ tests actually live in `native/test/`, and there's no separate e2e suite beyond `test/integration/`.
 
 ## Deployment
 
