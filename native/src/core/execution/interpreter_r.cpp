@@ -136,6 +136,7 @@ namespace elara
             freopen_s(&fp, "CONOUT$", "w", stderr);
             freopen_s(&fp, "CONIN$", "r", stdin);
         }
+#endif
 
         // Debug: Print environment before R init
         printf("[R Interpreter BEFORE Init] R_HOME=%s\n", getenv("R_HOME") ? getenv("R_HOME") : "NOT SET");
@@ -158,11 +159,24 @@ namespace elara
         // *secondary* thread (a carryover from this code's Node-addon
         // era), where that auto-detection is simply wrong, not for R
         // needing help in general.
+        //
+        // Rf_initEmbeddedR() itself, and the printfs bracketing it, are
+        // NOT Windows-specific -- this is R's standard, portable embedding
+        // API (Rembedded.h), the same call xeus-r's own interpreter
+        // constructor makes on every platform it supports. It used to sit
+        // inside the #ifdef _WIN32 block above (only the console-allocation
+        // code right before it is actually Windows-only), which meant R was
+        // silently never initialized at all on Linux/macOS -- undefined
+        // behavior from there on (registerRRoutines() and everything after
+        // touches R-internal state Rf_initEmbeddedR() sets up), observed
+        // directly as SessionRegistryTest hanging at exactly this point
+        // (the first real-kernel test, [elara::Server] logging
+        // "setup_environment() completed" and then nothing further) the
+        // first time this was ever run on those platforms.
         Rf_initEmbeddedR(argc, argv);
 
         printf("[R Interpreter AFTER Init] Rf_initEmbeddedR completed\n");
         fflush(stdout);
-#endif
 
         registerRRoutines();
 
