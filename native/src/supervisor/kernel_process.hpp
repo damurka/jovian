@@ -53,6 +53,19 @@ namespace themisto
     private:
         void startOutputPump(void* readHandle);
 
+#ifndef _WIN32
+        // Wraps waitpid(m_processId, ...), caching the result the first
+        // time it successfully reaps the child. POSIX only allows a
+        // zombie's exit status to be retrieved once -- isAlive(),
+        // describeStatus() and kill() can each be called, in any order,
+        // including after one another, and all need that same answer.
+        // Same tri-state contract as waitpid() itself: m_processId (a
+        // positive reap, whether just now or previously cached), 0 (still
+        // running -- only possible with WNOHANG and no cached reap yet),
+        // or -1 (error).
+        pid_t waitpidCached(int options) const;
+#endif
+
         KernelProcessOptions m_options;
         std::thread m_outputThread;
         std::atomic<bool> m_running{ false };
@@ -63,6 +76,8 @@ namespace themisto
 #else
         int m_processId = -1;
         int m_stdoutFd = -1;
+        mutable bool m_reaped = false;
+        mutable int m_exitStatus = 0;
 #endif
     };
 }

@@ -450,15 +450,29 @@ namespace themisto
         startOutputPump(reinterpret_cast<void*>(static_cast<intptr_t>(m_stdoutFd)));
     }
 
+    pid_t KernelProcess::waitpidCached(int options) const
+    {
+        if (m_reaped)
+        {
+            return m_processId;
+        }
+        int status = 0;
+        pid_t result = waitpid(m_processId, &status, options);
+        if (result == m_processId)
+        {
+            m_reaped = true;
+            m_exitStatus = status;
+        }
+        return result;
+    }
+
     bool KernelProcess::isAlive() const
     {
         if (m_processId <= 0)
         {
             return false;
         }
-        int status = 0;
-        pid_t result = waitpid(m_processId, &status, WNOHANG);
-        return result == 0;
+        return waitpidCached(WNOHANG) == 0;
     }
 
     void KernelProcess::kill()
@@ -467,8 +481,7 @@ namespace themisto
         if (m_processId > 0)
         {
             ::kill(m_processId, SIGKILL);
-            int status = 0;
-            waitpid(m_processId, &status, 0);
+            waitpidCached(0); // blocking; a no-op if already reaped (e.g. isAlive() got there first)
             m_processId = -1;
         }
         if (m_outputThread.joinable())
@@ -483,8 +496,7 @@ namespace themisto
         {
             return "process was never started or has already been cleaned up";
         }
-        int status = 0;
-        pid_t result = waitpid(m_processId, &status, WNOHANG | WUNTRACED);
+        pid_t result = waitpidCached(WNOHANG | WUNTRACED);
         if (result == 0)
         {
             return "process is still running -- likely hung or blocked rather than crashed";
@@ -493,6 +505,7 @@ namespace themisto
         {
             return "unable to query process status (waitpid failed)";
         }
+        int status = m_exitStatus;
         std::ostringstream oss;
         if (WIFEXITED(status))
         {
