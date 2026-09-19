@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: 'release'
+          # No R packages are installed here (not even hera): the R
+          # interpreter treats hera as optional and continues without it
+          # (see native/src/core/execution/interpreter_r.cpp), and none of
+          # the native/npm tests below exercise hera-dependent code paths.
+
+      - name: Install libuuid (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y uuid-dev
+
+      - name: Clone and bootstrap vcpkg
+        shell: bash
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "$RUNNER_TEMP/vcpkg"
+          cd "$RUNNER_TEMP/vcpkg"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ./bootstrap-vcpkg.bat
+          else
+            ./bootstrap-vcpkg.sh
+          fi
+          echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+
+      # vcpkg's own binary cache (~/.cache/vcpkg or %LOCALAPPDATA%\vcpkg on
+      # Windows) holds built port archives keyed by vcpkg.json's pinned
+      # builtin-baseline -- this is what actually saves time on repeat runs
+      # (rebuilding zeromq/openssl/etc. from source, as a fresh vcpkg clone
+      # otherwise does every time, is the slow part; re-cloning vcpkg
+      # itself is comparatively cheap).
+      - name: Cache vcpkg archives
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/vcpkg/archives
+            ~/Library/Caches/vcpkg/archives
+            ~\AppData\Local\vcpkg\archives
+          key: vcpkg-archives-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-archives-${{ runner.os }}-
+
+      - name: Configure native (Release)
+        shell: bash
+        run: |
+          cmake -S . -B dist/native \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build native (elara + themisto)
+        run: cmake --build dist/native --config Release
+
+      # Separate build directory from dist/native, same reasoning as
+      # scripts/test.js: JOVIAN_BUILD_TESTS=ON shouldn't stick around in
+      # the main build's CMakeCache.
+      - name: Configure native tests
+        shell: bash
+        run: |
+          cmake -S . -B dist/native-test -DJOVIAN_BUILD_TESTS=ON \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build native tests
+        run: cmake --build dist/native-test --config Release
+
+      - name: Run native tests (ctest)
+        run: ctest --test-dir dist/native-test -C Release --output-on-failure --timeout 180
+
+      - name: npm ci
+        run: npm ci
+
+      - name: Build TypeScript
+        run: npx tsc --build
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Integration tests
+        run: node --test --test-force-exit test/integration/*.test.ts
