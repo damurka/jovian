@@ -145,7 +145,7 @@ export class Session extends EventEmitter {
                     return;
                 }
                 this.logger.error(`Session ${this.info.sessionId} connection closed unexpectedly`);
-                this.emit('exit', {});
+                this.emit('exit', { reason: 'WebSocket connection to the supervisor closed unexpectedly' });
                 this.queue.clear();
             });
         });
@@ -222,8 +222,9 @@ export class Session extends EventEmitter {
 
             case 'kernelExit':
                 if (!this.stopped) {
-                    this.logger.error(`R session process for ${this.info.sessionId} exited unexpectedly`);
-                    this.emit('exit', {});
+                    const reason = typeof frame.reason === 'string' ? frame.reason : 'unknown reason';
+                    this.logger.error(`R session process for ${this.info.sessionId} exited unexpectedly: ${reason}`);
+                    this.emit('exit', { reason });
                     this.queue.clear();
                 }
                 break;

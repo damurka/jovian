@@ -12,6 +12,7 @@
 // Needs a working R installation to actually start a kernel -- skips itself
 // (GTEST_SKIP) rather than failing when one isn't found, matching the
 // skip-if-native-binary-missing pattern already used by the TS test suite.
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -24,6 +25,10 @@
 
 #include "datasuite/json.hpp"
 #include "supervisor/session_registry.hpp"
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <tlhelp32.h>
 
 using namespace datasuite;
 using namespace datasuite::supervisor;
@@ -65,6 +70,37 @@ namespace
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
         return predicate();
+    }
+
+    // Counts currently-running processes with the given (bare, no path)
+    // executable name -- used to verify a concurrency fix directly at the
+    // OS-process level, since a leaked shared_ptr<Session> whose kernel
+    // process never gets a matching KernelProcess::kill() call wouldn't
+    // otherwise show up as a C++-level assertion failure of any kind.
+    // Explicitly the *W (wide) API regardless of this target's own
+    // UNICODE setting, so szExeFile's element type isn't ambiguous.
+    int countProcessesNamed(const std::wstring& exeName)
+    {
+        HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snapshot == INVALID_HANDLE_VALUE)
+        {
+            return -1;
+        }
+        int count = 0;
+        PROCESSENTRY32W entry{};
+        entry.dwSize = sizeof(entry);
+        if (Process32FirstW(snapshot, &entry))
+        {
+            do
+            {
+                if (exeName == entry.szExeFile)
+                {
+                    ++count;
+                }
+            } while (Process32NextW(snapshot, &entry));
+        }
+        CloseHandle(snapshot);
+        return count;
     }
 
     class SessionRegistryTest : public ::testing::Test
@@ -210,20 +246,25 @@ TEST(SessionStructTest, EmitKernelExitInvokesTheRegisteredCallback)
 {
     Session session;
     bool invoked = false;
+    std::string receivedReason;
     {
         std::lock_guard<std::mutex> lock(session.callbackMutex);
-        session.onKernelExit = [&]() { invoked = true; };
+        session.onKernelExit = [&](const std::string& reason) {
+            invoked = true;
+            receivedReason = reason;
+        };
     }
 
-    session.emitKernelExit();
+    session.emitKernelExit("process exited with code 0x1");
 
     EXPECT_TRUE(invoked);
+    EXPECT_EQ(receivedReason, "process exited with code 0x1");
 }
 
 TEST(SessionStructTest, EmitKernelExitWithNoCallbackRegisteredIsANoOp)
 {
     Session session;
-    EXPECT_NO_THROW(session.emitKernelExit());
+    EXPECT_NO_THROW(session.emitKernelExit("reason"));
 }
 
 TEST(SessionStructTest, DestructorJoinsAStillRunningPollThread)
@@ -413,6 +454,133 @@ TEST_F(SessionRegistryTest, RestartSessionReplacesTheKernelButKeepsTheSameId)
     ASSERT_TRUE(gotReply) << "restarted session never replied to an execute_request";
 
     m_registry->stopSession(restartedId);
+}
+
+TEST_F(SessionRegistryTest, ConcurrentRestartsForTheSameSessionDontLeakAnExtraKernelProcess)
+{
+    // Regression test for a real, reproduced bug: two overlapping
+    // restartSession() calls for the same id used to race -- each
+    // independently stopped the old kernel and spawned its own new one
+    // with no serialization between them, leaking whichever one's kernel
+    // process lost the race to overwrite m_sessions[id] and corrupting the
+    // loser's HTTP response ("Unexpected end of JSON input" on the client
+    // side). Found via a live VS Code repro: clicking "Restart" again
+    // before the previous click's ~2-5s cycle finished left extra
+    // datasuite-r.exe processes running -- confirmed via real OS process
+    // counts, not just inferred from the C++ call graph, so this asserts
+    // the same way rather than on some indirect proxy (e.g. call timing,
+    // which a blocked-and-waiting second caller would confound anyway).
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+    ASSERT_TRUE(waitFor([&]() { return countProcessesNamed(L"datasuite-r.exe") == 1; }, kTimeoutMs))
+        << "expected exactly one datasuite-r.exe after the initial createSession";
+
+    bool ok1 = false;
+    bool ok2 = false;
+    std::thread t1([&]() {
+        std::string restartError;
+        ok1 = !m_registry->restartSession(id, restartError).empty();
+    });
+    std::thread t2([&]() {
+        std::string restartError;
+        ok2 = !m_registry->restartSession(id, restartError).empty();
+    });
+    t1.join();
+    t2.join();
+
+    EXPECT_TRUE(ok1);
+    EXPECT_TRUE(ok2);
+
+    auto session = m_registry->getSession(id);
+    ASSERT_TRUE(session != nullptr);
+    EXPECT_EQ(session->status.load(), SessionStatus::Ready);
+
+    // The only assertion that actually matters here: exactly one live
+    // kernel process backs this one session, never two.
+    EXPECT_TRUE(waitFor([&]() { return countProcessesNamed(L"datasuite-r.exe") == 1; }, kTimeoutMs))
+        << "expected exactly one datasuite-r.exe after two concurrent restarts, found "
+        << countProcessesNamed(L"datasuite-r.exe");
+
+    m_registry->stopSession(id);
+}
+
+TEST_F(SessionRegistryTest, ConcurrentExecuteDuringARestartDoesNotCrashOrLeak)
+{
+    // sendExecute()/sendInterrupt() used to look up a session and call
+    // straight into its ClientZmq with no serialization against a
+    // concurrent stopSession()/restartSession() for that same id -- a
+    // second thread's stopChannels()/kill() could be tearing that exact
+    // client down at the same moment. Fixed by having them take the same
+    // per-id lock restartSession()/stopSession() hold. This fires a burst
+    // of execute requests concurrently with a restart of the same session
+    // and asserts on the same real, external signal as the restart-leak
+    // test above: it doesn't crash, doesn't hang, and doesn't leak a
+    // kernel process -- not just "the C++ call graph looks fine".
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+
+    std::atomic<bool> keepSendingExecute{ true };
+    std::thread executeThread([&]() {
+        int counter = 0;
+        while (keepSendingExecute)
+        {
+            m_registry->sendExecute(id, "burst-" + std::to_string(counter++), "1 + 1", json::object());
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    });
+
+    std::string restartError;
+    std::string restartedId = m_registry->restartSession(id, restartError);
+
+    keepSendingExecute = false;
+    executeThread.join();
+
+    ASSERT_FALSE(restartedId.empty()) << "restartSession failed: " << restartError;
+    EXPECT_EQ(restartedId, id);
+
+    auto session = m_registry->getSession(id);
+    ASSERT_TRUE(session != nullptr);
+    EXPECT_EQ(session->status.load(), SessionStatus::Ready);
+
+    EXPECT_TRUE(waitFor([&]() { return countProcessesNamed(L"datasuite-r.exe") == 1; }, kTimeoutMs))
+        << "expected exactly one datasuite-r.exe after a restart racing concurrent execute() calls, found "
+        << countProcessesNamed(L"datasuite-r.exe");
+
+    // Prove the post-restart kernel is genuinely usable, not just "still
+    // has a process" -- a real execute/reply round trip.
+    std::vector<json> received;
+    std::mutex receivedMutex;
+    {
+        std::lock_guard<std::mutex> lock(session->callbackMutex);
+        session->onMessage = [&](const std::string& text) {
+            std::lock_guard<std::mutex> lock2(receivedMutex);
+            received.push_back(json::parse(text));
+        };
+    }
+    const std::string msgId = "post-race-exec";
+    ASSERT_TRUE(m_registry->sendExecute(id, msgId, "1 + 1", json::object()));
+    bool gotReply = waitFor([&]() {
+        std::lock_guard<std::mutex> lock(receivedMutex);
+        for (const auto& msg : received)
+        {
+            if (msg.value("msg_type", "") == "execute_reply" && msg.value("parent_msg_id", "") == msgId)
+            {
+                return true;
+            }
+        }
+        return false;
+    }, kTimeoutMs);
+    EXPECT_TRUE(gotReply) << "session never replied to an execute_request after the race";
+
+    m_registry->stopSession(id);
 }
 
 // Own main() instead of linking GTest::gtest_main, as a second line of

@@ -179,6 +179,28 @@ test('Session', async (t) => {
         });
     });
 
+    await t.test('a "kernelExit" frame carries its reason through to the "exit" event', async () => {
+        await withFakeWebSocket(async () => {
+            const session = new Session(connectionInfo(), {}, fakeSupervisor);
+            const ws = FakeWebSocket.instances[0];
+            ws.receive({ type: 'ready' });
+            await session.ready();
+
+            let exitInfo: { reason?: string } | undefined;
+            session.on('exit', (info: { reason?: string }) => { exitInfo = info; });
+
+            ws.receive({
+                type: 'kernelExit',
+                reason: 'heartbeat gave up waiting for a response (process exited with code 0xc0000005 (STATUS_ACCESS_VIOLATION -- a native crash, e.g. in a compiled R package))'
+            });
+
+            assert.strictEqual(
+                exitInfo?.reason,
+                'heartbeat gave up waiting for a response (process exited with code 0xc0000005 (STATUS_ACCESS_VIOLATION -- a native crash, e.g. in a compiled R package))'
+            );
+        });
+    });
+
     await t.test('a graceful stop() does not emit "exit" (only unexpected closes do)', async () => {
         await withFakeWebSocket(async () => {
             const session = new Session(connectionInfo(), {}, fakeSupervisor);

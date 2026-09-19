@@ -2,7 +2,6 @@
 
 namespace datasuite
 {
-
     // =========================================================================
     // DATASUITE SERVER IMPLEMENTATION
     // =========================================================================
@@ -102,44 +101,40 @@ namespace datasuite
         fflush(stdout);
     }
 
+    // Runs entirely on the calling thread -- see the class comment
+    // (datasuite_engine.hpp) for why that's deliberate. Blocks until the
+    // kernel shuts down; the caller (datasuite-r.cpp's main()) has nothing
+    // left to do afterward but return.
     void DatasuiteServer::start(const KernelConfiguration& config, std::function<void()> on_ready) {
-        server_thread = std::thread([this, config, on_ready]() {
-            try {
-                // CRITICAL: Setup R environment BEFORE initializing R interpreter!
-                this->setupEnvironment();
+        try {
+            // CRITICAL: Setup R environment BEFORE initializing R interpreter!
+            this->setupEnvironment();
 
-                auto context = makeZmqContext();
-                // Don't use --vanilla, it prevents loading default packages
-                char* r_argv[] = { (char*)"R", (char*)"--quiet", (char*)"--no-save", (char*)"--no-restore" };
-                int r_argc = sizeof(r_argv) / sizeof(r_argv[0]);
+            auto context = makeZmqContext();
+            // Don't use --vanilla, it prevents loading default packages
+            char* r_argv[] = { (char*)"R", (char*)"--quiet", (char*)"--no-save", (char*)"--no-restore" };
+            int r_argc = sizeof(r_argv) / sizeof(r_argv[0]);
 
-                using interpreter_ptr = std::unique_ptr<RInterpreter>;
-                interpreter_ptr interpreter = interpreter_ptr(new RInterpreter(r_argc, r_argv));
+            using interpreter_ptr = std::unique_ptr<RInterpreter>;
+            interpreter_ptr interpreter = interpreter_ptr(new RInterpreter(r_argc, r_argv));
 
-                auto history = makeInMemoryHistoryManager();
-                auto logger = makeConsoleLogger(Logger::level::msg_type);
+            auto history = makeInMemoryHistoryManager();
+            auto logger = makeConsoleLogger(Logger::level::msg_type);
 
-                Kernel engine(config, getUserName(), std::move(context), std::move(interpreter), makeServerDefault, std::move(history), std::move(logger));
+            Kernel engine(config, getUserName(), std::move(context), std::move(interpreter), makeServerDefault, std::move(history), std::move(logger));
 
-                if (on_ready) {
-					on_ready();
-                }
-
-                // Blocks indefinitely until the Client sends a shutdown_request
-                engine.start();
+            if (on_ready) {
+                on_ready();
             }
-            catch (const std::exception& e) {
-                std::cerr << "[Server] FATAL ERROR: " << e.what() << std::endl;
-                if (on_ready) {
-                    on_ready();
-                }
-            }
-        });
-    }
 
-    void DatasuiteServer::stop() {
-        if (server_thread.joinable()) {
-            server_thread.join();
+            // Blocks indefinitely until the Client sends a shutdown_request
+            engine.start();
+        }
+        catch (const std::exception& e) {
+            std::cerr << "[Server] FATAL ERROR: " << e.what() << std::endl;
+            if (on_ready) {
+                on_ready();
+            }
         }
     }
 

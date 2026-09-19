@@ -96,12 +96,12 @@ namespace datasuite::supervisor
         }
     }
 
-    void Session::emitKernelExit()
+    void Session::emitKernelExit(const std::string& reason)
     {
         std::lock_guard<std::mutex> lock(callbackMutex);
         if (onKernelExit)
         {
-            onKernelExit();
+            onKernelExit(reason);
         }
     }
 
@@ -109,6 +109,17 @@ namespace datasuite::supervisor
         : m_kernelExePath(std::move(kernelExePath))
         , m_registrationIp(std::move(registrationIp))
     {
+    }
+
+    std::shared_ptr<std::recursive_mutex> SessionRegistry::getSessionOperationLock(const std::string& id)
+    {
+        std::lock_guard<std::mutex> lock(m_sessionLocksMutex);
+        auto it = m_sessionOperationLocks.find(id);
+        if (it == m_sessionOperationLocks.end())
+        {
+            it = m_sessionOperationLocks.emplace(id, std::make_shared<std::recursive_mutex>()).first;
+        }
+        return it->second;
     }
 
     SessionRegistry::~SessionRegistry()
@@ -257,7 +268,17 @@ namespace datasuite::supervisor
             if (auto s = weakSession.lock())
             {
                 s->status = SessionStatus::Crashed;
-                s->emitKernelExit();
+                // Heartbeat timing out only tells us the kernel stopped
+                // answering pings -- it looks identical whether the process
+                // genuinely crashed or is merely stuck (deadlock, long
+                // blocking native call). Cross-check against the OS process
+                // handle to tell those apart before reporting.
+                std::string reason = "heartbeat gave up waiting for a response";
+                if (s->process)
+                {
+                    reason += " (" + s->process->describeStatus() + ")";
+                }
+                s->emitKernelExit(reason);
             }
         });
 
@@ -344,6 +365,19 @@ namespace datasuite::supervisor
 
     bool SessionRegistry::sendExecute(const std::string& sessionId, const std::string& msgId, const std::string& code, const json& options)
     {
+        // Same per-id lock stopSession()/restartSession() hold for their
+        // entire duration -- without it, this could grab a session's
+        // ClientZmq and call sendOnShell() on it concurrently with another
+        // thread's stopChannels()/kill() tearing that same client down for
+        // a stop or restart, a genuine data race on shared ZMQ socket
+        // state, not just a stale-pointer issue (the shared_ptr keeps the
+        // Session object alive either way). Acquiring the lock *before*
+        // getSession() (not just wrapping the send) also means a call that
+        // arrives mid-restart waits for the restart to finish and then
+        // operates on whichever session is actually live afterward, rather
+        // than risking a stale pointer to the one being replaced.
+        std::lock_guard<std::recursive_mutex> opLock(*getSessionOperationLock(sessionId));
+
         auto session = getSession(sessionId);
         if (!session || !session->client)
         {
@@ -368,6 +402,10 @@ namespace datasuite::supervisor
 
     bool SessionRegistry::sendInterrupt(const std::string& sessionId, const std::string& msgId)
     {
+        // Same reasoning as sendExecute() above -- serialize against a
+        // concurrent stop/restart of this same session.
+        std::lock_guard<std::recursive_mutex> opLock(*getSessionOperationLock(sessionId));
+
         auto session = getSession(sessionId);
         if (!session || !session->client)
         {
@@ -384,6 +422,8 @@ namespace datasuite::supervisor
 
     bool SessionRegistry::stopSession(const std::string& id)
     {
+        std::lock_guard<std::recursive_mutex> opLock(*getSessionOperationLock(id));
+
         auto session = getSession(id);
         if (!session)
         {
@@ -419,7 +459,16 @@ namespace datasuite::supervisor
         // Graceful-then-force, matching the addon's own shutdown handling
         // (lib/session/session-manager.ts's stop()/kill() split): give the
         // kernel a couple seconds to exit cleanly after shutdown_request
-        // before force-killing the process.
+        // before force-killing the process. In practice this always hits
+        // the force-kill path for a session running a Shiny app: the R
+        // interpreter thread is permanently blocked inside
+        // shiny::runApp() (see createShiny()'s "expected to block
+        // indefinitely" comment) and never gets a chance to process a
+        // control-channel shutdown_request -- verified via targeted
+        // tracing, not just inferred. Confirmed harmless (the process is
+        // reliably dead within ~2.3s either way), just worth knowing this
+        // is the *normal* path for a Shiny session, not a sign anything's
+        // stuck.
         for (int i = 0; i < 20 && session->process && session->process->isAlive(); ++i)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -435,6 +484,15 @@ namespace datasuite::supervisor
 
     std::string SessionRegistry::restartSession(const std::string& id, std::string& error)
     {
+        // Held for the *entire* stop-old/spawn-new sequence, not just the
+        // map mutation below -- a second restartSession() call for this
+        // same id (e.g. a user clicking "Restart" again before this one's
+        // ~2-5s cycle finishes) blocks here until this one is completely
+        // done, rather than the two racing to each stop-and-replace the
+        // session independently. stopSession() re-enters this same
+        // recursive_mutex from this same thread, which is fine.
+        std::lock_guard<std::recursive_mutex> opLock(*getSessionOperationLock(id));
+
         auto session = getSession(id);
         if (!session)
         {

@@ -143,13 +143,20 @@ export class SupervisorClient {
 // DATASUITE_BUILD_SUPERVISOR target and CMAKE_RUNTIME_OUTPUT_DIRECTORY =
 // dist/native/$<CONFIG>).
 function resolveSupervisorExecutable(): string {
+    // const exeName = process.platform === 'win32' ? 'datasuite-supervisor.exe' : 'datasuite-supervisor';
+    // const candidate = join(__dirname, '../../native/Release', exeName);
+    // if (!existsSync(candidate)) {
+    //     throw new Error(
+    //         `datasuite-r: supervisor executable not found at ${candidate}. ` +
+    //         `Run the native build (npm run build:native) before creating a session.`
+    //     );
+    // }
     const exeName = process.platform === 'win32' ? 'datasuite-supervisor.exe' : 'datasuite-supervisor';
-    const candidate = join(__dirname, '../../native/Release', exeName);
+    const candidate = join(__dirname, '../../native/Release', exeName)
+        .replace(/\bnode_modules\.asar\b/, 'node_modules.asar.unpacked');
     if (!existsSync(candidate)) {
-        throw new Error(
-            `datasuite-r: supervisor executable not found at ${candidate}. ` +
-            `Run the native build (npm run build:native) before creating a session.`
-        );
+        throw new Error(`datasuite-r: supervisor executable not found at ${candidate}. ` +
+            `Run the native build (npm run build:native) before creating a session.`);
     }
     return candidate;
 }

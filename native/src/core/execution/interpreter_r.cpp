@@ -20,8 +20,6 @@
 #include "Rinterface.h"
 #else
 #include <windows.h>
-#include <cstdint>
-extern "C" __declspec(dllimport) uintptr_t R_CStackLimit;
 #endif
 
 #include "r/rtools.hpp"
@@ -124,9 +122,23 @@ namespace datasuite
         printf("[R Interpreter BEFORE Init] R_LIBS=%s\n", getenv("R_LIBS") ? getenv("R_LIBS") : "NOT SET");
         fflush(stdout);
 
+        // No R_CStackLimit override needed here (unlike an earlier version
+        // of this code, which queried this thread's stack bounds and
+        // computed one manually): Rf_initEmbeddedR() runs directly on this
+        // process's actual main thread now (see DatasuiteServer::start(),
+        // datasuite_engine.cpp), which is exactly what R's own built-in
+        // stack-bounds auto-detection assumes and correctly handles --
+        // matching how xeus-r's interpreter constructor embeds R, with
+        // nothing beyond this one call. That auto-detection reflects
+        // whatever real stack this thread has, though, so the linker's
+        // default 1MB reserve was still enlarged (native/CMakeLists.txt,
+        // the datasuite-r target's /STACK option) to actually give it room
+        // for the deep C-level recursion real workloads can hit -- the
+        // previous manual override was compensating for running on a
+        // *secondary* thread (a carryover from this code's Node-addon
+        // era), where that auto-detection is simply wrong, not for R
+        // needing help in general.
         Rf_initEmbeddedR(argc, argv);
-
-        R_CStackLimit = (uintptr_t)-1;
 
         printf("[R Interpreter AFTER Init] Rf_initEmbeddedR completed\n");
         fflush(stdout);

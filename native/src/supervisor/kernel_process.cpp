@@ -50,6 +50,43 @@ namespace datasuite::supervisor
                 { "--key", options.key },
             };
         }
+
+        // One job object shared by every kernel this supervisor process
+        // ever spawns, created lazily on first use. JOB_OBJECT_LIMIT_KILL_
+        // ON_JOB_CLOSE means the OS itself force-kills every process still
+        // assigned to this job the moment the job's last handle closes --
+        // which happens automatically when *this* process (the only thing
+        // holding that handle) exits, by any means: a clean stopAll(),
+        // the process.once('exit') fallback in session-manager.ts, a crash,
+        // or Task Manager "End Task". That's the actual fix for a real,
+        // reported bug: orphaned datasuite-r.exe processes surviving even
+        // a full VS Code close. Everything upstream of this (Session.kill()
+        // only closing a local WebSocket, the exit handler only killing
+        // *this* process) was cooperative cleanup that depended on code
+        // actually running before exit -- fragile by construction, since
+        // Windows does not kill child processes when their parent dies
+        // unless something explicitly arranges it. A job object is that
+        // arrangement, enforced by the OS, not by any cleanup code path
+        // actually executing.
+        HANDLE getKernelJobObject()
+        {
+            static HANDLE job = []() -> HANDLE {
+                HANDLE h = CreateJobObjectA(nullptr, nullptr);
+                if (!h)
+                {
+                    return nullptr;
+                }
+                JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
+                info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                if (!SetInformationJobObject(h, JobObjectExtendedLimitInformation, &info, sizeof(info)))
+                {
+                    CloseHandle(h);
+                    return nullptr;
+                }
+                return h;
+            }();
+            return job;
+        }
     }
 
     KernelProcess::KernelProcess(const KernelProcessOptions& options) : m_options(options) {}
@@ -223,6 +260,16 @@ namespace datasuite::supervisor
         m_processId = processInfo.dwProcessId;
         CloseHandle(processInfo.hThread);
 
+        // Best-effort: if this fails (e.g. a pre-Windows-8 host with no
+        // nested-job support, vanishingly unlikely on any real target here),
+        // the kernel still runs fine standalone -- it just loses the
+        // guaranteed-cleanup-on-supervisor-death property, no worse than
+        // before this existed.
+        if (HANDLE job = getKernelJobObject())
+        {
+            AssignProcessToJobObject(job, static_cast<HANDLE>(m_processHandle));
+        }
+
         startOutputPump(readHandle);
     }
 
@@ -253,6 +300,50 @@ namespace datasuite::supervisor
         {
             m_outputThread.join();
         }
+    }
+
+    std::string KernelProcess::describeStatus() const
+    {
+        if (!m_processHandle)
+        {
+            return "process was never started or has already been cleaned up";
+        }
+        DWORD exitCode = 0;
+        if (!GetExitCodeProcess(static_cast<HANDLE>(m_processHandle), &exitCode))
+        {
+            return "unable to query process exit code (GetExitCodeProcess failed)";
+        }
+        if (exitCode == STILL_ACTIVE)
+        {
+            return "process is still running -- likely hung or blocked rather than crashed";
+        }
+
+        std::ostringstream oss;
+        oss << "process exited with code 0x" << std::hex << exitCode;
+        switch (exitCode)
+        {
+        case 0xC0000005:
+            oss << " (STATUS_ACCESS_VIOLATION -- a native crash, e.g. in a compiled R package)";
+            break;
+        case 0xC00000FD:
+            oss << " (STATUS_STACK_OVERFLOW)";
+            break;
+        case 0xC0000409:
+            oss << " (STATUS_STACK_BUFFER_OVERRUN)";
+            break;
+        case 0xC0000135:
+            oss << " (STATUS_DLL_NOT_FOUND -- a required DLL is missing)";
+            break;
+        case 0xC000007B:
+            oss << " (STATUS_INVALID_IMAGE_FORMAT -- likely a 32/64-bit or ABI mismatch in a loaded DLL)";
+            break;
+        case 0xC0000142:
+            oss << " (STATUS_DLL_INIT_FAILED)";
+            break;
+        default:
+            break;
+        }
+        return oss.str();
     }
 #else
     void KernelProcess::start()
@@ -330,6 +421,46 @@ namespace datasuite::supervisor
         {
             m_outputThread.join();
         }
+    }
+
+    std::string KernelProcess::describeStatus() const
+    {
+        if (m_processId <= 0)
+        {
+            return "process was never started or has already been cleaned up";
+        }
+        int status = 0;
+        pid_t result = waitpid(m_processId, &status, WNOHANG | WUNTRACED);
+        if (result == 0)
+        {
+            return "process is still running -- likely hung or blocked rather than crashed";
+        }
+        if (result < 0)
+        {
+            return "unable to query process status (waitpid failed)";
+        }
+        std::ostringstream oss;
+        if (WIFEXITED(status))
+        {
+            oss << "process exited with code " << WEXITSTATUS(status);
+        }
+        else if (WIFSIGNALED(status))
+        {
+            oss << "process terminated by signal " << WTERMSIG(status);
+            if (WTERMSIG(status) == SIGSEGV)
+            {
+                oss << " (SIGSEGV -- a native crash, e.g. in a compiled R package)";
+            }
+            else if (WTERMSIG(status) == SIGABRT)
+            {
+                oss << " (SIGABRT)";
+            }
+        }
+        else
+        {
+            oss << "process status unknown (raw status " << status << ")";
+        }
+        return oss.str();
     }
 #endif
 }

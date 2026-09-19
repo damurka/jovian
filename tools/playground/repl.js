@@ -131,8 +131,9 @@ async function createSession() {
             console.log(paint('red', `Connection error: ${error.message}`));
         }
     });
-    session.on('exit', () => {
-        console.log(paint('red', '\n✗ Kernel process exited unexpectedly. Use /restart to recover, or /new for a fresh session.'));
+    session.on('exit', (info) => {
+        const reason = info?.reason ? `: ${info.reason}` : '';
+        console.log(paint('red', `\n✗ Kernel process exited unexpectedly${reason}. Use /restart to recover, or /new for a fresh session.`));
         showPrompt();
     });
     session.on('stopped', () => {

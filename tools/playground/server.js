@@ -79,9 +79,9 @@ async function createSession(options) {
     // 'stream' iopub message this 'message' listener already gets --
     // rendering both would duplicate every print()/cat() line.
     session.on('message', (message) => broadcast(id, { event: 'message', message }));
-    session.on('exit', () => {
+    session.on('exit', (info) => {
         entry.status = 'crashed';
-        broadcast(id, { event: 'exit' });
+        broadcast(id, { event: 'exit', reason: info?.reason });
     });
     session.on('stopped', () => {
         entry.status = 'stopped';

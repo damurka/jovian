@@ -40,6 +40,16 @@ namespace datasuite::supervisor
         bool isAlive() const;
         void kill();
 
+        // Diagnostic description for when a kernel is declared dead via
+        // heartbeat timeout (see SessionRegistry's kernel-status listener):
+        // distinguishes a genuine process exit (with its exit code, decoded
+        // for common native-crash codes where recognized) from a kernel
+        // that's still running but simply didn't answer heartbeat pings in
+        // time -- these look identical from the "no more pongs" signal
+        // alone, but call for very different debugging (a real crash vs. a
+        // hang/deadlock/long blocking call).
+        std::string describeStatus() const;
+
     private:
         void startOutputPump(void* readHandle);
 

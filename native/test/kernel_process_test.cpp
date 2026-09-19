@@ -104,6 +104,36 @@ TEST(KernelProcessTest, StartThrowsWhenTheExecutableDoesNotExist)
     EXPECT_THROW(process.start(), std::runtime_error);
 }
 
+TEST(KernelProcessTest, DescribeStatusReportsStillRunningWhileAlive)
+{
+    KernelProcess process(longRunningOptions());
+    process.start();
+    ASSERT_TRUE(process.isAlive());
+
+    EXPECT_NE(process.describeStatus().find("still running"), std::string::npos);
+
+    process.kill();
+}
+
+TEST(KernelProcessTest, DescribeStatusReportsTheExitCodeAfterANaturalExit)
+{
+    KernelProcess process(quickExitOptions());
+    process.start();
+    ASSERT_TRUE(waitFor([&]() { return !process.isAlive(); }, 5000));
+
+    EXPECT_NE(process.describeStatus().find("exited with code 0x0"), std::string::npos);
+}
+
+TEST(KernelProcessTest, DescribeStatusBeforeStartingReportsNeverStarted)
+{
+    KernelProcessOptions options;
+    options.kernelExePath = DATASUITE_TEST_DUMMY_PROCESS_EXE;
+
+    KernelProcess process(options);
+
+    EXPECT_NE(process.describeStatus().find("never started"), std::string::npos);
+}
+
 TEST(KernelProcessTest, DestructorKillsAStillRunningProcess)
 {
     {

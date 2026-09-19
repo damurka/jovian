@@ -84,10 +84,10 @@ namespace datasuite::supervisor
                                         ws->send(text);
                                     }
                                 };
-                                state->session->onKernelExit = [weakWebSocket]() {
+                                state->session->onKernelExit = [weakWebSocket](const std::string& reason) {
                                     if (auto ws = weakWebSocket.lock())
                                     {
-                                        ws->send(json{ { "type", "kernelExit" } }.dump());
+                                        ws->send(json{ { "type", "kernelExit" }, { "reason", reason } }.dump());
                                     }
                                 };
                             }

@@ -368,7 +368,7 @@ function openStream(id) {
         break;
       case 'exit':
         s.status = 'crashed';
-        appendEntry(id, 'system', 'system', 'Kernel process exited unexpectedly (crash simulated or real).');
+        appendEntry(id, 'system', 'system', `Kernel process exited unexpectedly: ${payload.reason || 'unknown reason'}`);
         renderSessionList();
         updateSessionHeader(id);
         break;

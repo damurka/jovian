@@ -236,6 +236,26 @@ if (DATASUITE_BUILD_KERNEL_EXE)
     set_target_properties(datasuite-r PROPERTIES
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
+    if (MSVC)
+        # R's embedded interpreter runs directly on this process's main
+        # thread (see DatasuiteServer::start(), datasuite_engine.cpp) --
+        # deliberately, so R's own C-stack-bounds auto-detection (which
+        # assumes main-thread execution) computes correct values instead of
+        # needing to be second-guessed at runtime. That auto-detection
+        # reflects whatever stack this thread was actually given, though,
+        # so it still needs to be a real one: the linker's default reserve
+        # (1MB) is comfortably enough for typical R evaluation but not for
+        # the deep C-level recursion real workloads can hit (R6 method
+        # dispatch chains, sf/geometry operations, Shiny's reactive graph)
+        # -- a real crash traced back to exactly this (cd2030.core's
+        # init_CacheConnection()$reactive() during a live Shiny session,
+        # STATUS_STACK_OVERFLOW) is what surfaced the need for a
+        # deliberately larger one. 128MB reserved (not committed -- actual
+        # memory use only grows as the stack is actually touched) is
+        # negligible next to R's own heap footprint.
+        target_link_options(datasuite-r PRIVATE "/STACK:134217728")
+    endif ()
+
     datasuite_apply_platform_guid_define(datasuite-r)
 endif ()
 
