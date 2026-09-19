@@ -4,7 +4,7 @@
 #include "zmq_addon.hpp"
 #include "middleware_impl.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     std::string getControllerEndPoint(const std::string& channel)
     {

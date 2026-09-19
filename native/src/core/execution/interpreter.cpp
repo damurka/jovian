@@ -2,10 +2,10 @@
 #include <utility>
 #include <vector>
 
-#include "datasuite/json.hpp"
-#include "datasuite/interpreter.hpp"
+#include "adrastea/json.hpp"
+#include "adrastea/interpreter.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     Interpreter::Interpreter()
         : m_executionCount(0)
@@ -213,7 +213,7 @@ namespace datasuite
         m_inputReplyHandler = handler;
     }
 
-    void Interpreter::registerCommManager(datasuite::CommManager* manager)
+    void Interpreter::registerCommManager(adrastea::CommManager* manager)
     {
         p_commManager = manager;
     }

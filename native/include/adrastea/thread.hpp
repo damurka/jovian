@@ -1,10 +1,10 @@
-#ifndef DATASUITE_THREAD_HPP
-#define DATASUITE_THREAD_HPP
+#ifndef ADRASTEA_THREAD_HPP
+#define ADRASTEA_THREAD_HPP
 
 #include <thread>
 #include <type_traits>
 
-namespace datasuite
+namespace adrastea
 {
 
     /**

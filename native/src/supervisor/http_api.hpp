@@ -1,5 +1,5 @@
-#ifndef DATASUITE_SUPERVISOR_HTTP_API_HPP
-#define DATASUITE_SUPERVISOR_HTTP_API_HPP
+#ifndef THEMISTO_HTTP_API_HPP
+#define THEMISTO_HTTP_API_HPP
 
 #include <thread>
 
@@ -7,8 +7,11 @@
 
 #include "session_registry.hpp"
 
-namespace datasuite::supervisor
+namespace themisto
 {
+    // Themisto builds on the Adrastea framework; name its symbols unqualified here.
+    using namespace adrastea;
+
     // REST surface for session lifecycle only (create/list/get/delete/
     // restart) -- all execute/interrupt/message traffic goes over WsRelay
     // instead, so there's exactly one place doing request/reply

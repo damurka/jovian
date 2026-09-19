@@ -90,13 +90,13 @@ async function main() {
     console.log('📦 Running C++ tests...');
     try {
         // Built in a separate directory from dist/native (the one
-        // build:native/compile use) so DATASUITE_BUILD_TESTS=ON doesn't
+        // build:native/compile use) so JOVIAN_BUILD_TESTS=ON doesn't
         // stick around in the main build's CMakeCache and silently make
         // every future `npm run build:native` also compile the test targets.
         const vcpkgRoot = process.env.VCPKG_ROOT || '';
         const toolchainFile = vcpkgRoot ? `${vcpkgRoot}/scripts/buildsystems/vcpkg.cmake` : '';
 
-        const configureArgs = ['-S', '.', '-B', 'dist/native-test', '-DDATASUITE_BUILD_TESTS=ON'];
+        const configureArgs = ['-S', '.', '-B', 'dist/native-test', '-DJOVIAN_BUILD_TESTS=ON'];
         if (toolchainFile) {
             configureArgs.push(`-DCMAKE_TOOLCHAIN_FILE="${toolchainFile}"`);
         }

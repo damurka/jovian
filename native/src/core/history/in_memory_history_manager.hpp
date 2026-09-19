@@ -1,16 +1,16 @@
-#ifndef DATASUITE_IN_MEMORY_HISTORY_MANAGER_HPP
-#define DATASUITE_IN_MEMORY_HISTORY_MANAGER_HPP
+#ifndef ADRASTEA_IN_MEMORY_HISTORY_MANAGER_HPP
+#define ADRASTEA_IN_MEMORY_HISTORY_MANAGER_HPP
 
 #include <array>
 #include <list>
 #include <string>
 #include <utility>
 
-#include "datasuite/json.hpp"
-#include "datasuite/datasuite.hpp"
-#include "datasuite/history_manager.hpp"
+#include "adrastea/json.hpp"
+#include "adrastea/adrastea.hpp"
+#include "adrastea/history_manager.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     class InMemoryHistoryManager : public HistoryManager
     {

@@ -1,12 +1,12 @@
-#ifndef DATASUITE_SUPERVISOR_KERNEL_PROCESS_HPP
-#define DATASUITE_SUPERVISOR_KERNEL_PROCESS_HPP
+#ifndef THEMISTO_KERNEL_PROCESS_HPP
+#define THEMISTO_KERNEL_PROCESS_HPP
 
 #include <atomic>
 #include <string>
 #include <thread>
 #include <vector>
 
-namespace datasuite::supervisor
+namespace themisto
 {
     struct KernelProcessOptions
     {
@@ -21,7 +21,7 @@ namespace datasuite::supervisor
         std::string key;
     };
 
-    // Spawns/owns one `datasuite-r` child process. Deliberately minimal --
+    // Spawns/owns one `elara` child process. Deliberately minimal --
     // the supervisor never talks to the kernel through this class after
     // spawning it; all runtime traffic (execute, interrupt, shutdown) goes
     // over the ZMQ ClientZmq connection established once the kernel

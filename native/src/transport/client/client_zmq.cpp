@@ -1,7 +1,7 @@
 #include "client_zmq.hpp"
 #include "client_zmq_impl.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     ClientZmq::ClientZmq(std::unique_ptr<ClientZmqImpl> impl)
         : p_clientImpl(std::move(impl))

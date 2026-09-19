@@ -3,11 +3,11 @@
 
 #include <string>
 
-#include "datasuite.hpp"
+#include "adrastea.hpp"
 
-namespace datasuite
+namespace adrastea
 {
-    DATASUITE_API
+    ADRASTEA_API
     std::string blockingInputRequest(
         const std::string& prompt,
         bool password

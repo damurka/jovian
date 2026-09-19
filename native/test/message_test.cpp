@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
-#include "datasuite/message.hpp"
-#include "datasuite/json.hpp"
+#include "adrastea/message.hpp"
+#include "adrastea/json.hpp"
 
-using namespace datasuite;
+using namespace adrastea;
 
 TEST(MessageTest, MessageBaseConstruction) {
     json header = {{"msg_id", "123"}, {"msg_type", "execute_request"}};

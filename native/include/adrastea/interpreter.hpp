@@ -1,31 +1,31 @@
-#ifndef DATASUITE_INTERPRETER_HPP
-#define DATASUITE_INTERPRETER_HPP
+#ifndef ADRASTEA_INTERPRETER_HPP
+#define ADRASTEA_INTERPRETER_HPP
 
 #include <functional>
 #include <string>
 #include <vector>
 
 #include "comm.hpp"
-#include "datasuite.hpp"
+#include "adrastea.hpp"
 #include "control_messenger.hpp"
 #include "history_manager.hpp"
 #include "request_context.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     class Interpreter;
 
-    DATASUITE_API bool registerInterpreter(Interpreter* interpreter);
-    DATASUITE_API Interpreter& getInterpreter();
+    ADRASTEA_API bool registerInterpreter(Interpreter* interpreter);
+    ADRASTEA_API Interpreter& getInterpreter();
 
-    struct DATASUITE_API ExecuteRequestConfig
+    struct ADRASTEA_API ExecuteRequestConfig
     {
         bool silent;
         bool store_history;
         bool allow_stdin;
     };
 
-    class DATASUITE_API Interpreter
+    class ADRASTEA_API Interpreter
     {
     public:
 
@@ -82,11 +82,11 @@ namespace datasuite
         void inputRequest(const std::string& prompt, bool pwd);
         void inputReply(const std::string& value);
 
-        void registerCommManager(datasuite::CommManager* manager);
+        void registerCommManager(adrastea::CommManager* manager);
 
         // --- FIXED NAMING COLLISIONS HERE ---
-        datasuite::CommManager& getCommManager() noexcept;
-        const datasuite::CommManager& getCommManager() const noexcept;
+        adrastea::CommManager& getCommManager() noexcept;
+        const adrastea::CommManager& getCommManager() const noexcept;
 
         const json& parentHeader() const noexcept;
 
@@ -133,7 +133,7 @@ namespace datasuite
         publisher_type m_publisher;
         stdin_sender_type m_stdin;
         int m_executionCount;
-        datasuite::CommManager* p_commManager;
+        adrastea::CommManager* p_commManager;
         input_reply_handler_type m_inputReplyHandler;
         ControlMessenger* p_messenger;
         const HistoryManager* p_history;
@@ -141,12 +141,12 @@ namespace datasuite
     };
 
     // --- FIXED INLINE DEFINITIONS HERE ---
-    inline datasuite::CommManager& Interpreter::getCommManager() noexcept
+    inline adrastea::CommManager& Interpreter::getCommManager() noexcept
     {
         return *p_commManager;
     }
 
-    inline const datasuite::CommManager& Interpreter::getCommManager() const noexcept
+    inline const adrastea::CommManager& Interpreter::getCommManager() const noexcept
     {
         return *p_commManager;
     }

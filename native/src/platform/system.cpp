@@ -14,9 +14,9 @@
 #  include <mach-o/dyld.h>
 #endif
 
-#include "datasuite/system.hpp"
+#include "adrastea/system.hpp"
 
-namespace datasuite 
+namespace adrastea 
 {
     std::string removeEndingSeparator(const char* path)
     {
@@ -103,9 +103,9 @@ namespace datasuite
 
     std::string getTmpPrefix(const std::string& process_name)
     {
-        std::string tmp_prefix = datasuite::getTempDirectoryPath()
+        std::string tmp_prefix = adrastea::getTempDirectoryPath()
             + '/' + process_name + '_'
-            + std::to_string(datasuite::getCurrentPid())
+            + std::to_string(adrastea::getCurrentPid())
             + '/';
         return tmp_prefix;
     }

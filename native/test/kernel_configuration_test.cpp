@@ -3,9 +3,9 @@
 // style connection file into either a KernelConfiguration or a
 // RegistrationConfiguration depending on whether "registration_ip" is
 // present. Nothing in this codebase calls it today (confirmed by grep when
-// this test was added -- native/src/datasuite-r.cpp and the supervisor
+// this test was added -- native/src/elara.cpp and the supervisor
 // build their configs in-memory instead), but the function is still part
-// of the public API surface (native/include/datasuite/kernel_configuration.hpp)
+// of the public API surface (native/include/adrastea/kernel_configuration.hpp)
 // and had zero coverage validating it actually parses what its own doc
 // comment says it should.
 #include <cstdio>
@@ -15,9 +15,9 @@
 
 #include <gtest/gtest.h>
 
-#include "datasuite/kernel_configuration.hpp"
+#include "adrastea/kernel_configuration.hpp"
 
-using namespace datasuite;
+using namespace adrastea;
 
 namespace
 {
@@ -27,7 +27,7 @@ namespace
         explicit TempConnectionFile(const std::string& contents)
         {
             m_path = std::filesystem::temp_directory_path()
-                / ("datasuite_test_connection_" + std::to_string(std::rand()) + ".json");
+                / ("adrastea_test_connection_" + std::to_string(std::rand()) + ".json");
             std::ofstream ofs(m_path);
             ofs << contents;
         }

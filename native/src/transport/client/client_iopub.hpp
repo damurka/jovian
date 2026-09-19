@@ -1,15 +1,15 @@
-#ifndef DATASUITE_IOPUB_CLIENT_HPP
-#define DATASUITE_IOPUB_CLIENT_HPP
+#ifndef ADRASTEA_IOPUB_CLIENT_HPP
+#define ADRASTEA_IOPUB_CLIENT_HPP
 
 #include <queue>
 #include <mutex>
 
 #include "zmq.hpp"
 
-#include "datasuite/message.hpp"
-#include "datasuite/kernel_configuration.hpp"
+#include "adrastea/message.hpp"
+#include "adrastea/kernel_configuration.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     class ClientZmqImpl;
 

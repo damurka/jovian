@@ -4,7 +4,7 @@
     {
       "type": "node",
       "request": "launch",
-      "name": "Run Datasuite (Node.js)",
+      "name": "Run Jovian (Node.js)",
       "skipFiles": [
         "<node_internals>/**"
       ],

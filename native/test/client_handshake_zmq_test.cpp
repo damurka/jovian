@@ -6,16 +6,16 @@
 // of the public API surface, so worth covering directly. The registration
 // handshake's happy path itself (waitForConfiguration() receiving a real
 // kernel's registration) is already covered end-to-end by
-// SessionRegistryTest's real datasuite-r.exe kernel.
+// SessionRegistryTest's real elara.exe kernel.
 #include <stdexcept>
 
 #include <gtest/gtest.h>
 
-#include "datasuite/context.hpp"
-#include "datasuite/kernel_configuration.hpp"
+#include "adrastea/context.hpp"
+#include "adrastea/kernel_configuration.hpp"
 #include "transport/client/client_handshake_zmq.hpp"
 
-using namespace datasuite;
+using namespace adrastea;
 
 TEST(ClientHandshakeZmqTest, GetRegistrationPortReturnsTheAutoAssignedPort)
 {

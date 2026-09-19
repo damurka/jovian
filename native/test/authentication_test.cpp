@@ -9,7 +9,7 @@
 
 #include "transport/common/authentication.hpp"
 
-using namespace datasuite;
+using namespace adrastea;
 
 namespace
 {

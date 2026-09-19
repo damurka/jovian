@@ -3,7 +3,7 @@
 #include "../common/middleware_impl.hpp"
 #include "publisher.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     Publisher::Publisher(zmq::context_t& context,
         std::function<zmq::multipart_t(PubMessage&&)> serialize_iopub_msg_cb,
@@ -30,7 +30,7 @@ namespace datasuite
 
     PubMessage Publisher::createPubMessage(const std::string& topic)
     {
-        json header = datasuite::makeHeader("iopub_welcome", "", "");
+        json header = adrastea::makeHeader("iopub_welcome", "", "");
         json content = json::object();
         content["subscription"] = topic;
 

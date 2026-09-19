@@ -1,8 +1,8 @@
-#include "datasuite/server_zmq.hpp"
+#include "adrastea/server_zmq.hpp"
 #include "handshaking.hpp"
 #include "server_zmq_impl.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     ServerZmq::ServerZmq(Context& context,
         const configuration& config,
@@ -10,7 +10,7 @@ namespace datasuite
         : p_impl(new ServerZmqImpl(
             context.getWrappedContext<zmq::context_t>(),
             config,
-            datasuite::getKernelConfiguration(config),
+            adrastea::getKernelConfiguration(config),
             eh,
             std::bind(&ServerZmq::notifyInternalListener, this, std::placeholders::_1)))
     {

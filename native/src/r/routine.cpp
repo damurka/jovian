@@ -9,18 +9,21 @@
 #include "R_ext/Rdynload.h"
 
 #include "r/rtools.hpp"
-#include "datasuite/interpreter_r.hpp"
-#include "datasuite/json.hpp"
-#include "datasuite/message.hpp"
-#include "datasuite/comm.hpp"
-#include "datasuite/logger.hpp"
+#include "elara/interpreter_r.hpp"
+#include "adrastea/json.hpp"
+#include "adrastea/message.hpp"
+#include "adrastea/comm.hpp"
+#include "adrastea/logger.hpp"
 
 #ifdef _MSC_VER
 #undef _Complex
 #endif
 
-namespace datasuite
+namespace elara
 {
+    // Elara builds on the Adrastea framework; name its symbols unqualified here.
+    using namespace adrastea;
+
     namespace routines
     {
         SEXP toRJson(const json &js)
@@ -92,7 +95,7 @@ namespace datasuite
             return out;
         }
 
-        SEXP datasuiteLog(SEXP level_, SEXP msg_)
+        SEXP elaraLog(SEXP level_, SEXP msg_)
         {
             std::string level = CHAR(STRING_ELT(level_, 0));
             std::string msg = CHAR(STRING_ELT(msg_, 0));
@@ -108,11 +111,11 @@ namespace datasuite
             auto callback = [name](Comm &&comm, Message request)
             {
                 // comm
-                auto ptr_comm = new datasuite::Comm(std::move(comm));
+                auto ptr_comm = new adrastea::Comm(std::move(comm));
                 SEXP xp_comm = PROTECT(R_MakeExternalPtr(
                     reinterpret_cast<void *>(ptr_comm), R_NilValue, R_NilValue));
                 R_RegisterCFinalizerEx(xp_comm, [](SEXP xp)
-                                       { delete reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp)); }, FALSE);
+                                       { delete reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp)); }, FALSE);
                 SEXP r6_comm = PROTECT(r::newHeraR6("Comm", xp_comm));
 
                 // request
@@ -150,11 +153,11 @@ namespace datasuite
             }
 
             auto id = newGuid();
-            auto comm = new datasuite::Comm(target, id);
+            auto comm = new adrastea::Comm(target, id);
             SEXP xp_comm = PROTECT(R_MakeExternalPtr(
                 reinterpret_cast<void *>(comm), R_NilValue, R_NilValue));
             R_RegisterCFinalizerEx(xp_comm, [](SEXP xp)
-                                   { delete reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp)); }, FALSE);
+                                   { delete reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp)); }, FALSE);
             SEXP r6_comm = PROTECT(r::newHeraR6("Comm", xp_comm, s_description));
 
             UNPROTECT(2);
@@ -215,13 +218,13 @@ namespace datasuite
 
         SEXP Comm__id(SEXP xp_comm)
         {
-            auto comm = reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm));
+            auto comm = reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp_comm));
             return Rf_mkString(comm->id().toString().c_str());
         }
 
         SEXP Comm__targetName(SEXP xp_comm)
         {
-            auto comm = reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm));
+            auto comm = reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp_comm));
             return Rf_mkString(comm->target().name().c_str());
         }
 
@@ -251,7 +254,7 @@ namespace datasuite
             auto metadata = json::parse(CHAR(STRING_ELT(js_metadata, 0)));
             auto data = json::parse(CHAR(STRING_ELT(js_data, 0)));
 
-            auto *comm = reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm));
+            auto *comm = reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp_comm));
             comm->open(metadata, data, toBufferSequence(r_buffers));
 
             return R_NilValue;
@@ -262,7 +265,7 @@ namespace datasuite
             auto metadata = json::parse(CHAR(STRING_ELT(js_metadata, 0)));
             auto data = json::parse(CHAR(STRING_ELT(js_data, 0)));
 
-            auto *comm = reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm));
+            auto *comm = reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp_comm));
             comm->close(metadata, data, toBufferSequence(r_buffers));
 
             return R_NilValue;
@@ -273,7 +276,7 @@ namespace datasuite
             auto metadata = json::parse(CHAR(STRING_ELT(js_metadata, 0)));
             auto data = json::parse(CHAR(STRING_ELT(js_data, 0)));
 
-            auto *comm = reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm));
+            auto *comm = reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp_comm));
             comm->send(metadata, data, toBufferSequence(r_buffers));
 
             return R_NilValue;
@@ -286,11 +289,11 @@ namespace datasuite
 
             inline void operator()(Message message)
             {
-                auto ptr_message = new datasuite::Message(std::move(message));
+                auto ptr_message = new adrastea::Message(std::move(message));
                 SEXP xptr_message = PROTECT(R_MakeExternalPtr(
                     reinterpret_cast<void *>(ptr_message), R_NilValue, R_NilValue));
                 R_RegisterCFinalizerEx(xptr_message, [](SEXP xp)
-                                       { delete reinterpret_cast<datasuite::Message *>(R_ExternalPtrAddr(xp)); }, FALSE);
+                                       { delete reinterpret_cast<adrastea::Message *>(R_ExternalPtrAddr(xp)); }, FALSE);
 
                 SEXP call = PROTECT(r::rCall(
                     m_handler,
@@ -307,13 +310,13 @@ namespace datasuite
 
         SEXP Comm__onClose(SEXP xp_comm, SEXP handler)
         {
-            reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm))->onClose(CommMessageHandler(handler));
+            reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp_comm))->onClose(CommMessageHandler(handler));
             return R_NilValue;
         }
 
         SEXP Comm__onMessage(SEXP xp_comm, SEXP handler)
         {
-            reinterpret_cast<datasuite::Comm *>(R_ExternalPtrAddr(xp_comm))->onMessage(CommMessageHandler(handler));
+            reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp_comm))->onMessage(CommMessageHandler(handler));
             return R_NilValue;
         }
 
@@ -368,13 +371,13 @@ namespace datasuite
         DllInfo *info = R_getEmbeddingDllInfo();
 
         static const R_CallMethodDef callMethods[] = {
-            {"datasuite_kernel_info_request", (DL_FUNC)&routines::kernelInfoRequest, 0},
-            {"datasuite_publish_stream", (DL_FUNC)&routines::publishStream, 2},
-            {"datasuite_display_data", (DL_FUNC)&routines::displayData, 2},
-            {"datasuite_update_display_data", (DL_FUNC)&routines::updateDisplayData, 2},
-            {"datasuite_clear_output", (DL_FUNC)&routines::clearOutput, 1},
-            {"datasuite_is_complete_request", (DL_FUNC)&routines::isCompleteRequest, 1},
-            {"datasuite_log", (DL_FUNC)&routines::datasuiteLog, 2},
+            {"elara_kernel_info_request", (DL_FUNC)&routines::kernelInfoRequest, 0},
+            {"elara_publish_stream", (DL_FUNC)&routines::publishStream, 2},
+            {"elara_display_data", (DL_FUNC)&routines::displayData, 2},
+            {"elara_update_display_data", (DL_FUNC)&routines::updateDisplayData, 2},
+            {"elara_clear_output", (DL_FUNC)&routines::clearOutput, 1},
+            {"elara_is_complete_request", (DL_FUNC)&routines::isCompleteRequest, 1},
+            {"elara_log", (DL_FUNC)&routines::elaraLog, 2},
 
             // CommManager
             {"CommManager__register_target", (DL_FUNC)&routines::CommManager__registerTarget, 1},

@@ -5,7 +5,7 @@
 #include "../common/middleware_impl.hpp"
 #include "../common/zmq_serializer.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     ServerZmqImpl::ServerZmqImpl(zmq::context_t& context,
         const configuration& initial_config,
@@ -43,7 +43,7 @@ namespace datasuite
         if (std::holds_alternative<RegistrationConfiguration>(initial_config))
         {
             updateConfig(kernel_config);
-            datasuite::sendConnectionInfo
+            adrastea::sendConnectionInfo
             (
                 context,
                 std::get<RegistrationConfiguration>(initial_config),

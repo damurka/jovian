@@ -1,17 +1,17 @@
-#ifndef DATASUITE_CONTEXT_HPP
-#define DATASUITE_CONTEXT_HPP
+#ifndef ADRASTEA_CONTEXT_HPP
+#define ADRASTEA_CONTEXT_HPP
 
 #include <memory>
 
-#include "datasuite.hpp"
+#include "adrastea.hpp"
 
-namespace datasuite
+namespace adrastea
 {
 
     template <class T>
     class ContextImpl;
 
-    class DATASUITE_API Context
+    class ADRASTEA_API Context
     {
     public:
 
@@ -55,7 +55,7 @@ namespace datasuite
         return impl->m_context;
     };
 
-    DATASUITE_API
+    ADRASTEA_API
     std::unique_ptr<Context> makeZmqContext();
 
 }

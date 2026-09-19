@@ -1,8 +1,8 @@
 #include <iostream>
 
-#include "datasuite/server.hpp"
+#include "adrastea/server.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     ControlMessenger& Server::getControlMessenger()
     {

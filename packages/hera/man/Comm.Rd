@@ -40,7 +40,7 @@ Comm class
   \subsection{Arguments}{
     \if{html}{\out{<div class="arguments">}}
     \describe{
-      \item{\code{xp}}{external pointer to an instance of the C++ class 'datasuite::comm'}
+      \item{\code{xp}}{external pointer to an instance of the C++ class 'adrastea::Comm'}
       \item{\code{description}}{description of this comm}
     }
     \if{html}{\out{</div>}}

@@ -1,5 +1,5 @@
-#ifndef DATASUITE_SUPERVISOR_WS_RELAY_HPP
-#define DATASUITE_SUPERVISOR_WS_RELAY_HPP
+#ifndef THEMISTO_WS_RELAY_HPP
+#define THEMISTO_WS_RELAY_HPP
 
 #include <memory>
 
@@ -7,8 +7,11 @@
 
 #include "session_registry.hpp"
 
-namespace datasuite::supervisor
+namespace themisto
 {
+    // Themisto builds on the Adrastea framework; name its symbols unqualified here.
+    using namespace adrastea;
+
     // One WebSocket connection per session, at /sessions/<id>/messages.
     // Outbound: iopub/shell traffic relayed from Session::onMessage
     // (populated by SessionRegistry's poll thread) plus a kernelExit event

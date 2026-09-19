@@ -1,8 +1,8 @@
-#include "datasuite/middleware.hpp"
+#include "adrastea/middleware.hpp"
 
 #include "dealer_channel.hpp"
 
-namespace datasuite
+namespace adrastea
 {
 
     DealerChannel::DealerChannel(zmq::context_t& context,

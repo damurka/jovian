@@ -1,12 +1,12 @@
 #define R_NO_REMAP
 
-#ifndef DATASUITE_R_RTOOLS_HPP
-#define DATASUITE_R_RTOOLS_HPP
+#ifndef ELARA_R_RTOOLS_HPP
+#define ELARA_R_RTOOLS_HPP
 
 #include "R.h"
 #include "Rinternals.h"
 
-namespace datasuite
+namespace elara
 {
     namespace r
     {

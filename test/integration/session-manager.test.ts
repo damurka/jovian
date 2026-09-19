@@ -16,13 +16,13 @@ after(() => {
 });
 
 function supervisorExeExists(): boolean {
-    const exeName = process.platform === 'win32' ? 'datasuite-supervisor.exe' : 'datasuite-supervisor';
+    const exeName = process.platform === 'win32' ? 'themisto.exe' : 'themisto';
     return existsSync(join(__dirname, '../../dist/native/Release', exeName));
 }
 
 test('SessionManager Integration (supervisor + standalone kernel exe)', async (t) => {
     if (!supervisorExeExists()) {
-        console.log('Skipping integration test: datasuite-supervisor executable not built');
+        console.log('Skipping integration test: themisto executable not built');
         return;
     }
 

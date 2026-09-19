@@ -1,8 +1,8 @@
-#include "datasuite/logger.hpp"
+#include "adrastea/logger.hpp"
 
-#include "datasuite/json.hpp"
+#include "adrastea/json.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     void Logger::logReceivedMessage(const Message& message, channel c) const
     {

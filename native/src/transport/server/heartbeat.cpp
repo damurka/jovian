@@ -5,7 +5,7 @@
 #include "../common/middleware_impl.hpp"
 #include "heartbeat.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     Heartbeat::Heartbeat(zmq::context_t& context,
         const std::string& transport,

@@ -3,10 +3,10 @@
 #include <string>
 #include <regex>
 
-#include "datasuite/json.hpp"
+#include "adrastea/json.hpp"
 #include "in_memory_history_manager.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     InMemoryHistoryManager::InMemoryHistoryManager()
     {

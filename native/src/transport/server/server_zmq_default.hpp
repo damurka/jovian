@@ -1,9 +1,9 @@
 #ifndef SERVER_ZMQ_DEFAULT_HPP
 #define SERVER_ZMQ_DEFAULT_HPP
 
-#include "datasuite/server_zmq.hpp"
+#include "adrastea/server_zmq.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     class ServerZmqDefault final : public ServerZmq
     {

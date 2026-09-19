@@ -1,32 +1,32 @@
-#ifndef DATASUITE_SYSTEM_HPP
-#define DATASUITE_SYSTEM_HPP
+#ifndef ADRASTEA_SYSTEM_HPP
+#define ADRASTEA_SYSTEM_HPP
 
 #include <string>
 
-#include "datasuite.hpp"
+#include "adrastea.hpp"
 
-namespace datasuite 
+namespace adrastea 
 {
-	DATASUITE_API
+	ADRASTEA_API
 	std::string getTempDirectoryPath();
 
-    DATASUITE_API
+    ADRASTEA_API
     bool createDirectory(const std::string& path);
 
-    DATASUITE_API
+    ADRASTEA_API
     int getCurrentPid();
 
-    DATASUITE_API
+    ADRASTEA_API
     std::size_t getTmpHashSeed();
 
-    DATASUITE_API
+    ADRASTEA_API
     std::string getTmpPrefix(const std::string& process_name);
 
-    DATASUITE_API
+    ADRASTEA_API
     std::string executablePath();
 
-    DATASUITE_API
+    ADRASTEA_API
     std::string prefixPath();
 }
 
-#endif // !DATASUITE_SYSTEM_HPP
+#endif // !ADRASTEA_SYSTEM_HPP

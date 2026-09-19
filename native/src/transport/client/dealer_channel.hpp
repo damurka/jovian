@@ -1,10 +1,10 @@
-#ifndef DATASUITE_DEALER_CHANNEL_HPP
-#define DATASUITE_DEALER_CHANNEL_HPP
+#ifndef ADRASTEA_DEALER_CHANNEL_HPP
+#define ADRASTEA_DEALER_CHANNEL_HPP
 
 #include "zmq.hpp"
 #include "zmq_addon.hpp"
 
-namespace datasuite
+namespace adrastea
 {
 
     class DealerChannel

@@ -1,21 +1,21 @@
-#ifndef DATASUITE_CLIENT_ZMQ_IMPL_HPP
-#define DATASUITE_CLIENT_ZMQ_IMPL_HPP
+#ifndef ADRASTEA_CLIENT_ZMQ_IMPL_HPP
+#define ADRASTEA_CLIENT_ZMQ_IMPL_HPP
 
 #include "zmq.hpp"
 
-#include "datasuite/json.hpp"
-#include "datasuite/context.hpp"
-#include "datasuite/kernel_configuration.hpp"
-#include "datasuite/message.hpp"
+#include "adrastea/json.hpp"
+#include "adrastea/context.hpp"
+#include "adrastea/kernel_configuration.hpp"
+#include "adrastea/message.hpp"
 
-#include "datasuite/thread.hpp"
+#include "adrastea/thread.hpp"
 
 #include "dealer_channel.hpp"
 #include "client_iopub.hpp"
 #include "client_heartbeat.hpp"
 #include "client_messenger.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     class Authentication;
 

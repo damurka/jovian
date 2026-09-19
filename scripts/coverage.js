@@ -108,7 +108,7 @@ function printReport(files) {
 }
 
 export async function runCoverage(rootDir) {
-    const coveragePath = join(tmpdir(), `datasuite-cpp-coverage-${process.pid}.xml`);
+    const coveragePath = join(tmpdir(), `jovian-cpp-coverage-${process.pid}.xml`);
     const exe = findOpenCppCoverage();
 
     const args = [

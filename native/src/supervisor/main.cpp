@@ -1,6 +1,6 @@
-// datasuite-supervisor: the Kallichore/kcserver-equivalent for datasuite-r.
+// themisto: the Kallichore/kcserver-equivalent for elara.
 //
-// Spawns and supervises `datasuite-r` kernel processes, speaking ZMQ to
+// Spawns and supervises `elara` kernel processes, speaking ZMQ to
 // each (reusing the existing client transport code, see session_registry.*)
 // and re-exposing sessions over REST (http_api.*) + WebSocket (ws_relay.*)
 // so that a Node/Electron consumer (lib/session/supervisor-client.ts) never
@@ -18,7 +18,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "datasuite/json.hpp"
+#include "adrastea/json.hpp"
 
 #include "http_api.hpp"
 #include "session_registry.hpp"
@@ -44,9 +44,9 @@ namespace
     {
         std::filesystem::path selfDir = std::filesystem::absolute(argv0).parent_path();
 #ifdef _WIN32
-        return (selfDir / "datasuite-r.exe").string();
+        return (selfDir / "elara.exe").string();
 #else
-        return (selfDir / "datasuite-r").string();
+        return (selfDir / "elara").string();
 #endif
     }
 }
@@ -60,21 +60,21 @@ int main(int argc, char* argv[])
 
     if (!std::filesystem::exists(kernelExePath))
     {
-        std::cerr << "[datasuite-supervisor] FATAL: kernel executable not found at " << kernelExePath
+        std::cerr << "[themisto] FATAL: kernel executable not found at " << kernelExePath
                   << " (pass --kernel-exe to override)" << std::endl;
         return 1;
     }
 
-    datasuite::supervisor::SessionRegistry registry(kernelExePath, registrationIp);
+    themisto::SessionRegistry registry(kernelExePath, registrationIp);
     registry.startRegistrationListener();
 
-    datasuite::supervisor::HttpApi httpApi(registry);
+    themisto::HttpApi httpApi(registry);
     int httpPort = httpApi.start();
 
-    datasuite::supervisor::WsRelay wsRelay(registry);
+    themisto::WsRelay wsRelay(registry);
     int wsPort = wsRelay.start();
 
-    datasuite::json ready = {
+    adrastea::json ready = {
         { "type", "supervisorReady" },
         { "httpPort", httpPort },
         { "wsPort", wsPort }

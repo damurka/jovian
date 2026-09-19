@@ -1,5 +1,5 @@
-#ifndef DATASUITE_PUBLISHER_HPP
-#define DATASUITE_PUBLISHER_HPP
+#ifndef ADRASTEA_PUBLISHER_HPP
+#define ADRASTEA_PUBLISHER_HPP
 
 #include <functional>
 #include <string>
@@ -7,9 +7,9 @@
 #include "zmq.hpp"
 #include "zmq_addon.hpp"
 
-#include "datasuite/message.hpp"
+#include "adrastea/message.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     class Publisher
     {

@@ -1,14 +1,14 @@
-#ifndef DATASUITE_SERVER_HPP
-#define DATASUITE_SERVER_HPP
+#ifndef ADRASTEA_SERVER_HPP
+#define ADRASTEA_SERVER_HPP
 
 #include <functional>
 
 #include "control_messenger.hpp"
-#include "datasuite.hpp"
+#include "adrastea.hpp"
 #include "kernel_configuration.hpp"
 #include "message.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     enum class channel
     {
@@ -16,7 +16,7 @@ namespace datasuite
         CONTROL
     };
 
-    class DATASUITE_API Server
+    class ADRASTEA_API Server
     {
     public:
         using listener = std::function<void(Message)>;
@@ -78,4 +78,4 @@ namespace datasuite
 }
 
 
-#endif // DATASUITE_SERVER_HPP
+#endif // ADRASTEA_SERVER_HPP

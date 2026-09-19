@@ -1,6 +1,6 @@
 #include "server_zmq_default.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     ServerZmqDefault::ServerZmqDefault(Context& context,
         const configuration& config,

@@ -17,11 +17,11 @@
 
 #include <gtest/gtest.h>
 
-#include "datasuite/kernel_configuration.hpp"
-#include "datasuite/middleware.hpp"
+#include "adrastea/kernel_configuration.hpp"
+#include "adrastea/middleware.hpp"
 #include "transport/client/client_heartbeat.hpp"
 
-using namespace datasuite;
+using namespace adrastea;
 
 namespace
 {

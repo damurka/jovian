@@ -2,11 +2,11 @@
 #include <mutex>
 #include <string>
 
-#include "datasuite/json.hpp"
+#include "adrastea/json.hpp"
 
-#include "datasuite/logger.hpp"
+#include "adrastea/logger.hpp"
 
-namespace datasuite
+namespace adrastea
 {
 
     /*****************

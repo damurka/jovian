@@ -1,7 +1,7 @@
-#include "datasuite/json.hpp"
-#include "datasuite/control_messenger.hpp"
+#include "adrastea/json.hpp"
+#include "adrastea/control_messenger.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     ControlMessenger::~ControlMessenger()
     {

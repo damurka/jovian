@@ -86,7 +86,7 @@ CommManager <- NULL
 Comm <- R6::R6Class("Comm",
   public = list(
 
-    #' @param xp external pointer to an instance of the C++ class 'datasuite::comm'
+    #' @param xp external pointer to an instance of the C++ class 'adrastea::Comm'
     #' @param description description of this comm
     initialize = function(xp, description = "") {
         private$xp <- xp

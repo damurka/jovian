@@ -1,5 +1,5 @@
-#ifndef DATASUITE_SERVER_ZMQ_HPP
-#define DATASUITE_SERVER_ZMQ_HPP
+#ifndef ADRASTEA_SERVER_ZMQ_HPP
+#define ADRASTEA_SERVER_ZMQ_HPP
 
 #include <optional>
 
@@ -7,13 +7,13 @@
 #include "kernel_configuration.hpp"
 #include "server.hpp"
 
-#include "datasuite.hpp"
+#include "adrastea.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     class ServerZmqImpl;
 
-    class DATASUITE_API ServerZmq : public Server
+    class ADRASTEA_API ServerZmq : public Server
     {
     public:
 
@@ -57,7 +57,7 @@ namespace datasuite
         std::unique_ptr<ServerZmqImpl> p_impl;
     };
 
-    DATASUITE_API
+    ADRASTEA_API
     std::unique_ptr<Server> makeServerDefault(Context& context,
             const configuration& config,
             json::error_handler_t eh = json::error_handler_t::strict);

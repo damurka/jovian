@@ -1,16 +1,16 @@
-#ifndef DATASUITE_REQUEST_CONTEXT_HPP
-#define DATASUITE_REQUEST_CONTEXT_HPP
+#ifndef ADRASTEA_REQUEST_CONTEXT_HPP
+#define ADRASTEA_REQUEST_CONTEXT_HPP
 
 #include <string>
 #include <vector>
 
-#include "datasuite.hpp"
+#include "adrastea.hpp"
 #include "json.hpp" 
 #include "message.hpp" // for message::guid_list
 
-namespace datasuite
+namespace adrastea
 {
-    class DATASUITE_API RequestContext
+    class ADRASTEA_API RequestContext
     {
     public:
 

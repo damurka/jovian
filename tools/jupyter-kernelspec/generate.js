@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-// Writes a Jupyter kernelspec (kernel.json) for datasuite-r.exe's
-// -f/--connection-file launch mode (native/src/datasuite-r.cpp) -- the
+// Writes a Jupyter kernelspec (kernel.json) for elara.exe's
+// -f/--connection-file launch mode (native/src/elara.cpp) -- the
 // standard "a frontend picks ports, writes a connection file, launches
 // this argv with {connection_file} substituted in" protocol, as opposed
-// to the datasuite-supervisor-specific --registration-port/--key mode
+// to the themisto-specific --registration-port/--key mode
 // used by lib/session/supervisor-client.ts.
 //
 // R_HOME/R_PATH are baked into argv at generation time (same
 // process.env.R_HOME fallback pattern as tools/playground/server.js and
 // test/integration/session-manager.test.ts) rather than looked up at
 // kernel-launch time, since kernel.json's argv is static -- re-run this
-// after moving R installs or rebuilding datasuite-r.exe somewhere new.
+// after moving R installs or rebuilding elara.exe somewhere new.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -29,16 +29,16 @@ function defaultREnv() {
 }
 
 function resolveKernelExecutable() {
-    const exeName = process.platform === 'win32' ? 'datasuite-r.exe' : 'datasuite-r';
+    const exeName = process.platform === 'win32' ? 'elara.exe' : 'elara';
     const candidate = path.join(REPO_ROOT, 'dist', 'native', 'Release', exeName);
     if (!existsSync(candidate)) {
-        throw new Error(`datasuite-r executable not found at ${candidate} -- build it first (npm run build:native).`);
+        throw new Error(`elara executable not found at ${candidate} -- build it first (npm run build:native).`);
     }
     return candidate;
 }
 
 async function main() {
-    const outDir = process.argv[2] || path.join(REPO_ROOT, 'kernelspec', 'datasuite-r');
+    const outDir = process.argv[2] || path.join(REPO_ROOT, 'kernelspec', 'elara');
     const { rHome, rPath, rLibs } = defaultREnv();
     const exePath = resolveKernelExecutable();
 
@@ -49,7 +49,7 @@ async function main() {
 
     const kernelSpec = {
         argv,
-        display_name: 'R (datasuite-r)',
+        display_name: 'R (Elara)',
         language: 'R',
         interrupt_mode: 'message'
     };
@@ -60,7 +60,7 @@ async function main() {
 
     console.log(`Wrote ${kernelJsonPath}`);
     console.log(JSON.stringify(kernelSpec, null, 2));
-    console.log(`\nInstall it for the current user with:\n  jupyter kernelspec install "${outDir}" --user --name datasuite-r`);
+    console.log(`\nInstall it for the current user with:\n  jupyter kernelspec install "${outDir}" --user --name elara`);
 }
 
 main().catch((err) => {

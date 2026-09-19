@@ -2,11 +2,11 @@
 #include <string>
 #include <random>
 
-#include "datasuite/json.hpp"
-#include "datasuite/kernel.hpp"
-#include "datasuite/guid.hpp"
-#include "datasuite/history_manager.hpp"
-#include "datasuite/control_messenger.hpp"
+#include "adrastea/json.hpp"
+#include "adrastea/kernel.hpp"
+#include "adrastea/guid.hpp"
+#include "adrastea/history_manager.hpp"
+#include "adrastea/control_messenger.hpp"
 #include "kernel_core.hpp"
 #include "utils/logger_impl.hpp"
 
@@ -28,7 +28,7 @@
 #include <Lmcons.h>
 #endif
 
-namespace datasuite
+namespace adrastea
 {
     std::string getUserName() {
 #if (defined(LINUX_PLATFORM) || defined(APPLE_PLATFORM))
@@ -91,7 +91,7 @@ namespace datasuite
                 m_config.m_key = arg.m_key;
             }, config);
 
-        if (p_logger == nullptr || std::getenv("DATASUITE_LOG") == nullptr)
+        if (p_logger == nullptr || std::getenv("ADRASTEA_LOG") == nullptr)
         {
             p_logger = std::make_unique<LoggerNolog>();
         }

@@ -1,19 +1,19 @@
-#ifndef DATASUITE_CLIENT_ZMQ_HPP
-#define DATASUITE_CLIENT_ZMQ_HPP
+#ifndef ADRASTEA_CLIENT_ZMQ_HPP
+#define ADRASTEA_CLIENT_ZMQ_HPP
 
 #include <optional>
 
-#include "datasuite/datasuite.hpp"
-#include "datasuite/json.hpp"
-#include "datasuite/context.hpp"
-#include "datasuite/kernel_configuration.hpp"
-#include "datasuite/message.hpp"
+#include "adrastea/adrastea.hpp"
+#include "adrastea/json.hpp"
+#include "adrastea/context.hpp"
+#include "adrastea/kernel_configuration.hpp"
+#include "adrastea/message.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     class ClientZmqImpl;
 
-    class DATASUITE_API ClientZmq
+    class ADRASTEA_API ClientZmq
     {
     public:
 
@@ -51,7 +51,7 @@ namespace datasuite
         std::unique_ptr<ClientZmqImpl> p_clientImpl;
     };
 
-    DATASUITE_API
+    ADRASTEA_API
     std::unique_ptr<ClientZmq> makeClientZmq(Context& context,
             const KernelConfiguration& config,
             json::error_handler_t eh = json::error_handler_t::strict);

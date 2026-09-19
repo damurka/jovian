@@ -1,8 +1,22 @@
-# Datasuite-R Architecture Overview
+# Jovian Architecture Overview
 
 ## Introduction
 
-Datasuite-R is a unified C++ and TypeScript project that implements a Jupyter kernel for R, designed to be embedded in Node.js applications and Electron environments.
+Jovian is a unified C++ and TypeScript project that runs language kernels (R today, Python planned) as supervised Jupyter kernels, designed to be embedded in Node.js applications and Electron environments.
+
+## Components and names
+
+The parts are named after moons of Jupiter, mirroring how Positron splits Amalthea / Ark / Kallichore:
+
+| Name | Role | Where |
+|---|---|---|
+| **Jovian** | The umbrella product and npm package (`jovian`): TypeScript client (`lib/`) plus the native binaries | repo root |
+| **Adrastea** | Language-neutral Jupyter kernel framework: protocol, ZMQ transport, kernel core, interpreter interface (`adrastea::`, `include/adrastea/`) | `native/` |
+| **Elara** | The R kernel: embeds R on top of Adrastea (`elara::`, `include/elara/`, the `elara` executable) | `native/src/r`, `native/src/bridge`, `native/src/elara.cpp` |
+| **Themisto** | The kernel supervisor: spawns and monitors kernels, re-exposes sessions over HTTP + WebSocket (`themisto::`, the `themisto` executable) | `native/src/supervisor` |
+| **hera** | The R companion package loaded inside an Elara session | `packages/hera` |
+
+> The architecture sections below predate the move to a supervisor process. The N-API bridge (`addon.cpp`, `EngineWrapper`) and the in-process engine facade they describe no longer exist: `lib/session/` now talks to Themisto over HTTP/WebSocket, and Themisto spawns one Elara process per session.
 
 ## High-Level Architecture
 
@@ -34,7 +48,7 @@ Datasuite-R is a unified C++ and TypeScript project that implements a Jupyter ke
 ### `native/` - C++ Native Code
 ```
 native/
-├── include/datasuite/    # Public API headers
+├── include/adrastea/    # Public API headers
 ├── src/
 │   ├── core/             # Kernel functionality
 │   │   ├── kernel/       # Kernel lifecycle
@@ -126,7 +140,7 @@ packages/
 
 **Key Components:**
 - `addon.cpp` - N-API entry point
-- `EngineWrapper` - Wrap `DatasuiteEngine` for JS
+- `EngineWrapper` - Wrap `Engine` for JS
 - `CallbackManager` - Manage JS callbacks
 
 ### 5. TypeScript Engine
@@ -138,7 +152,7 @@ packages/
 - Implement middleware/plugin system
 
 **Key Classes:**
-- `DatasuiteEngine` - Main user-facing class
+- `Engine` - Main user-facing class
 - `MessageRouter` - Route messages to handlers
 - `ExecutionQueue` - Queue TypeScript-side executions
 - `MiddlewareChain` - Plugin architecture
@@ -149,7 +163,7 @@ packages/
 ```
 1. TypeScript: engine.execute(code)
 2. → Native: addon.execute(code)
-3. → C++ Engine: DatasuiteEngine::execute()
+3. → C++ Engine: Engine::execute()
 4. → Kernel Core: kernel_core::execute_request()
 5. → R Interpreter: r_interpreter::execute_request_impl()
 6. → R Package: hera::execute()
@@ -233,21 +247,21 @@ dist/
 │   └── index.d.ts
 └── native/
     └── Release/
-        └── datasuite_addon.node
+        ├── elara.exe        # R kernel (one process per session)
+        └── themisto.exe     # supervisor (spawns and monitors kernels)
 ```
+
+The `hera` R package ships alongside, under `packages/hera/`.
 
 ### Usage
 ```typescript
-import { DatasuiteEngine } from 'datasuite-r';
+import { SessionManager } from 'jovian';
 
-const engine = new DatasuiteEngine({
-  rHome: '/path/to/R',
-  enableLogging: true
-});
+const manager = new SessionManager();
+const session = await manager.createSession({ rHome: '/path/to/R' });
 
-await engine.start();
-await engine.execute('x <- 1:10; mean(x)');
-await engine.stop();
+await session.execute('x <- 1:10; mean(x)');
+await manager.stopAll();
 ```
 
 ## Performance Considerations

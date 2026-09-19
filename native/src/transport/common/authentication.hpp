@@ -1,10 +1,10 @@
-#ifndef DATASUITE_AUTHENTICATION_HPP
-#define DATASUITE_AUTHENTICATION_HPP
+#ifndef ADRASTEA_AUTHENTICATION_HPP
+#define ADRASTEA_AUTHENTICATION_HPP
 
 #include <memory>
 #include <string>
 
-namespace datasuite
+namespace adrastea
 {
     class RawBuffer
     {

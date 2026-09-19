@@ -6,9 +6,9 @@
 
 #include <gtest/gtest.h>
 
-#include "datasuite/middleware.hpp"
+#include "adrastea/middleware.hpp"
 
-using namespace datasuite;
+using namespace adrastea;
 
 TEST(MiddlewareTest, GetEndPointFormatsTcpAsHostColonPort)
 {
@@ -58,7 +58,7 @@ TEST(MiddlewareTest, FindFreePortReturnsDistinctPortsAcrossCalls)
     // the same port (e.g. a broken RNG seed), every session/kernel spawned
     // in the same process would collide -- exactly the bug findFreePort()
     // exists to prevent (see its call sites' comments in
-    // datasuite-r.cpp/datasuite_engine.cpp).
+    // elara.cpp/engine.cpp).
     std::set<std::string> ports;
     for (int i = 0; i < 5; ++i)
     {

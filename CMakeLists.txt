@@ -2,7 +2,7 @@
 # and include sub-projects here.
 #
 cmake_minimum_required (VERSION 3.24)
-project ("datasuite-r" VERSION 1.0.0 LANGUAGES CXX)
+project ("jovian" VERSION 1.0.0 LANGUAGES CXX)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 23)
@@ -15,50 +15,50 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/dist/native/$<CONFIG>)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/dist/native/$<CONFIG>)
 
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake;${CMAKE_MODULE_PATH}")
-set(DATASUITE_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/native/include)
-set(DATASUITE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/native/src)
-set(DATASUITE_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/native/test)
+set(JOVIAN_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/native/include)
+set(JOVIAN_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/native/src)
+set(JOVIAN_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/native/test)
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
 if(NOT "${CMAKE_SYSTEM_NAME}" STREQUAL "${CMAKE_HOST_SYSTEM_NAME}" OR CMAKE_CROSSCOMPILING)
-    set(DATASUITE_R_CROSS_COMPILING ON)
+    set(JOVIAN_R_CROSS_COMPILING ON)
 else()
-    set(DATASUITE_R_CROSS_COMPILING OFF)
+    set(JOVIAN_R_CROSS_COMPILING OFF)
 endif()
-message(STATUS "Cross-compiling: ${DATASUITE_R_CROSS_COMPILING}") 
+message(STATUS "Cross-compiling: ${JOVIAN_R_CROSS_COMPILING}") 
 
 # Versionning
 # ===========
 
 # Project version
-file(STRINGS "${DATASUITE_INCLUDE_DIR}/datasuite/datasuite.hpp" datasuite_version_defines
+file(STRINGS "${JOVIAN_INCLUDE_DIR}/adrastea/adrastea.hpp" adrastea_version_defines
      REGEX "inline constexpr int (major|minor|patch) = [0-9]+")
-foreach(ver ${datasuite_version_defines})
+foreach(ver ${adrastea_version_defines})
     if(ver MATCHES "inline constexpr int (major|minor|patch) = ([0-9]+)")
         string(TOUPPER "${CMAKE_MATCH_1}" VER_UPPER)
-        set(DATASUITE_VERSION_${VER_UPPER} "${CMAKE_MATCH_2}" CACHE INTERNAL "")
+        set(ADRASTEA_VERSION_${VER_UPPER} "${CMAKE_MATCH_2}" CACHE INTERNAL "")
     endif()
 endforeach()
-set(DATASUITE_VERSION ${DATASUITE_VERSION_MAJOR}.${DATASUITE_VERSION_MINOR}.${DATASUITE_VERSION_PATCH})
-message(STATUS "datasuite version: v${DATASUITE_VERSION}")
+set(ADRASTEA_VERSION ${ADRASTEA_VERSION_MAJOR}.${ADRASTEA_VERSION_MINOR}.${ADRASTEA_VERSION_PATCH})
+message(STATUS "adrastea version: v${ADRASTEA_VERSION}")
 
 # Binary version
 # See: https://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
-file(STRINGS "${DATASUITE_INCLUDE_DIR}/datasuite/datasuite.hpp" datasuite_version_defines
+file(STRINGS "${JOVIAN_INCLUDE_DIR}/adrastea/adrastea.hpp" adrastea_version_defines
     REGEX "inline constexpr int binary_(current|revision|age) = [0-9]+")
-foreach(ver ${datasuite_version_defines})
+foreach(ver ${adrastea_version_defines})
     if(ver MATCHES "inline constexpr int binary_(current|revision|age) = ([0-9]+)")
         string(TOUPPER "${CMAKE_MATCH_1}" VER_UPPER)
-        set(DATASUITE_BINARY_${VER_UPPER} "${CMAKE_MATCH_2}" CACHE INTERNAL "")
+        set(ADRASTEA_BINARY_${VER_UPPER} "${CMAKE_MATCH_2}" CACHE INTERNAL "")
     endif()
 endforeach()
-set(DATASUITE_BINARY_VERSION ${DATASUITE_BINARY_CURRENT}.${DATASUITE_BINARY_REVISION}.${DATASUITE_BINARY_AGE})
-message(STATUS "datasuite binary version: v${DATASUITE_BINARY_VERSION}")
+set(ADRASTEA_BINARY_VERSION ${ADRASTEA_BINARY_CURRENT}.${ADRASTEA_BINARY_REVISION}.${ADRASTEA_BINARY_AGE})
+message(STATUS "adrastea binary version: v${ADRASTEA_BINARY_VERSION}")
 
 # Build options
 # =============
 
-if(DATASUITE_R_CROSS_COMPILING)
+if(JOVIAN_R_CROSS_COMPILING)
     # Location of the target environment
     set(CMAKE_FIND_ROOT_PATH  ${CMAKE_PREFIX_PATH})
 
@@ -72,23 +72,23 @@ if(DATASUITE_R_CROSS_COMPILING)
 endif()
 
 # Compilation options
-option(DATASUITE_BUILD_SHARED_LIBS "Build datasuite shared library." ON)
-option(DATASUITE_BUILD_STATIC_LIBS "Build datasuite static library (default if BUILD_SHARED_LIBS is OFF)." ON)
-option(DATASUITE_STATIC_DEPENDENCIES "link statically with datasuite dependencies" OFF)
+option(JOVIAN_BUILD_SHARED_LIBS "Build jovian shared library." ON)
+option(JOVIAN_BUILD_STATIC_LIBS "Build jovian static library (default if BUILD_SHARED_LIBS is OFF)." ON)
+option(JOVIAN_STATIC_DEPENDENCIES "link statically with jovian dependencies" OFF)
 
-option(DATASUITE_SANITIZE_ADDRESS "Enable address sanitizer" OFF)
+option(JOVIAN_SANITIZE_ADDRESS "Enable address sanitizer" OFF)
 
 # Test options
-option(DATASUITE_BUILD_TESTS "datasuite test suite" OFF)
+option(JOVIAN_BUILD_TESTS "jovian test suite" OFF)
 
 # Dependencies
 # ============
 
 # nlohmann_json requires libraries that exchange json objects to be linked
 # with the same version of nlohmann_json. Therefore this version should be
-# the same in all DATASUITE components; to do so, downstream projects should not
+# the same in all JOVIAN components; to do so, downstream projects should not
 # search # directly for nlohmann_json, but rely on find_dependency called by
-# find_package(datasuite-r) instead.
+# find_package(jovian) instead.
 set(nlohmann_json_REQUIRED_VERSION 3.12.0)
 set(cppzmq_REQUIRED_VERSION 4.8.1)
 set(zeromq_REQUIRED_VERSION 4.3.2)
@@ -131,7 +131,7 @@ find_package(R REQUIRED)
 # WebSocket API -- not needed by the addon or the standalone kernel
 # executable, but resolved unconditionally here to match how the other
 # dependencies above are already handled regardless of which targets end up
-# being built (see DATASUITE_BUILD_SUPERVISOR in native/CMakeLists.txt).
+# being built (see JOVIAN_BUILD_THEMISTO in native/CMakeLists.txt).
 find_package(httplib REQUIRED)
 find_package(ixwebsocket REQUIRED)
 
@@ -150,7 +150,7 @@ message(STATUS "R_SCRIPT_COMMAND = ${R_SCRIPT_COMMAND}")
 # native/CMakeLists.txt only adds its own test/ subdirectory when
 # BUILD_TESTING is already set by the time it runs.
 include(CTest)
-if(DATASUITE_BUILD_TESTS)
+if(JOVIAN_BUILD_TESTS)
     set(BUILD_TESTING ON)
     message(STATUS "tests enabled")
 else ()

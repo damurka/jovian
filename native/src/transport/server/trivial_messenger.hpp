@@ -1,13 +1,13 @@
-#ifndef DATASUITE_TRIVIAL_MESSENGER_HPP
-#define DATASUITE_TRIVIAL_MESSENGER_HPP
+#ifndef ADRASTEA_TRIVIAL_MESSENGER_HPP
+#define ADRASTEA_TRIVIAL_MESSENGER_HPP
 
 #include <functional>
 
-#include "datasuite/json.hpp"
+#include "adrastea/json.hpp"
 
-#include "datasuite/control_messenger.hpp"
+#include "adrastea/control_messenger.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     class ServerZmqDefault;
 

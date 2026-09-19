@@ -1,12 +1,12 @@
-#ifndef DATASUITE_CONTROL_MESSENGER_HPP
-#define DATASUITE_CONTROL_MESSENGER_HPP
+#ifndef ADRASTEA_CONTROL_MESSENGER_HPP
+#define ADRASTEA_CONTROL_MESSENGER_HPP
 
-#include "datasuite.hpp"
+#include "adrastea.hpp"
 #include "json.hpp"
 
-namespace datasuite
+namespace adrastea
 {
-    class DATASUITE_API ControlMessenger
+    class ADRASTEA_API ControlMessenger
     {
     public:
 

@@ -1,172 +1,175 @@
-set(DATASUITE_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
-set(DATASUITE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
-set(DATASUITE_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test)
+set(JOVIAN_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set(JOVIAN_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
+set(JOVIAN_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test)
 
-set(DATASUITE_HEADERS
-    ${DATASUITE_INCLUDE_DIR}/datasuite/context.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/comm.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/control_messenger.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/datasuite.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/datasuite_engine.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/guid.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/helper.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/history_manager.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/input.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/interpreter.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/interpreter_r.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/json.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/kernel_configuration.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/kernel.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/logger.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/message.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/middleware.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/request_context.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/server.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/server_zmq.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/system.hpp
-    ${DATASUITE_INCLUDE_DIR}/datasuite/thread.hpp
+set(ADRASTEA_HEADERS
+    ${JOVIAN_INCLUDE_DIR}/adrastea/context.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/comm.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/control_messenger.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/adrastea.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/guid.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/helper.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/history_manager.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/input.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/interpreter.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/json.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/kernel_configuration.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/kernel.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/logger.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/message.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/middleware.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/request_context.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/server.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/server_zmq.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/system.hpp
+    ${JOVIAN_INCLUDE_DIR}/adrastea/thread.hpp
+)
+
+set(ELARA_HEADERS
+    ${JOVIAN_INCLUDE_DIR}/elara/engine.hpp
+    ${JOVIAN_INCLUDE_DIR}/elara/interpreter_r.hpp
 )
 
 # Organized by module
-set(DATASUITE_CORE_SOURCES
-    ${DATASUITE_SOURCE_DIR}/core/kernel/kernel.cpp
-    ${DATASUITE_SOURCE_DIR}/core/kernel/kernel_core.cpp
-    ${DATASUITE_SOURCE_DIR}/core/kernel/kernel_core.hpp
-    ${DATASUITE_SOURCE_DIR}/core/kernel/kernel_configuration.cpp
-    ${DATASUITE_SOURCE_DIR}/core/execution/interpreter.cpp
-    ${DATASUITE_SOURCE_DIR}/core/execution/interpreter_r.cpp
-    ${DATASUITE_SOURCE_DIR}/core/messaging/message.cpp
-    ${DATASUITE_SOURCE_DIR}/core/messaging/comm.cpp
-    ${DATASUITE_SOURCE_DIR}/core/messaging/request_context.cpp
-    ${DATASUITE_SOURCE_DIR}/core/history/history_manager.cpp
-    ${DATASUITE_SOURCE_DIR}/core/history/in_memory_history_manager.cpp
-    ${DATASUITE_SOURCE_DIR}/core/history/in_memory_history_manager.hpp
+set(ADRASTEA_CORE_SOURCES
+    ${JOVIAN_SOURCE_DIR}/core/kernel/kernel.cpp
+    ${JOVIAN_SOURCE_DIR}/core/kernel/kernel_core.cpp
+    ${JOVIAN_SOURCE_DIR}/core/kernel/kernel_core.hpp
+    ${JOVIAN_SOURCE_DIR}/core/kernel/kernel_configuration.cpp
+    ${JOVIAN_SOURCE_DIR}/core/execution/interpreter.cpp
+    ${JOVIAN_SOURCE_DIR}/core/execution/interpreter_r.cpp
+    ${JOVIAN_SOURCE_DIR}/core/messaging/message.cpp
+    ${JOVIAN_SOURCE_DIR}/core/messaging/comm.cpp
+    ${JOVIAN_SOURCE_DIR}/core/messaging/request_context.cpp
+    ${JOVIAN_SOURCE_DIR}/core/history/history_manager.cpp
+    ${JOVIAN_SOURCE_DIR}/core/history/in_memory_history_manager.cpp
+    ${JOVIAN_SOURCE_DIR}/core/history/in_memory_history_manager.hpp
 )
 
-set(DATASUITE_TRANSPORT_SOURCES
-    ${DATASUITE_SOURCE_DIR}/transport/context.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/server.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/server/handshaking.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/server/handshaking.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/server/heartbeat.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/server/heartbeat.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/server/publisher.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/server/publisher.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/server/server_zmq.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/server/server_zmq_default.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/server/server_zmq_default.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/server/server_zmq_impl.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/server/server_zmq_impl.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/server/trivial_messenger.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/server/trivial_messenger.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_handshake_zmq.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_handshake_zmq.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_heartbeat.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_heartbeat.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_iopub.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_iopub.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_messenger.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_messenger.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_zmq.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_zmq.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_zmq_impl.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_zmq_impl.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/dealer_channel.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/dealer_channel.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/common/authentication.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/common/authentication.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/common/middleware.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/common/middleware_impl.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/common/zmq_serializer.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/common/zmq_serializer.hpp
+set(ADRASTEA_TRANSPORT_SOURCES
+    ${JOVIAN_SOURCE_DIR}/transport/context.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/server.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/server/handshaking.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/server/handshaking.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/server/heartbeat.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/server/heartbeat.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/server/publisher.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/server/publisher.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/server/server_zmq.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/server/server_zmq_default.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/server/server_zmq_default.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/server/server_zmq_impl.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/server/server_zmq_impl.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/server/trivial_messenger.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/server/trivial_messenger.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_handshake_zmq.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_handshake_zmq.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_heartbeat.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_heartbeat.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_iopub.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_iopub.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_messenger.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_messenger.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_zmq.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_zmq.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_zmq_impl.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_zmq_impl.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/dealer_channel.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/dealer_channel.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/common/authentication.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/common/authentication.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/common/middleware.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/common/middleware_impl.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/common/zmq_serializer.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/common/zmq_serializer.hpp
 )
 
-set(DATASUITE_PLATFORM_SOURCES
-    ${DATASUITE_SOURCE_DIR}/platform/guid.cpp
-    ${DATASUITE_SOURCE_DIR}/platform/system.cpp
+set(ADRASTEA_PLATFORM_SOURCES
+    ${JOVIAN_SOURCE_DIR}/platform/guid.cpp
+    ${JOVIAN_SOURCE_DIR}/platform/system.cpp
 )
 
-set(DATASUITE_R_SOURCES
-    ${DATASUITE_SOURCE_DIR}/r/routine.cpp
-    ${DATASUITE_SOURCE_DIR}/r/rtools.hpp
+set(ELARA_R_SOURCES
+    ${JOVIAN_SOURCE_DIR}/r/routine.cpp
+    ${JOVIAN_SOURCE_DIR}/r/rtools.hpp
 )
 
-set(DATASUITE_UTILS_SOURCES
-    ${DATASUITE_SOURCE_DIR}/utils/helper.cpp
-    ${DATASUITE_SOURCE_DIR}/utils/input.cpp
-    ${DATASUITE_SOURCE_DIR}/utils/logger.cpp
-    ${DATASUITE_SOURCE_DIR}/utils/logger_impl.cpp
-    ${DATASUITE_SOURCE_DIR}/utils/logger_impl.hpp
-    ${DATASUITE_SOURCE_DIR}/utils/control_messenger.cpp
+set(ADRASTEA_UTILS_SOURCES
+    ${JOVIAN_SOURCE_DIR}/utils/helper.cpp
+    ${JOVIAN_SOURCE_DIR}/utils/input.cpp
+    ${JOVIAN_SOURCE_DIR}/utils/logger.cpp
+    ${JOVIAN_SOURCE_DIR}/utils/logger_impl.cpp
+    ${JOVIAN_SOURCE_DIR}/utils/logger_impl.hpp
+    ${JOVIAN_SOURCE_DIR}/utils/control_messenger.cpp
 )
 
 # Narrower source lists for the supervisor (native/src/supervisor), which is
 # a ZMQ *client*/gateway only -- it never embeds R and never runs a Kernel/
-# KernelCore, so it must not pull in DATASUITE_CORE_SOURCES (which bundles
+# KernelCore, so it must not pull in ADRASTEA_CORE_SOURCES (which bundles
 # the R-dependent interpreter_r.cpp) or the server-side half of
-# DATASUITE_TRANSPORT_SOURCES. It reuses the client transport code exactly
+# ADRASTEA_TRANSPORT_SOURCES. It reuses the client transport code exactly
 # as-is (see native/src/transport/client/client_handshake_zmq.cpp,
 # client_zmq.cpp) rather than reimplementing wire handling.
-set(DATASUITE_MESSAGING_SOURCES
-    ${DATASUITE_SOURCE_DIR}/core/messaging/message.cpp
-    ${DATASUITE_SOURCE_DIR}/core/kernel/kernel_configuration.cpp
+set(ADRASTEA_MESSAGING_SOURCES
+    ${JOVIAN_SOURCE_DIR}/core/messaging/message.cpp
+    ${JOVIAN_SOURCE_DIR}/core/kernel/kernel_configuration.cpp
 )
 
-set(DATASUITE_TRANSPORT_CLIENT_SOURCES
-    ${DATASUITE_SOURCE_DIR}/transport/context.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_handshake_zmq.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_handshake_zmq.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_heartbeat.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_heartbeat.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_iopub.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_iopub.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_messenger.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_messenger.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_zmq.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_zmq.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_zmq_impl.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/client_zmq_impl.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/dealer_channel.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/client/dealer_channel.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/common/authentication.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/common/authentication.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/common/middleware.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/common/middleware_impl.hpp
-    ${DATASUITE_SOURCE_DIR}/transport/common/zmq_serializer.cpp
-    ${DATASUITE_SOURCE_DIR}/transport/common/zmq_serializer.hpp
+set(ADRASTEA_TRANSPORT_CLIENT_SOURCES
+    ${JOVIAN_SOURCE_DIR}/transport/context.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_handshake_zmq.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_handshake_zmq.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_heartbeat.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_heartbeat.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_iopub.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_iopub.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_messenger.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_messenger.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_zmq.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_zmq.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_zmq_impl.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/client_zmq_impl.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/dealer_channel.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/client/dealer_channel.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/common/authentication.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/common/authentication.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/common/middleware.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/common/middleware_impl.hpp
+    ${JOVIAN_SOURCE_DIR}/transport/common/zmq_serializer.cpp
+    ${JOVIAN_SOURCE_DIR}/transport/common/zmq_serializer.hpp
 )
 
-set(DATASUITE_SUPERVISOR_SOURCES
-    ${DATASUITE_SOURCE_DIR}/supervisor/main.cpp
-    ${DATASUITE_SOURCE_DIR}/supervisor/session_registry.cpp
-    ${DATASUITE_SOURCE_DIR}/supervisor/session_registry.hpp
-    ${DATASUITE_SOURCE_DIR}/supervisor/kernel_process.cpp
-    ${DATASUITE_SOURCE_DIR}/supervisor/kernel_process.hpp
-    ${DATASUITE_SOURCE_DIR}/supervisor/http_api.cpp
-    ${DATASUITE_SOURCE_DIR}/supervisor/http_api.hpp
-    ${DATASUITE_SOURCE_DIR}/supervisor/ws_relay.cpp
-    ${DATASUITE_SOURCE_DIR}/supervisor/ws_relay.hpp
+set(THEMISTO_SOURCES
+    ${JOVIAN_SOURCE_DIR}/supervisor/main.cpp
+    ${JOVIAN_SOURCE_DIR}/supervisor/session_registry.cpp
+    ${JOVIAN_SOURCE_DIR}/supervisor/session_registry.hpp
+    ${JOVIAN_SOURCE_DIR}/supervisor/kernel_process.cpp
+    ${JOVIAN_SOURCE_DIR}/supervisor/kernel_process.hpp
+    ${JOVIAN_SOURCE_DIR}/supervisor/http_api.cpp
+    ${JOVIAN_SOURCE_DIR}/supervisor/http_api.hpp
+    ${JOVIAN_SOURCE_DIR}/supervisor/ws_relay.cpp
+    ${JOVIAN_SOURCE_DIR}/supervisor/ws_relay.hpp
 )
 
-set(DATASUITE_KERNEL_EXE_SOURCES
-    ${DATASUITE_SOURCE_DIR}/datasuite-r.cpp
-    # DatasuiteServer (env setup + boot the Kernel on a background thread,
-    # block until shutdown) -- the only consumer of bridge/datasuite_engine.cpp
+set(ELARA_EXE_SOURCES
+    ${JOVIAN_SOURCE_DIR}/elara.cpp
+    # elara::Server (env setup + boot the Kernel, run it on the calling thread,
+    # block until shutdown) -- the only consumer of bridge/engine.cpp
     # now that the Node addon (which used to share it) is gone.
-    ${DATASUITE_SOURCE_DIR}/bridge/datasuite_engine.cpp
+    ${JOVIAN_SOURCE_DIR}/bridge/engine.cpp
 )
 
 # Create source groups for IDE organization
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source Files" FILES
-    ${DATASUITE_CORE_SOURCES}
-    ${DATASUITE_TRANSPORT_SOURCES}
-    ${DATASUITE_PLATFORM_SOURCES}
-    ${DATASUITE_R_SOURCES}
-    ${DATASUITE_UTILS_SOURCES}
-    ${DATASUITE_SUPERVISOR_SOURCES}
-    ${DATASUITE_KERNEL_EXE_SOURCES}
+    ${ADRASTEA_CORE_SOURCES}
+    ${ADRASTEA_TRANSPORT_SOURCES}
+    ${ADRASTEA_PLATFORM_SOURCES}
+    ${ELARA_R_SOURCES}
+    ${ADRASTEA_UTILS_SOURCES}
+    ${THEMISTO_SOURCES}
+    ${ELARA_EXE_SOURCES}
 )
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/include PREFIX "Header Files" FILES ${DATASUITE_HEADERS})
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/include PREFIX "Header Files" FILES ${ADRASTEA_HEADERS} ${ELARA_HEADERS})
 
 # ==========================================
 # TARGET SELECTION
@@ -178,10 +181,10 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/include PREFIX "Header Files" FILE
 # lib/session/session-manager.ts, which now talks to the supervisor instead
 # of an in-process addon).
 
-option(DATASUITE_BUILD_KERNEL_EXE "Build the standalone kernel executable (datasuite-r)" ON)
-option(DATASUITE_BUILD_SUPERVISOR "Build the kernel supervisor executable (datasuite-supervisor)" ON)
+option(JOVIAN_BUILD_ELARA "Build the standalone kernel executable (elara)" ON)
+option(JOVIAN_BUILD_THEMISTO "Build the kernel supervisor executable (themisto)" ON)
 
-function(datasuite_apply_platform_guid_define target_name)
+function(jovian_apply_platform_guid_define target_name)
     if (MSVC)
         target_compile_definitions(${target_name} PRIVATE -DNOMINMAX)
         target_compile_options(${target_name} PRIVATE /DGUID_WINDOWS /MP /bigobj)
@@ -193,52 +196,53 @@ function(datasuite_apply_platform_guid_define target_name)
     endif ()
 endfunction()
 
-if (DATASUITE_BUILD_KERNEL_EXE)
-    message(STATUS "Building standalone kernel executable (datasuite-r)...")
+if (JOVIAN_BUILD_ELARA)
+    message(STATUS "Building standalone kernel executable (elara)...")
 
     # ==========================================
     # STANDALONE KERNEL EXECUTABLE TARGET
     # ==========================================
-    add_executable(datasuite-r
-        ${DATASUITE_CORE_SOURCES}
-        ${DATASUITE_TRANSPORT_SOURCES}
-        ${DATASUITE_PLATFORM_SOURCES}
-        ${DATASUITE_R_SOURCES}
-        ${DATASUITE_UTILS_SOURCES}
-        ${DATASUITE_KERNEL_EXE_SOURCES}
-        ${DATASUITE_HEADERS}
+    add_executable(elara
+        ${ADRASTEA_CORE_SOURCES}
+        ${ADRASTEA_TRANSPORT_SOURCES}
+        ${ADRASTEA_PLATFORM_SOURCES}
+        ${ELARA_R_SOURCES}
+        ${ADRASTEA_UTILS_SOURCES}
+        ${ELARA_EXE_SOURCES}
+        ${ADRASTEA_HEADERS}
+        ${ELARA_HEADERS}
     )
 
-    target_compile_features(datasuite-r PRIVATE cxx_std_23)
+    target_compile_features(elara PRIVATE cxx_std_23)
 
-    target_include_directories(datasuite-r PRIVATE
-        ${DATASUITE_INCLUDE_DIR}
-        ${DATASUITE_SOURCE_DIR}
+    target_include_directories(elara PRIVATE
+        ${JOVIAN_INCLUDE_DIR}
+        ${JOVIAN_SOURCE_DIR}
         ${R_INCLUDE_DIR}
     )
 
-    target_link_libraries(datasuite-r PRIVATE
+    target_link_libraries(elara PRIVATE
         nlohmann_json::nlohmann_json
         cppzmq
         OpenSSL::Crypto
         ${R_LIBRARIES}
     )
 
-    # DATASUITE_API (datasuite.hpp) expands to __declspec(dllimport) unless
-    # DATASUITE_EXPORTS is defined -- this target compiles every datasuite::
+    # ADRASTEA_API (adrastea.hpp) expands to __declspec(dllimport) unless
+    # ADRASTEA_EXPORTS is defined -- this target compiles every adrastea::
     # symbol directly into a plain .exe with nothing external to import
     # from, so without this define the linker looks for import stubs that
     # don't exist ("unresolved external symbol ... dllimport ...").
-    target_compile_definitions(datasuite-r PRIVATE DATASUITE_EXPORTS)
+    target_compile_definitions(elara PRIVATE ADRASTEA_EXPORTS)
 
     # Matches vcpkg's x64-windows triplet, which builds its packages
     # (cppzmq/zeromq/openssl) against the dynamic CRT (/MD) by default.
-    set_target_properties(datasuite-r PROPERTIES
+    set_target_properties(elara PROPERTIES
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
     if (MSVC)
         # R's embedded interpreter runs directly on this process's main
-        # thread (see DatasuiteServer::start(), datasuite_engine.cpp) --
+        # thread (see Server::start(), engine.cpp) --
         # deliberately, so R's own C-stack-bounds auto-detection (which
         # assumes main-thread execution) computes correct values instead of
         # needing to be second-guessed at runtime. That auto-detection
@@ -253,39 +257,39 @@ if (DATASUITE_BUILD_KERNEL_EXE)
         # deliberately larger one. 128MB reserved (not committed -- actual
         # memory use only grows as the stack is actually touched) is
         # negligible next to R's own heap footprint.
-        target_link_options(datasuite-r PRIVATE "/STACK:134217728")
+        target_link_options(elara PRIVATE "/STACK:134217728")
     endif ()
 
-    datasuite_apply_platform_guid_define(datasuite-r)
+    jovian_apply_platform_guid_define(elara)
 endif ()
 
-if (DATASUITE_BUILD_SUPERVISOR)
-    message(STATUS "Building kernel supervisor executable (datasuite-supervisor)...")
+if (JOVIAN_BUILD_THEMISTO)
+    message(STATUS "Building kernel supervisor executable (themisto)...")
 
     # ==========================================
     # SUPERVISOR EXECUTABLE TARGET
     # ==========================================
     # No R sources/libraries: the supervisor never embeds R, it only ever
     # speaks ZMQ (as a client, to kernel processes it spawns) and HTTP/WS
-    # (as a server, to Node/Electron consumers). See DATASUITE_MESSAGING_
-    # SOURCES / DATASUITE_TRANSPORT_CLIENT_SOURCES above for why it can't
-    # reuse the full DATASUITE_CORE_SOURCES/DATASUITE_TRANSPORT_SOURCES
+    # (as a server, to Node/Electron consumers). See ADRASTEA_MESSAGING_
+    # SOURCES / ADRASTEA_TRANSPORT_CLIENT_SOURCES above for why it can't
+    # reuse the full ADRASTEA_CORE_SOURCES/ADRASTEA_TRANSPORT_SOURCES
     # lists as-is.
-    add_executable(datasuite-supervisor
-        ${DATASUITE_MESSAGING_SOURCES}
-        ${DATASUITE_TRANSPORT_CLIENT_SOURCES}
-        ${DATASUITE_PLATFORM_SOURCES}
-        ${DATASUITE_SUPERVISOR_SOURCES}
+    add_executable(themisto
+        ${ADRASTEA_MESSAGING_SOURCES}
+        ${ADRASTEA_TRANSPORT_CLIENT_SOURCES}
+        ${ADRASTEA_PLATFORM_SOURCES}
+        ${THEMISTO_SOURCES}
     )
 
-    target_compile_features(datasuite-supervisor PRIVATE cxx_std_23)
+    target_compile_features(themisto PRIVATE cxx_std_23)
 
-    target_include_directories(datasuite-supervisor PRIVATE
-        ${DATASUITE_INCLUDE_DIR}
-        ${DATASUITE_SOURCE_DIR}
+    target_include_directories(themisto PRIVATE
+        ${JOVIAN_INCLUDE_DIR}
+        ${JOVIAN_SOURCE_DIR}
     )
 
-    target_link_libraries(datasuite-supervisor PRIVATE
+    target_link_libraries(themisto PRIVATE
         nlohmann_json::nlohmann_json
         cppzmq
         OpenSSL::Crypto
@@ -293,23 +297,23 @@ if (DATASUITE_BUILD_SUPERVISOR)
         ixwebsocket::ixwebsocket
     )
 
-    # See the matching comment on the datasuite-r target above -- same two
-    # issues apply here: DATASUITE_API needs DATASUITE_EXPORTS to resolve
-    # datasuite:: symbols within this .exe instead of expecting a DLL to
+    # See the matching comment on the elara target above -- same two
+    # issues apply here: ADRASTEA_API needs ADRASTEA_EXPORTS to resolve
+    # adrastea:: symbols within this .exe instead of expecting a DLL to
     # import them from, and the CRT linkage needs to match vcpkg's
     # x64-windows triplet (/MD).
-    target_compile_definitions(datasuite-supervisor PRIVATE DATASUITE_EXPORTS)
-    set_target_properties(datasuite-supervisor PROPERTIES
+    target_compile_definitions(themisto PRIVATE ADRASTEA_EXPORTS)
+    set_target_properties(themisto PROPERTIES
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
     if (WIN32)
         # mbedtls (ixwebsocket's TLS backend) calls BCryptGenRandom for
         # entropy -- not pulled in transitively by the vcpkg port on this
         # setup, so link it explicitly rather than relying on that.
-        target_link_libraries(datasuite-supervisor PRIVATE bcrypt)
+        target_link_libraries(themisto PRIVATE bcrypt)
     endif ()
 
-    datasuite_apply_platform_guid_define(datasuite-supervisor)
+    jovian_apply_platform_guid_define(themisto)
 endif ()
 
 if(BUILD_TESTING)

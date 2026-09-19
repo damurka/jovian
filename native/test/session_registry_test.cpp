@@ -4,7 +4,7 @@
 // where feasible" and that never got covered. A fake ClientZmq would need
 // SessionRegistry to accept an injectable client/process factory, which it
 // doesn't (and refactoring it to support that is a bigger, riskier change
-// than this test warrants); using the real datasuite-r executable this test
+// than this test warrants); using the real elara executable this test
 // binary is built alongside is a smaller, higher-fidelity alternative that
 // still isolates SessionRegistry from HTTP/WS (already covered by
 // test/integration/session-manager.test.ts on the TypeScript side).
@@ -23,22 +23,22 @@
 
 #include <gtest/gtest.h>
 
-#include "datasuite/json.hpp"
+#include "adrastea/json.hpp"
 #include "supervisor/session_registry.hpp"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <tlhelp32.h>
 
-using namespace datasuite;
-using namespace datasuite::supervisor;
+using namespace adrastea;
+using namespace themisto;
 
 namespace
 {
     // R_HOME env var first (lets a developer/CI override), then the R
     // installation CMake itself already found and validated at configure
     // time (find_package(R REQUIRED) in the root CMakeLists.txt, propagated
-    // here as DATASUITE_TEST_R_HOME) -- not a path guessed at from one
+    // here as ELARA_TEST_R_HOME) -- not a path guessed at from one
     // machine. Neither present means no usable fallback; SetUp() skips the
     // test rather than pointing R_HOME at somewhere that doesn't exist.
     std::string resolveRHome()
@@ -47,8 +47,8 @@ namespace
         {
             return fromEnv;
         }
-#ifdef DATASUITE_TEST_R_HOME
-        return DATASUITE_TEST_R_HOME;
+#ifdef ELARA_TEST_R_HOME
+        return ELARA_TEST_R_HOME;
 #else
         return "";
 #endif
@@ -114,12 +114,12 @@ namespace
                 GTEST_SKIP() << "No R installation found (checked R_HOME env var and the default dev path) -- "
                                 "skipping, since SessionRegistry::createSession() needs a real R to register.";
             }
-#ifndef DATASUITE_TEST_KERNEL_EXE
-            GTEST_SKIP() << "DATASUITE_TEST_KERNEL_EXE not defined by CMake -- datasuite-r target not built alongside tests.";
+#ifndef ELARA_TEST_KERNEL_EXE
+            GTEST_SKIP() << "ELARA_TEST_KERNEL_EXE not defined by CMake -- elara target not built alongside tests.";
 #else
-            if (!std::filesystem::exists(DATASUITE_TEST_KERNEL_EXE))
+            if (!std::filesystem::exists(ELARA_TEST_KERNEL_EXE))
             {
-                GTEST_SKIP() << "datasuite-r executable not found at " DATASUITE_TEST_KERNEL_EXE;
+                GTEST_SKIP() << "elara executable not found at " ELARA_TEST_KERNEL_EXE;
             }
             m_rHome = rHome;
             // Deliberately leaked (not a unique_ptr): ~SessionRegistry()'s
@@ -128,14 +128,14 @@ namespace
             // confirmed (via native/test/plain_diag.cpp, not part of this
             // suite) to hang on process exit even though every explicit
             // SessionRegistry/Session call involved returns normally.
-            // Production code never hits this either way: datasuite-
+            // Production code never hits this either way: themisto-
             // supervisor's own process is always force-killed by its parent
             // (SupervisorClient.kill() in lib/session/supervisor-client.ts),
             // never gracefully destructed. Leaking here and relying on
             // std::_Exit() (this file's main(), below) to reclaim the
             // process's resources sidesteps a destructor that's confirmed
             // broken rather than papering over it with a guess.
-            m_registry = new SessionRegistry(DATASUITE_TEST_KERNEL_EXE, "127.0.0.1");
+            m_registry = new SessionRegistry(ELARA_TEST_KERNEL_EXE, "127.0.0.1");
             m_registry->startRegistrationListener();
 #endif
         }
@@ -222,7 +222,7 @@ TEST(SessionRegistryEmptyStateTest, CreateSessionSurfacesAKernelSpawnFailureAsAn
     // KernelProcess::start() (CreateProcessA) before anything R-related
     // happens, hitting createSessionWithId()'s catch block
     // (session_registry.cpp) rather than the registration-handshake path.
-    auto* registry = new SessionRegistry("C:\\this\\path\\does\\not\\exist\\datasuite-r.exe", "127.0.0.1");
+    auto* registry = new SessionRegistry("C:\\this\\path\\does\\not\\exist\\elara.exe", "127.0.0.1");
     registry->startRegistrationListener();
 
     SessionOptions options;
@@ -466,7 +466,7 @@ TEST_F(SessionRegistryTest, ConcurrentRestartsForTheSameSessionDontLeakAnExtraKe
     // loser's HTTP response ("Unexpected end of JSON input" on the client
     // side). Found via a live VS Code repro: clicking "Restart" again
     // before the previous click's ~2-5s cycle finished left extra
-    // datasuite-r.exe processes running -- confirmed via real OS process
+    // elara.exe processes running -- confirmed via real OS process
     // counts, not just inferred from the C++ call graph, so this asserts
     // the same way rather than on some indirect proxy (e.g. call timing,
     // which a blocked-and-waiting second caller would confound anyway).
@@ -476,8 +476,8 @@ TEST_F(SessionRegistryTest, ConcurrentRestartsForTheSameSessionDontLeakAnExtraKe
     std::string error;
     std::string id = m_registry->createSession(options, error);
     ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
-    ASSERT_TRUE(waitFor([&]() { return countProcessesNamed(L"datasuite-r.exe") == 1; }, kTimeoutMs))
-        << "expected exactly one datasuite-r.exe after the initial createSession";
+    ASSERT_TRUE(waitFor([&]() { return countProcessesNamed(L"elara.exe") == 1; }, kTimeoutMs))
+        << "expected exactly one elara.exe after the initial createSession";
 
     bool ok1 = false;
     bool ok2 = false;
@@ -501,9 +501,9 @@ TEST_F(SessionRegistryTest, ConcurrentRestartsForTheSameSessionDontLeakAnExtraKe
 
     // The only assertion that actually matters here: exactly one live
     // kernel process backs this one session, never two.
-    EXPECT_TRUE(waitFor([&]() { return countProcessesNamed(L"datasuite-r.exe") == 1; }, kTimeoutMs))
-        << "expected exactly one datasuite-r.exe after two concurrent restarts, found "
-        << countProcessesNamed(L"datasuite-r.exe");
+    EXPECT_TRUE(waitFor([&]() { return countProcessesNamed(L"elara.exe") == 1; }, kTimeoutMs))
+        << "expected exactly one elara.exe after two concurrent restarts, found "
+        << countProcessesNamed(L"elara.exe");
 
     m_registry->stopSession(id);
 }
@@ -550,9 +550,9 @@ TEST_F(SessionRegistryTest, ConcurrentExecuteDuringARestartDoesNotCrashOrLeak)
     ASSERT_TRUE(session != nullptr);
     EXPECT_EQ(session->status.load(), SessionStatus::Ready);
 
-    EXPECT_TRUE(waitFor([&]() { return countProcessesNamed(L"datasuite-r.exe") == 1; }, kTimeoutMs))
-        << "expected exactly one datasuite-r.exe after a restart racing concurrent execute() calls, found "
-        << countProcessesNamed(L"datasuite-r.exe");
+    EXPECT_TRUE(waitFor([&]() { return countProcessesNamed(L"elara.exe") == 1; }, kTimeoutMs))
+        << "expected exactly one elara.exe after a restart racing concurrent execute() calls, found "
+        << countProcessesNamed(L"elara.exe");
 
     // Prove the post-restart kernel is genuinely usable, not just "still
     // has a process" -- a real execute/reply round trip.

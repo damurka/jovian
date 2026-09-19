@@ -27,8 +27,8 @@ interface WsFrame {
 }
 
 /**
- * One R session running in its own OS process (datasuite-r, spawned and
- * supervised by datasuite-supervisor -- see lib/session/supervisor-client.ts),
+ * One R session running in its own OS process (elara, spawned and
+ * supervised by themisto -- see lib/session/supervisor-client.ts),
  * proxying execute()/createShiny()/stop() over a per-session WebSocket. The
  * supervisor is the only process in this tree that ever links a native ZMQ
  * binding; this class only ever does plain HTTP/WS, so it's safe to run

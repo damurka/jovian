@@ -1,13 +1,13 @@
-#ifndef DATASUITE_HEARTBEAT_CLIENT_HPP
-#define DATASUITE_HEARTBEAT_CLIENT_HPP
+#ifndef ADRASTEA_HEARTBEAT_CLIENT_HPP
+#define ADRASTEA_HEARTBEAT_CLIENT_HPP
 
 #include <functional>
 
 #include "zmq.hpp"
 
-#include "datasuite/kernel_configuration.hpp"
+#include "adrastea/kernel_configuration.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     class ClientHeartbeat
     {

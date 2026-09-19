@@ -1,13 +1,13 @@
-#ifndef DATASUITE_ZMQ_SERIALIZER_HPP
-#define DATASUITE_ZMQ_SERIALIZER_HPP
+#ifndef ADRASTEA_ZMQ_SERIALIZER_HPP
+#define ADRASTEA_ZMQ_SERIALIZER_HPP
 
 #include "zmq_addon.hpp"
 
-#include "datasuite/message.hpp"
+#include "adrastea/message.hpp"
 
 #include "authentication.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     class ZmqSerializer
     {

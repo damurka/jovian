@@ -4,9 +4,9 @@
 #include <iostream>
 #include <thread>
 
-#include "datasuite/guid.hpp"
-#include "datasuite/message.hpp"
-#include "datasuite/middleware.hpp"
+#include "adrastea/guid.hpp"
+#include "adrastea/message.hpp"
+#include "adrastea/middleware.hpp"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -15,15 +15,18 @@
 #include <cstdlib>
 #endif
 
-namespace datasuite::supervisor
+namespace themisto
 {
+    // Themisto builds on the Adrastea framework; name its symbols unqualified here.
+    using namespace adrastea;
+
     namespace
     {
-        // Unlike the addon (native/src/bridge/datasuite_engine.cpp's
+        // Unlike the addon (native/src/bridge/engine.cpp's
         // setupEnvironment()), which can mutate PATH *after* the process
         // already started and still have it take effect (require()/dlopen
         // resolves the addon's own DLL imports at that later point), a
-        // spawned datasuite-r.exe needs R's bin directory on PATH *before*
+        // spawned elara.exe needs R's bin directory on PATH *before*
         // CreateProcess -- Windows resolves an EXE's own DLL imports (R.dll
         // etc, linked via R_LIBRARIES) at process/module load time, which
         // happens before main() (and hence setupEnvironment()) ever runs.
@@ -151,7 +154,7 @@ namespace datasuite::supervisor
 
     std::string SessionRegistry::startRegistrationListener()
     {
-        m_registrationPort = datasuite::findFreePort();
+        m_registrationPort = adrastea::findFreePort();
 
         // One registration key for this supervisor's whole lifetime, shared
         // by every kernel it spawns. ClientHandshakeZmqImpl::waitForConfiguration()
@@ -161,26 +164,26 @@ namespace datasuite::supervisor
         // isn't something the existing handshake protocol supports without
         // rebinding a fresh registration socket per session. This is still
         // a strict improvement over the addon's current hardcoded literal
-        // ("shared-secret-key" in datasuite_engine.cpp), and matches the
+        // ("shared-secret-key" in engine.cpp), and matches the
         // codebase's existing security posture rather than exceeding it.
-        m_registrationKey = datasuite::newGuid().toString();
+        m_registrationKey = adrastea::newGuid().toString();
 
-        datasuite::RegistrationConfiguration regConfig;
+        adrastea::RegistrationConfiguration regConfig;
         regConfig.m_transport = "tcp";
         regConfig.m_signatureScheme = "hmac-sha256";
         regConfig.m_key = m_registrationKey;
         regConfig.m_registrationIp = m_registrationIp;
         regConfig.m_registrationPort = m_registrationPort;
 
-        m_registrationContext = datasuite::makeZmqContext();
-        m_registrationListener = std::make_unique<datasuite::ClientHandshakeZmq>(*m_registrationContext, regConfig);
+        m_registrationContext = adrastea::makeZmqContext();
+        m_registrationListener = std::make_unique<adrastea::ClientHandshakeZmq>(*m_registrationContext, regConfig);
 
         return m_registrationPort;
     }
 
     std::string SessionRegistry::createSession(SessionOptions options, std::string& error)
     {
-        std::string id = datasuite::newGuid().toString();
+        std::string id = adrastea::newGuid().toString();
         return createSessionWithId(id, std::move(options), error);
     }
 
@@ -200,7 +203,7 @@ namespace datasuite::supervisor
         procOptions.registrationIp = m_registrationIp;
         procOptions.registrationPort = m_registrationPort;
 
-        datasuite::KernelConfiguration kernelConfig;
+        adrastea::KernelConfiguration kernelConfig;
         try
         {
             // Serializes "spawn kernel, then receive its registration" as one
@@ -236,8 +239,8 @@ namespace datasuite::supervisor
             return std::string();
         }
 
-        session->zmqContext = datasuite::makeZmqContext();
-        session->client = datasuite::makeClientZmq(*session->zmqContext, kernelConfig);
+        session->zmqContext = adrastea::makeZmqContext();
+        session->client = adrastea::makeClientZmq(*session->zmqContext, kernelConfig);
         session->client->connect();
         session->client->start();
 
@@ -384,7 +387,7 @@ namespace datasuite::supervisor
             return false;
         }
 
-        json header = datasuite::makeHeader("execute_request", "client_user", sessionId);
+        json header = adrastea::makeHeader("execute_request", "client_user", sessionId);
         header["msg_id"] = msgId;
 
         json content = {
@@ -395,7 +398,7 @@ namespace datasuite::supervisor
             { "allow_stdin", options.value("allowStdin", false) }
         };
 
-        datasuite::Message req({ "client_id" }, header, json::object(), json::object(), content, datasuite::buffer_sequence());
+        adrastea::Message req({ "client_id" }, header, json::object(), json::object(), content, adrastea::buffer_sequence());
         session->client->sendOnShell(std::move(req));
         return true;
     }
@@ -412,10 +415,10 @@ namespace datasuite::supervisor
             return false;
         }
 
-        json header = datasuite::makeHeader("interrupt_request", "client_user", sessionId);
+        json header = adrastea::makeHeader("interrupt_request", "client_user", sessionId);
         header["msg_id"] = msgId;
 
-        datasuite::Message req({ "client_id" }, header, json::object(), json::object(), json::object(), datasuite::buffer_sequence());
+        adrastea::Message req({ "client_id" }, header, json::object(), json::object(), json::object(), adrastea::buffer_sequence());
         session->client->sendOnControl(std::move(req));
         return true;
     }
@@ -432,9 +435,9 @@ namespace datasuite::supervisor
 
         if (session->client)
         {
-            json shutHeader = datasuite::makeHeader("shutdown_request", "client_user", id);
+            json shutHeader = adrastea::makeHeader("shutdown_request", "client_user", id);
             json shutContent = { { "restart", false } };
-            datasuite::Message shutReq({ "client_id" }, shutHeader, json::object(), json::object(), shutContent, datasuite::buffer_sequence());
+            adrastea::Message shutReq({ "client_id" }, shutHeader, json::object(), json::object(), shutContent, adrastea::buffer_sequence());
             session->client->sendOnControl(std::move(shutReq));
         }
 

@@ -3,17 +3,17 @@
 
 #include <string>
 
-#include "datasuite/context.hpp"
-#include "datasuite/kernel_configuration.hpp"
+#include "adrastea/context.hpp"
+#include "adrastea/kernel_configuration.hpp"
 
-#include "datasuite/datasuite.hpp"
+#include "adrastea/adrastea.hpp"
 
-namespace datasuite
+namespace adrastea
 {
 
     class ClientHandshakeZmqImpl;
 
-    class DATASUITE_API ClientHandshakeZmq
+    class ADRASTEA_API ClientHandshakeZmq
     {
     public:
 

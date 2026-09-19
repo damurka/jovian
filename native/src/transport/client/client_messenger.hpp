@@ -1,9 +1,9 @@
-#ifndef DATASUITE_CLIENT_MESSENGER_HPP
-#define DATASUITE_CLIENT_MESSENGER_HPP
+#ifndef ADRASTEA_CLIENT_MESSENGER_HPP
+#define ADRASTEA_CLIENT_MESSENGER_HPP
 
 #include <zmq.hpp>
 
-namespace datasuite
+namespace adrastea
 {
     class ClientMessenger
     {

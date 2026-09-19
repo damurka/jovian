@@ -1,6 +1,6 @@
 #include "trivial_messenger.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     TrivialMessenger::TrivialMessenger(listener l)
         : m_listener(std::move(l))

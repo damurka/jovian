@@ -1,6 +1,6 @@
 original_file <- base::file
 
-datasuite_download_file <- function(
+elara_download_file <- function(
     url, 
     destfile,
     method = "auto",
@@ -23,7 +23,7 @@ datasuite_download_file <- function(
         warning("cacheOK is FALSE, this will be ignored since its not supported in xeus-r-lite", call. = FALSE)
     }
 
-    ret <- hera_dot_call( "datasuite_download_file", url, destfile, method, quiet, mode, TRUE, extra, headers)
+    ret <- hera_dot_call( "elara_download_file", url, destfile, method, quiet, mode, TRUE, extra, headers)
     # when ret is not NULL, it is an error message
     if (!is.null(ret) && ret != "") {
     
@@ -45,7 +45,7 @@ datasuite_download_file <- function(
         stop(error_msg)
     }
 }
-datasuite_url <- function(description, open = "", blocking=TRUE, encoding = getOption("encoding"), method = getOption("url.method", "auto"), headers = NULL) {
+elara_url <- function(description, open = "", blocking=TRUE, encoding = getOption("encoding"), method = getOption("url.method", "auto"), headers = NULL) {
 
     # warn when blocking is FALSE
     if (!blocking) {
@@ -89,7 +89,7 @@ datasuite_url <- function(description, open = "", blocking=TRUE, encoding = getO
 
     con
 }
-datasuite_file <- function(description, open = "", blocking = TRUE,
+elara_file <- function(description, open = "", blocking = TRUE,
                       encoding = getOption("encoding"), ...) {
   if (grepl("^https?://", description)) {
     # message("Intercepted file() call for URL: ", description)

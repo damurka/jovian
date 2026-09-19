@@ -20,7 +20,7 @@
 #include "authentication.hpp"
 #include <format>
 
-namespace datasuite
+namespace adrastea
 {
     // RawBuffer implementation
     RawBuffer::RawBuffer(const unsigned char* data, size_t size)

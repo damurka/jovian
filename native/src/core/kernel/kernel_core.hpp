@@ -1,18 +1,18 @@
-#ifndef DATASUITE_KERNEL_CORE_HPP
-#define DATASUITE_KERNEL_CORE_HPP
+#ifndef ADRASTEA_KERNEL_CORE_HPP
+#define ADRASTEA_KERNEL_CORE_HPP
 
 #include <map>
 #include <string>
 
-#include "datasuite/json.hpp"
-#include "datasuite/comm.hpp"
-#include "datasuite/server.hpp"
-#include "datasuite/interpreter.hpp"
-#include "datasuite/history_manager.hpp"
-#include "datasuite/message.hpp"
-#include "datasuite/logger.hpp"
+#include "adrastea/json.hpp"
+#include "adrastea/comm.hpp"
+#include "adrastea/server.hpp"
+#include "adrastea/interpreter.hpp"
+#include "adrastea/history_manager.hpp"
+#include "adrastea/message.hpp"
+#include "adrastea/logger.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     class KernelCore
     {
@@ -51,8 +51,8 @@ namespace datasuite
         void sendStdin(const std::string& msg_type, const guid_list& id_list, json parent_header, json metadata, json content);
 
         CommManager& commManager() & noexcept;
-        const datasuite::CommManager& commManager() const& noexcept;
-        datasuite::CommManager commManager() const&& noexcept;
+        const adrastea::CommManager& commManager() const& noexcept;
+        adrastea::CommManager commManager() const&& noexcept;
 
         const json& parentHeader() const noexcept;
 
@@ -106,7 +106,7 @@ namespace datasuite
         std::string m_sessionId;
 
         std::map<std::string, handler_type> m_handler;
-        datasuite::CommManager m_commManager;
+        adrastea::CommManager m_commManager;
         logger_ptr p_logger;
         server_ptr p_server;
         interpreter_ptr p_interpreter;

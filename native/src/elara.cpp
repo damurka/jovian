@@ -1,12 +1,12 @@
-// Standalone Jupyter-protocol R kernel executable ("datasuite-r").
+// Standalone Jupyter-protocol R kernel executable ("elara").
 //
-// Reuses DatasuiteServer (native/src/bridge/datasuite_engine.cpp) verbatim
+// Reuses elara::Server (native/src/bridge/engine.cpp) verbatim
 // for environment setup and booting the embedded R Kernel on a background
 // thread -- that class has no N-API dependency (only bridge/addon.cpp does),
 // so it's shared between this executable and the Node addon rather than
 // duplicated. What this file adds on top is the piece the addon never
 // needed: registering with a supervisor process over ZMQ so the supervisor
-// (not an in-process DatasuiteClient) becomes this kernel's client. See
+// (not an in-process Client) becomes this kernel's client. See
 // native/src/transport/server/handshaking.cpp's sendConnectionInfo, which
 // already implements the "kernel dials home with its bound ports" protocol
 // used here -- it existed unused until this executable started calling it.
@@ -20,11 +20,11 @@
 
 #include "zmq.hpp"
 
-#include "datasuite/context.hpp"
-#include "datasuite/datasuite_engine.hpp"
-#include "datasuite/kernel_configuration.hpp"
-#include "datasuite/message.hpp"
-#include "datasuite/middleware.hpp"
+#include "adrastea/context.hpp"
+#include "elara/engine.hpp"
+#include "adrastea/kernel_configuration.hpp"
+#include "adrastea/message.hpp"
+#include "adrastea/middleware.hpp"
 
 #include "transport/common/authentication.hpp"
 #include "transport/server/handshaking.hpp"
@@ -46,14 +46,14 @@ namespace
         // and runs this executable's kernelspec argv, {connection_file}
         // substituted in). Mutually exclusive with --registration-port:
         // when this is set, main() below binds directly to the ports in
-        // the file instead of doing the datasuite-supervisor-specific
+        // the file instead of doing the themisto-specific
         // dial-home handshake (see sendConnectionInfo below), since a
         // generic Jupyter frontend has no registration listener to dial.
         std::string connectionFile;
     };
 
     // Minimal `--flag value` parser -- this executable is only ever invoked
-    // by datasuite-supervisor (native/src/supervisor/kernel_process.cpp) or,
+    // by themisto (native/src/supervisor/kernel_process.cpp) or,
     // in --connection-file mode, a Jupyter frontend via this kernel's own
     // kernelspec (see kernelspec/kernel.json), never typed by a person, so
     // it doesn't need a full CLI library. -f is accepted as a synonym for
@@ -100,16 +100,16 @@ namespace
         return opts;
     }
 
-    datasuite::KernelConfiguration makeKernelConfiguration(const std::string& key)
+    adrastea::KernelConfiguration makeKernelConfiguration(const std::string& key)
     {
-        datasuite::KernelConfiguration config;
+        adrastea::KernelConfiguration config;
         config.m_transport = "tcp";
         config.m_ip = "127.0.0.1";
-        config.m_shellPort = datasuite::findFreePort();
-        config.m_controlPort = datasuite::findFreePort();
-        config.m_stdinPort = datasuite::findFreePort();
-        config.m_iopubPort = datasuite::findFreePort();
-        config.m_hbPort = datasuite::findFreePort();
+        config.m_shellPort = adrastea::findFreePort();
+        config.m_controlPort = adrastea::findFreePort();
+        config.m_stdinPort = adrastea::findFreePort();
+        config.m_iopubPort = adrastea::findFreePort();
+        config.m_hbPort = adrastea::findFreePort();
         config.m_signatureScheme = "hmac-sha256";
         config.m_key = key;
         return config;
@@ -123,21 +123,21 @@ int main(int argc, char* argv[])
 
     if (!standaloneJupyterMode && (opts.registrationPort.empty() || opts.key.empty()))
     {
-        std::cerr << "[datasuite-r] --registration-port and --key are required unless -f/--connection-file is "
-                     "given (this executable is meant to be launched by datasuite-supervisor, or directly by a "
+        std::cerr << "[elara] --registration-port and --key are required unless -f/--connection-file is "
+                     "given (this executable is meant to be launched by themisto, or directly by a "
                      "Jupyter frontend via its kernelspec)"
                   << std::endl;
         return 1;
     }
 
-    datasuite::EnvironmentConfig envConfig;
+    elara::EnvironmentConfig envConfig;
     envConfig.r_home = opts.rHome;
     envConfig.r_path = opts.rPath;
     envConfig.r_libs = opts.rLibs;
     envConfig.pandoc_path = opts.pandocPath;
     envConfig.hera_src_path = opts.heraSrcPath;
 
-    datasuite::KernelConfiguration kernelConfig;
+    adrastea::KernelConfiguration kernelConfig;
 
     if (standaloneJupyterMode)
     {
@@ -148,42 +148,42 @@ int main(int argc, char* argv[])
         // `-f {connection_file}`) -- bind directly to those instead of
         // picking fresh ones (loadConfiguration()/KernelConfiguration
         // already existed for this, just never had a caller until now).
-        datasuite::configuration parsed;
+        adrastea::configuration parsed;
         try
         {
-            parsed = datasuite::loadConfiguration(opts.connectionFile);
+            parsed = adrastea::loadConfiguration(opts.connectionFile);
         }
         catch (const std::exception& e)
         {
-            std::cerr << "[datasuite-r] FATAL: failed to read connection file " << opts.connectionFile << ": "
+            std::cerr << "[elara] FATAL: failed to read connection file " << opts.connectionFile << ": "
                       << e.what() << std::endl;
             return 1;
         }
-        if (!std::holds_alternative<datasuite::KernelConfiguration>(parsed))
+        if (!std::holds_alternative<adrastea::KernelConfiguration>(parsed))
         {
-            std::cerr << "[datasuite-r] FATAL: " << opts.connectionFile
+            std::cerr << "[elara] FATAL: " << opts.connectionFile
                       << " is a registration-style connection file (has registration_ip) -- that mode is for "
-                         "datasuite-supervisor, launched via --registration-port/--key instead of -f."
+                         "themisto, launched via --registration-port/--key instead of -f."
                       << std::endl;
             return 1;
         }
-        kernelConfig = std::get<datasuite::KernelConfiguration>(parsed);
+        kernelConfig = std::get<adrastea::KernelConfiguration>(parsed);
     }
     else
     {
         kernelConfig = makeKernelConfiguration(opts.key);
     }
 
-    datasuite::DatasuiteServer server(envConfig);
+    elara::Server server(envConfig);
 
     // server.start() runs entirely on this thread and blocks until the
-    // kernel shuts down (see DatasuiteServer's class comment for why it's
+    // kernel shuts down (see elara::Server's class comment for why it's
     // no longer a background thread). The on_ready callback below runs
     // synchronously, once the kernel's ports are bound but before it
     // enters that blocking poll loop -- exactly the window the old
     // thread-plus-promise dance existed to expose to main(), just without
     // the thread. If the callback throws (e.g. the supervisor never ACKs
-    // the registration handshake), DatasuiteServer::start() logs it and
+    // the registration handshake), Server::start() logs it and
     // rethrows without ever entering the blocking loop -- caught below.
     try
     {
@@ -195,7 +195,7 @@ int main(int argc, char* argv[])
                 // needs; it discovers liveness the same way it does for
                 // any other kernel (polling kernel_info_request until one
                 // succeeds), not an explicit handshake.
-                std::cerr << "[datasuite-r] ready (Jupyter connection-file mode), shell=" << kernelConfig.m_shellPort
+                std::cerr << "[elara] ready (Jupyter connection-file mode), shell=" << kernelConfig.m_shellPort
                           << " control=" << kernelConfig.m_controlPort << " iopub=" << kernelConfig.m_iopubPort
                           << std::endl;
             });
@@ -208,27 +208,27 @@ int main(int argc, char* argv[])
                 // per-session key the supervisor generated and passed us
                 // via --key. See sendConnectionInfo (handshaking.cpp) --
                 // this call blocks until the supervisor ACKs.
-                auto handshakeContext = datasuite::makeZmqContext();
+                auto handshakeContext = adrastea::makeZmqContext();
                 auto& zmqContext = handshakeContext->getWrappedContext<zmq::context_t>();
 
-                datasuite::RegistrationConfiguration regConfig;
+                adrastea::RegistrationConfiguration regConfig;
                 regConfig.m_transport = "tcp";
                 regConfig.m_signatureScheme = "hmac-sha256";
                 regConfig.m_key = opts.key;
                 regConfig.m_registrationIp = opts.registrationIp;
                 regConfig.m_registrationPort = opts.registrationPort;
 
-                auto auth = datasuite::makeAuthentication("hmac-sha256", opts.key);
+                auto auth = adrastea::makeAuthentication("hmac-sha256", opts.key);
 
-                datasuite::sendConnectionInfo(zmqContext, regConfig, kernelConfig, *auth, datasuite::json::error_handler_t::strict);
-                std::cerr << "[datasuite-r] registered with supervisor at "
+                adrastea::sendConnectionInfo(zmqContext, regConfig, kernelConfig, *auth, adrastea::json::error_handler_t::strict);
+                std::cerr << "[elara] registered with supervisor at "
                           << opts.registrationIp << ":" << opts.registrationPort << std::endl;
             });
         }
     }
     catch (const std::exception& e)
     {
-        std::cerr << "[datasuite-r] FATAL: " << e.what() << std::endl;
+        std::cerr << "[elara] FATAL: " << e.what() << std::endl;
         return 1;
     }
 

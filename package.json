@@ -1,5 +1,5 @@
 {
-  "name": "datasuite-r",
+  "name": "jovian",
   "version": "1.0.0",
   "type": "module",
   "description": "Unified R kernel for Jupyter and Node.js with C++ backend",
@@ -55,7 +55,7 @@
     "playground": "node tools/playground/server.js",
     "playground:repl": "node tools/playground/repl.js",
     "jupyter:kernelspec": "node tools/jupyter-kernelspec/generate.js",
-    "pack:install": "npm pack && cd ../../JS/vscode && npm install ../../VS/datasuite-r/datasuite-r-1.0.0.tgz"
+    "pack:install": "npm pack && cd ../../JS/vscode && npm install ../../VS/jovian/jovian-1.0.0.tgz"
   },
   "keywords": [
     "r",

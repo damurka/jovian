@@ -3,7 +3,7 @@ logger <- function(level, name) {
     function(...) {
         if (isTRUE(getOption('jupyter.log_level') >= level)) {
             msg <- glue(...)
-            hera_dot_call("datasuite_log", name, msg)
+            hera_dot_call("elara_log", name, msg)
         }
         invisible(NULL)
     }

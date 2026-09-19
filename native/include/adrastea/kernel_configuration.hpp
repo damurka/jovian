@@ -1,14 +1,14 @@
-#ifndef DATASUITE_CONFIGURATION_HPP
-#define DATASUITE_CONFIGURATION_HPP
+#ifndef ADRASTEA_CONFIGURATION_HPP
+#define ADRASTEA_CONFIGURATION_HPP
 
 #include <string>
 #include <variant>
 
-#include "datasuite.hpp"
+#include "adrastea.hpp"
 
-namespace datasuite
+namespace adrastea
 {
-    struct DATASUITE_API CommonConfiguration
+    struct ADRASTEA_API CommonConfiguration
     {
         std::string m_transport = "tcp";
         std::string m_ip = "127.0.0.1";
@@ -16,7 +16,7 @@ namespace datasuite
         std::string m_key;
     };
 
-    struct DATASUITE_API KernelConfiguration : CommonConfiguration
+    struct ADRASTEA_API KernelConfiguration : CommonConfiguration
     {
         std::string m_controlPort;
         std::string m_shellPort;
@@ -25,7 +25,7 @@ namespace datasuite
         std::string m_hbPort;
     };
 
-    struct DATASUITE_API RegistrationConfiguration : CommonConfiguration
+    struct ADRASTEA_API RegistrationConfiguration : CommonConfiguration
     {
         std::string m_kernelId;
         std::string m_registrationIp;
@@ -34,7 +34,7 @@ namespace datasuite
 
     using configuration = std::variant<KernelConfiguration, RegistrationConfiguration>;
 
-    DATASUITE_API
+    ADRASTEA_API
     configuration loadConfiguration(const std::string& file_name);
 }
 

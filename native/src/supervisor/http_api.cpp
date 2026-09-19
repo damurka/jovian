@@ -2,8 +2,11 @@
 
 #include <stdexcept>
 
-namespace datasuite::supervisor
+namespace themisto
 {
+    // Themisto builds on the Adrastea framework; name its symbols unqualified here.
+    using namespace adrastea;
+
     namespace
     {
         SessionOptions parseSessionOptions(const json& body)

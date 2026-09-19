@@ -1,6 +1,6 @@
-#include "datasuite/interpreter_r.hpp"
-#include "datasuite/helper.hpp"
-#include "datasuite/input.hpp"
+#include "elara/interpreter_r.hpp"
+#include "adrastea/helper.hpp"
+#include "adrastea/input.hpp"
 
 #ifdef _MSC_VER
 #define _Complex
@@ -33,14 +33,26 @@
 #undef _Complex
 #endif
 
-namespace datasuite
+namespace elara
 {
+    // Elara builds on the Adrastea framework; name its symbols unqualified here.
+    using namespace adrastea;
+
     static RInterpreter* p_interpreter = nullptr;
     RInterpreter* getRInterpreter()
     {
         return p_interpreter;
     }
+}
 
+// The framework's global interpreter registry (declared in
+// adrastea/interpreter.hpp) is still defined here rather than in
+// interpreter.cpp: getInterpreter() falls back to the R interpreter. These
+// must live in namespace adrastea, or they'd define distinct elara:: functions
+// and leave the declared adrastea:: ones unresolved. Moves into the framework
+// proper when Adrastea is extracted into its own target.
+namespace adrastea
+{
     Interpreter*& getRegisteredInterpreter()
     {
         static Interpreter* interpreter = nullptr;
@@ -67,8 +79,12 @@ namespace datasuite
         if (interp != nullptr)
             return *interp;
         else
-            return *getRInterpreter();
+            return *elara::getRInterpreter();
     }
+}
+
+namespace elara
+{
 
     void WriteConsoleEx(const char* buf, int buflen, int otype) {
         std::string output(buf, buflen);
@@ -91,7 +107,7 @@ namespace datasuite
     }
 
     int ReadConsole(const char* prompt, unsigned char* buffer, int length, int /*addtohistory*/) {
-        std::string res = datasuite::blockingInputRequest(prompt, false);
+        std::string res = adrastea::blockingInputRequest(prompt, false);
 
         std::size_t size = std::min(res.size(), std::size_t(length));
         std::copy(res.c_str(), res.c_str() + size, buffer);
@@ -125,14 +141,14 @@ namespace datasuite
         // No R_CStackLimit override needed here (unlike an earlier version
         // of this code, which queried this thread's stack bounds and
         // computed one manually): Rf_initEmbeddedR() runs directly on this
-        // process's actual main thread now (see DatasuiteServer::start(),
-        // datasuite_engine.cpp), which is exactly what R's own built-in
+        // process's actual main thread now (see Server::start(),
+        // engine.cpp), which is exactly what R's own built-in
         // stack-bounds auto-detection assumes and correctly handles --
         // matching how xeus-r's interpreter constructor embeds R, with
         // nothing beyond this one call. That auto-detection reflects
         // whatever real stack this thread has, though, so the linker's
         // default 1MB reserve was still enlarged (native/CMakeLists.txt,
-        // the datasuite-r target's /STACK option) to actually give it room
+        // the elara target's /STACK option) to actually give it room
         // for the deep C-level recursion real workloads can hit -- the
         // previous manual override was compensating for running on a
         // *secondary* thread (a carryover from this code's Node-addon
@@ -232,7 +248,7 @@ namespace datasuite
         // in the library, and since its DESCRIPTION Version doesn't change
         // between dev iterations, a plain require("hera") would keep
         // silently loading that stale copy forever even after the source
-        // under DATASUITE_HERA_SRC changes -- exactly what happened here
+        // under ELARA_HERA_SRC changes -- exactly what happened here
         // (an old display_data() that charToRaw()'d its JSON payload before
         // the .Call(), crashing the C side with "STRING_ELT() ... not a
         // 'raw'" on every plot, while the fixed source on disk was never
@@ -242,7 +258,7 @@ namespace datasuite
         static const char* load_hera_code = R"(
             local({
                 status <- "missing"
-                hera_src <- Sys.getenv("DATASUITE_HERA_SRC", unset = "")
+                hera_src <- Sys.getenv("ELARA_HERA_SRC", unset = "")
                 has_source <- nzchar(hera_src) && dir.exists(hera_src)
 
                 installed_path <- tryCatch(find.package("hera", quiet = TRUE), error = function(e) character(0))
@@ -294,9 +310,9 @@ namespace datasuite
         if (status == "already_loaded") {
             printf("[R Interpreter] Successfully loaded 'hera' package\n");
         } else if (status == "auto_installed") {
-            printf("[R Interpreter] 'hera' was not installed -- auto-installed from DATASUITE_HERA_SRC and loaded successfully\n");
+            printf("[R Interpreter] 'hera' was not installed -- auto-installed from ELARA_HERA_SRC and loaded successfully\n");
         } else if (status == "reinstalled_stale") {
-            printf("[R Interpreter] Installed 'hera' was older than DATASUITE_HERA_SRC -- reinstalled and loaded successfully\n");
+            printf("[R Interpreter] Installed 'hera' was older than ELARA_HERA_SRC -- reinstalled and loaded successfully\n");
         } else {
             printf("[R Interpreter] WARNING: 'hera' package could not be loaded (status: %s). Some features may not work.\n", status.c_str());
             printf("[R Interpreter] Continuing without 'hera' for testing purposes...\n");

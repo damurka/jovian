@@ -1,16 +1,16 @@
-#ifndef DATASUITE_LOGGER_HPP
-#define DATASUITE_LOGGER_HPP
+#ifndef ADRASTEA_LOGGER_HPP
+#define ADRASTEA_LOGGER_HPP
 
 #include <memory>
 
-#include "datasuite.hpp"
+#include "adrastea.hpp"
 #include "json.hpp"
 #include "message.hpp"
 
-namespace datasuite
+namespace adrastea
 {
 
-    class DATASUITE_API Logger
+    class ADRASTEA_API Logger
     {
     public:
 
@@ -65,11 +65,11 @@ namespace datasuite
             const json& content) const = 0;
     };
 
-    DATASUITE_API
+    ADRASTEA_API
     std::unique_ptr<Logger> makeConsoleLogger(Logger::level log_level,
             std::unique_ptr<Logger> next_logger = nullptr);
 
-    DATASUITE_API
+    ADRASTEA_API
     std::unique_ptr<Logger> makeFileLogger(Logger::level log_level,
             const std::string& file_name,
             std::unique_ptr<Logger> next_logger = nullptr);

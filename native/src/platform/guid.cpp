@@ -1,4 +1,4 @@
-#include "datasuite/guid.hpp"
+#include "adrastea/guid.hpp"
 #include <array>
 #include <cstddef>
 #include <format> // Replaces sstream, iomanip, and hex_string
@@ -15,7 +15,7 @@
 #include <objbase.h>
 #endif
 
-namespace datasuite
+namespace adrastea
 {
     Guid newGuid()
     {

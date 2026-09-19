@@ -11,7 +11,7 @@
 
 #include "supervisor/kernel_process.hpp"
 
-using namespace datasuite::supervisor;
+using namespace themisto;
 
 namespace
 {
@@ -33,7 +33,7 @@ namespace
     KernelProcessOptions longRunningOptions()
     {
         KernelProcessOptions options;
-        options.kernelExePath = DATASUITE_TEST_DUMMY_PROCESS_EXE;
+        options.kernelExePath = THEMISTO_TEST_DUMMY_PROCESS_EXE;
         options.key = "run-until-killed";
         return options;
     }
@@ -41,7 +41,7 @@ namespace
     KernelProcessOptions quickExitOptions()
     {
         KernelProcessOptions options;
-        options.kernelExePath = DATASUITE_TEST_DUMMY_PROCESS_EXE;
+        options.kernelExePath = THEMISTO_TEST_DUMMY_PROCESS_EXE;
         options.key = "quick-exit";
         return options;
     }
@@ -98,7 +98,7 @@ TEST(KernelProcessTest, StartThrowsWhenTheExecutableDoesNotExist)
     // (native/src/supervisor/kernel_process.cpp) -- previously untested,
     // every other test here spawns a real (dummy) executable successfully.
     KernelProcessOptions options;
-    options.kernelExePath = "C:\\this\\path\\does\\not\\exist\\datasuite-r.exe";
+    options.kernelExePath = "C:\\this\\path\\does\\not\\exist\\elara.exe";
 
     KernelProcess process(options);
     EXPECT_THROW(process.start(), std::runtime_error);
@@ -127,7 +127,7 @@ TEST(KernelProcessTest, DescribeStatusReportsTheExitCodeAfterANaturalExit)
 TEST(KernelProcessTest, DescribeStatusBeforeStartingReportsNeverStarted)
 {
     KernelProcessOptions options;
-    options.kernelExePath = DATASUITE_TEST_DUMMY_PROCESS_EXE;
+    options.kernelExePath = THEMISTO_TEST_DUMMY_PROCESS_EXE;
 
     KernelProcess process(options);
 

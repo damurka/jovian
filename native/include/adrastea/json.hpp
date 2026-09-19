@@ -1,5 +1,5 @@
-#ifndef DATASUITE_JSON_HPP
-#define DATASUITE_JSON_HPP
+#ifndef ADRASTEA_JSON_HPP
+#define ADRASTEA_JSON_HPP
 
 // Remove annoying false positive warning on GCC: json.hpp:1394:23: warning: potential null pointer dereference
 // See https://github.com/nlohmann/json/issues/3525
@@ -12,8 +12,8 @@
 #   include <nlohmann/json.hpp>
 #endif
 
-namespace datasuite {
-    // Alias for convenience across the datasuite namespace
+namespace adrastea {
+    // Alias for convenience across the adrastea namespace
     using json = nlohmann::json;
     namespace nl = nlohmann;
 }

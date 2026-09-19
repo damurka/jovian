@@ -21,9 +21,9 @@ interface CreateSessionResponse {
     error?: string;
 }
 
-// datasuite-supervisor plays the role Positron's Kallichore plays for Ark:
+// themisto plays the role Positron's Kallichore plays for Ark:
 // it's the only process in this system that ever links a native ZMQ
-// binding. It spawns/owns `datasuite-r` kernel processes, speaks ZMQ to
+// binding. It spawns/owns `elara` kernel processes, speaks ZMQ to
 // each of them, and re-exposes sessions over plain HTTP (lifecycle) +
 // WebSocket (execute/interrupt/message streaming) -- so Electron/VS Code's
 // process, where this class runs, never needs a native dependency at all.
@@ -140,22 +140,22 @@ export class SupervisorClient {
 }
 
 // Finds the supervisor binary (see native/CMakeLists.txt's
-// DATASUITE_BUILD_SUPERVISOR target and CMAKE_RUNTIME_OUTPUT_DIRECTORY =
+// JOVIAN_BUILD_THEMISTO target and CMAKE_RUNTIME_OUTPUT_DIRECTORY =
 // dist/native/$<CONFIG>).
 function resolveSupervisorExecutable(): string {
-    // const exeName = process.platform === 'win32' ? 'datasuite-supervisor.exe' : 'datasuite-supervisor';
+    // const exeName = process.platform === 'win32' ? 'themisto.exe' : 'themisto';
     // const candidate = join(__dirname, '../../native/Release', exeName);
     // if (!existsSync(candidate)) {
     //     throw new Error(
-    //         `datasuite-r: supervisor executable not found at ${candidate}. ` +
+    //         `jovian: supervisor executable not found at ${candidate}. ` +
     //         `Run the native build (npm run build:native) before creating a session.`
     //     );
     // }
-    const exeName = process.platform === 'win32' ? 'datasuite-supervisor.exe' : 'datasuite-supervisor';
+    const exeName = process.platform === 'win32' ? 'themisto.exe' : 'themisto';
     const candidate = join(__dirname, '../../native/Release', exeName)
         .replace(/\bnode_modules\.asar\b/, 'node_modules.asar.unpacked');
     if (!existsSync(candidate)) {
-        throw new Error(`datasuite-r: supervisor executable not found at ${candidate}. ` +
+        throw new Error(`jovian: supervisor executable not found at ${candidate}. ` +
             `Run the native build (npm run build:native) before creating a session.`);
     }
     return candidate;

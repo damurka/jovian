@@ -1,10 +1,10 @@
 #include <string>
 #include <vector>
 
-#include "datasuite/json.hpp"
-#include "datasuite/helper.hpp"
+#include "adrastea/json.hpp"
+#include "adrastea/helper.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     std::string getStartMessage(const KernelConfiguration& config)
     {
@@ -131,7 +131,7 @@ namespace datasuite
     {
         json kernel_res;
         // kernel_res["protocol_version"] is set in KernelCore::kernelInfoRequest
-        // to ensure the same version for all the datasuite-based kernels
+        // to ensure the same version for all the adrastea-based kernels
         kernel_res["status"] = "ok";
         kernel_res["implementation"] = implementation;
         kernel_res["implementation_version"] = implementation_version;

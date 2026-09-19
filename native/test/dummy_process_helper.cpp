@@ -1,9 +1,9 @@
 // Standalone helper spawned by kernel_process_test.cpp -- deliberately not
-// datasuite-r.exe, so KernelProcess's spawn/isAlive/kill lifecycle can be
+// elara.exe, so KernelProcess's spawn/isAlive/kill lifecycle can be
 // tested in milliseconds without embedding a real R interpreter.
 //
 // KernelProcess::start() (native/src/supervisor/kernel_process.cpp) always
-// builds its child's command line from a fixed set of datasuite-r-shaped
+// builds its child's command line from a fixed set of elara-shaped
 // flags (--r-home, --registration-port, --key, ...); there's no way to pass
 // this helper a custom flag through that code path. Reusing --key as a
 // signal instead: "--key quick-exit" means exit immediately (for testing

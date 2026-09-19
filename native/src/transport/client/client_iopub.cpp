@@ -5,7 +5,7 @@
 #include "../common/middleware_impl.hpp"
 #include "../common/zmq_serializer.hpp"
 
-namespace datasuite
+namespace adrastea
 {
 
     ClientIopub::ClientIopub(zmq::context_t& context,

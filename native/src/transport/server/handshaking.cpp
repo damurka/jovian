@@ -1,12 +1,12 @@
 #include "zmq_addon.hpp"
-#include "datasuite/json.hpp"
+#include "adrastea/json.hpp"
 
 #include "handshaking.hpp"
-#include "datasuite/middleware.hpp"
+#include "adrastea/middleware.hpp"
 
 #include "../common/zmq_serializer.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     KernelConfiguration getKernelConfiguration(const configuration& config)
     {

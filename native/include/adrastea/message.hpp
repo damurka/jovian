@@ -1,18 +1,18 @@
-#ifndef DATASUITE_MESSAGE_HPP
-#define DATASUITE_MESSAGE_HPP
+#ifndef ADRASTEA_MESSAGE_HPP
+#define ADRASTEA_MESSAGE_HPP
 
 #include <string>
 #include <vector>
 
-#include "datasuite.hpp"
+#include "adrastea.hpp"
 #include "json.hpp"
 
-namespace datasuite
+namespace adrastea
 {
 	using binary_buffer = std::vector<char>;
 	using buffer_sequence = std::vector<binary_buffer>;
 
-	class DATASUITE_API MessageBase
+	class ADRASTEA_API MessageBase
 	{
 	public:
 
@@ -48,7 +48,7 @@ namespace datasuite
 		buffer_sequence m_buffers;
 	};
 
-	class DATASUITE_API Message : public MessageBase
+	class ADRASTEA_API Message : public MessageBase
 	{
 	public:
 		using guid_list = std::vector<std::string>;
@@ -75,7 +75,7 @@ namespace datasuite
 		guid_list m_zmqId;
 	};
 
-	class DATASUITE_API PubMessage : public MessageBase
+	class ADRASTEA_API PubMessage : public MessageBase
 	{
 	public:
 
@@ -104,11 +104,11 @@ namespace datasuite
 		std::string m_topic;
 	};
 
-	DATASUITE_API std::string iso8601Now();
+	ADRASTEA_API std::string iso8601Now();
 
-	DATASUITE_API std::string_view getProtocolVersion();
+	ADRASTEA_API std::string_view getProtocolVersion();
 
-	DATASUITE_API json makeHeader(const std::string& msg_type,
+	ADRASTEA_API json makeHeader(const std::string& msg_type,
 									const std::string& user_name,
 									const std::string& session_id);
 }

@@ -5,11 +5,11 @@
 // round trip through SessionRegistryTest.
 #include <gtest/gtest.h>
 
-#include "datasuite/message.hpp"
+#include "adrastea/message.hpp"
 #include "transport/common/authentication.hpp"
 #include "transport/common/zmq_serializer.hpp"
 
-using namespace datasuite;
+using namespace adrastea;
 
 namespace
 {

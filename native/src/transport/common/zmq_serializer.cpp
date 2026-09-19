@@ -1,7 +1,7 @@
 #include "zmq_serializer.hpp"
-#include "datasuite/json.hpp"
+#include "adrastea/json.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     namespace
     {

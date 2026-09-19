@@ -15,7 +15,7 @@
 #include <unistd.h>
 #endif
 
-namespace datasuite::supervisor
+namespace themisto
 {
     namespace
     {
@@ -59,7 +59,7 @@ namespace datasuite::supervisor
         // holding that handle) exits, by any means: a clean stopAll(),
         // the process.once('exit') fallback in session-manager.ts, a crash,
         // or Task Manager "End Task". That's the actual fix for a real,
-        // reported bug: orphaned datasuite-r.exe processes surviving even
+        // reported bug: orphaned elara.exe processes surviving even
         // a full VS Code close. Everything upstream of this (Session.kill()
         // only closing a local WebSocket, the exit handler only killing
         // *this* process) was cooperative cleanup that depended on code
@@ -117,13 +117,13 @@ namespace datasuite::supervisor
                 std::size_t pos;
                 while ((pos = carry.find('\n')) != std::string::npos)
                 {
-                    std::cerr << "[datasuite-r] " << carry.substr(0, pos) << std::endl;
+                    std::cerr << "[elara] " << carry.substr(0, pos) << std::endl;
                     carry.erase(0, pos + 1);
                 }
             }
             if (!carry.empty())
             {
-                std::cerr << "[datasuite-r] " << carry << std::endl;
+                std::cerr << "[elara] " << carry << std::endl;
             }
             CloseHandle(handle);
         });
@@ -139,13 +139,13 @@ namespace datasuite::supervisor
                 std::size_t pos;
                 while ((pos = carry.find('\n')) != std::string::npos)
                 {
-                    std::cerr << "[datasuite-r] " << carry.substr(0, pos) << std::endl;
+                    std::cerr << "[elara] " << carry.substr(0, pos) << std::endl;
                     carry.erase(0, pos + 1);
                 }
             }
             if (!carry.empty())
             {
-                std::cerr << "[datasuite-r] " << carry << std::endl;
+                std::cerr << "[elara] " << carry << std::endl;
             }
             close(fd);
         });
@@ -175,7 +175,7 @@ namespace datasuite::supervisor
         HANDLE writeHandle = nullptr;
         if (!CreatePipe(&readHandle, &writeHandle, &pipeAttrs, 0))
         {
-            throw std::runtime_error("Failed to create output pipe for datasuite-r process");
+            throw std::runtime_error("Failed to create output pipe for elara process");
         }
         // The write end must not be inherited by the *supervisor* itself
         // (only by the child, via STARTUPINFOA below) -- otherwise the pipe
@@ -202,7 +202,7 @@ namespace datasuite::supervisor
         {
             CloseHandle(writeHandle);
             CloseHandle(readHandle);
-            throw std::runtime_error("Failed to initialize process attribute list for datasuite-r process");
+            throw std::runtime_error("Failed to initialize process attribute list for elara process");
         }
         HANDLE inheritList[] = { writeHandle };
         if (!UpdateProcThreadAttribute(
@@ -212,7 +212,7 @@ namespace datasuite::supervisor
             DeleteProcThreadAttributeList(attrList);
             CloseHandle(writeHandle);
             CloseHandle(readHandle);
-            throw std::runtime_error("Failed to set inherited handle list for datasuite-r process");
+            throw std::runtime_error("Failed to set inherited handle list for elara process");
         }
 
         STARTUPINFOEXA startupInfo{};
@@ -253,7 +253,7 @@ namespace datasuite::supervisor
         if (!ok)
         {
             CloseHandle(readHandle);
-            throw std::runtime_error("Failed to spawn datasuite-r process (CreateProcess failed)");
+            throw std::runtime_error("Failed to spawn elara process (CreateProcess failed)");
         }
 
         m_processHandle = processInfo.hProcess;
@@ -370,7 +370,7 @@ namespace datasuite::supervisor
         int pipeFds[2];
         if (pipe(pipeFds) != 0)
         {
-            throw std::runtime_error("Failed to create output pipe for datasuite-r process");
+            throw std::runtime_error("Failed to create output pipe for elara process");
         }
 
         pid_t pid = fork();
@@ -378,7 +378,7 @@ namespace datasuite::supervisor
         {
             close(pipeFds[0]);
             close(pipeFds[1]);
-            throw std::runtime_error("Failed to fork datasuite-r process");
+            throw std::runtime_error("Failed to fork elara process");
         }
         if (pid == 0)
         {

@@ -1,10 +1,10 @@
-#ifndef DATASUITE_GUID_HPP
-#define DATASUITE_GUID_HPP
+#ifndef ADRASTEA_GUID_HPP
+#define ADRASTEA_GUID_HPP
 
-#include "datasuite.hpp"
+#include "adrastea.hpp"
 #include "json.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     struct alignas(64) Guid {
         std::array<char, 64> buffer{};
@@ -64,7 +64,7 @@ namespace datasuite
     }
 
 
-    DATASUITE_API Guid newGuid();
+    ADRASTEA_API Guid newGuid();
 }
 
 #endif

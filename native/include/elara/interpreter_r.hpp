@@ -1,16 +1,19 @@
-#ifndef DATASUITE_R_INTERPRETER_HPP
-#define DATASUITE_R_INTERPRETER_HPP
+#ifndef ELARA_R_INTERPRETER_HPP
+#define ELARA_R_INTERPRETER_HPP
 
 #include <string>
 #include <memory>
 
-#include "interpreter.hpp"
-#include "datasuite.hpp"
-#include "json.hpp"
+#include "adrastea/interpreter.hpp"
+#include "adrastea/adrastea.hpp"
+#include "adrastea/json.hpp"
 
-namespace datasuite
+namespace elara
 {
-    class DATASUITE_API RInterpreter : public Interpreter
+    // Elara builds on the Adrastea framework; name its symbols unqualified here.
+    using namespace adrastea;
+
+    class ADRASTEA_API RInterpreter : public Interpreter
     {
     public:
         using base_type = Interpreter;

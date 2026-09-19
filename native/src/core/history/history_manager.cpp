@@ -1,10 +1,10 @@
 #include <string>
 #include <vector>
 
-#include "datasuite/history_manager.hpp"
+#include "adrastea/history_manager.hpp"
 #include "in_memory_history_manager.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     HistoryManager::HistoryManager()
     {

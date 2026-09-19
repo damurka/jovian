@@ -86,26 +86,26 @@ hera_new <- function(class, xp, ...) {
     get(class, envir = NAMESPACE)$new(xp, ...)
 }
 
-#' Is this a running datasuite jupyter kernel
+#' Is this a running Elara jupyter kernel
 #'
-#' @return TRUE if the current session is running in a datasuite kernel
+#' @return TRUE if the current session is running in an Elara kernel
 #'
 #' @examples
-#' is_datasuite()
+#' is_elara()
 #'
 #' @export
-is_datasuite <- function() {
+is_elara <- function() {
   embedding <- getLoadedDLLs()[["(embedding)"]]
-  !is.null(embedding) && "datasuite_kernel_info_request" %in% names(getDLLRegisteredRoutines(embedding)$.Call)
+  !is.null(embedding) && "elara_kernel_info_request" %in% names(getDLLRegisteredRoutines(embedding)$.Call)
 }
 
 hera_dot_call <- function(fn, ..., error_call = caller_env()) {
   call <- rlang::call2(".Call", fn, ..., PACKAGE = "(embedding)")
 
-  if (!is_datasuite()) {
+  if (!is_elara()) {
     cli::cli_abort(c(
-      "The {.val {fn}} routine must be called inside a datasuite kernel.",
-      i   = "Full internal call to the datasuite routine:",
+      "The {.val {fn}} routine must be called inside an Elara kernel.",
+      i   = "Full internal call to the Elara routine:",
       " " = "{deparse(call)}"
     ), call = error_call)
   }

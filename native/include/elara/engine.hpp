@@ -1,27 +1,30 @@
-#ifndef DATASUITE_ENGINE_HPP
-#define DATASUITE_ENGINE_HPP
+#ifndef ELARA_ENGINE_HPP
+#define ELARA_ENGINE_HPP
 
 #include <iostream>
 #include <memory>
 #include <string>
 #include <functional>
 
-#include "datasuite.hpp"
-#include "context.hpp"
-#include "kernel_configuration.hpp"
-#include "kernel.hpp"
-#include "server_zmq.hpp"
+#include "adrastea/adrastea.hpp"
+#include "adrastea/context.hpp"
+#include "adrastea/kernel_configuration.hpp"
+#include "adrastea/kernel.hpp"
+#include "adrastea/server_zmq.hpp"
 #include "interpreter_r.hpp"
-#include "logger.hpp"
-#include "history_manager.hpp"
+#include "adrastea/logger.hpp"
+#include "adrastea/history_manager.hpp"
 
-namespace datasuite
+namespace elara
 {
+    // Elara builds on the Adrastea framework; name its symbols unqualified here.
+    using namespace adrastea;
+
 
     // =========================================================================
     // ENVIRONMENT CONFIGURATION
     // =========================================================================
-    struct DATASUITE_API EnvironmentConfig {
+    struct ADRASTEA_API EnvironmentConfig {
         std::string r_home;
         std::string r_path;
         std::string r_libs;
@@ -39,10 +42,10 @@ namespace datasuite
     // =========================================================================
     // THE SERVER: boots an embedded R Kernel and runs it to completion, on
     // the calling thread. This is the piece the standalone kernel
-    // executable (native/src/datasuite-r.cpp) uses directly -- it has no
+    // executable (native/src/elara.cpp) uses directly -- it has no
     // dependency on how the resulting Kernel gets talked to (formerly an
-    // in-process DatasuiteClient/DatasuiteEngine facade for the Node addon;
-    // now a separate datasuite-supervisor process over ZMQ, see
+    // in-process Client/Engine facade for the Node addon;
+    // now a separate themisto process over ZMQ, see
     // native/src/supervisor/session_registry.cpp).
     //
     // start() runs synchronously on whichever thread calls it, deliberately
@@ -64,10 +67,10 @@ namespace datasuite
     // RInterpreter no longer needs to query/override it at all (see
     // interpreter_r.cpp).
     // =========================================================================
-    class DATASUITE_API DatasuiteServer {
+    class ADRASTEA_API Server {
     public:
-        DatasuiteServer() = default;
-        explicit DatasuiteServer(const EnvironmentConfig& env) : env_config(env) {}
+        Server() = default;
+        explicit Server(const EnvironmentConfig& env) : env_config(env) {}
 
         // Blocks until the kernel receives a shutdown_request and its poll
         // loop returns. `on_ready` is called once the kernel's ports are
@@ -84,4 +87,4 @@ namespace datasuite
     };
 }
 
-#endif // DATASUITE_ENGINE_HPP
+#endif // ELARA_ENGINE_HPP

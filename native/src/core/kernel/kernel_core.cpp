@@ -5,14 +5,14 @@
 #include <string>
 #include <tuple>
 
-#include "datasuite/json.hpp"
-#include "datasuite/history_manager.hpp"
-#include "datasuite/request_context.hpp"
+#include "adrastea/json.hpp"
+#include "adrastea/history_manager.hpp"
+#include "adrastea/request_context.hpp"
 #include "kernel_core.hpp"
 
 using namespace std::placeholders;
 
-namespace datasuite
+namespace adrastea
 {
     KernelCore::KernelCore(const std::string& kernel_id,
         const std::string& user_name,
@@ -223,7 +223,7 @@ namespace datasuite
 
     void KernelCore::executeRequest(Message request, channel)
     {
-        // datasuite assumes execute_request will be executed on SHELL only
+        // adrastea assumes execute_request will be executed on SHELL only
         try
         {
             const json& content = request.content();

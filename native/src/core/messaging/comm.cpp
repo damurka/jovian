@@ -1,8 +1,8 @@
-#include "datasuite/json.hpp"
-#include "datasuite/comm.hpp"
+#include "adrastea/json.hpp"
+#include "adrastea/comm.hpp"
 #include "core/kernel/kernel_core.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     /*******************************
      * CommTarget implementation *

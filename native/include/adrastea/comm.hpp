@@ -1,5 +1,5 @@
-#ifndef DATASUITE_COMM_HPP
-#define DATASUITE_COMM_HPP
+#ifndef ADRASTEA_COMM_HPP
+#define ADRASTEA_COMM_HPP
 
 #include <functional>
 #include <list>
@@ -11,7 +11,7 @@
 #include "json.hpp"
 #include "message.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     /*****************************
      * CommTarget declaration *
@@ -24,7 +24,7 @@ namespace datasuite
      * @class CommTarget
      * @brief Comm target.
      */
-    class DATASUITE_API CommTarget
+    class ADRASTEA_API CommTarget
     {
     public:
 
@@ -57,13 +57,13 @@ namespace datasuite
       * @brief Comm object.
       *
       */
-    class DATASUITE_API Comm
+    class ADRASTEA_API Comm
     {
     public:
 
         using handler_type = std::function<void(Message)>;
 
-        explicit Comm(const CommTarget* target, Guid id = datasuite::newGuid());
+        explicit Comm(const CommTarget* target, Guid id = adrastea::newGuid());
         ~Comm();
         Comm(Comm&&);
         Comm(const Comm&);
@@ -115,7 +115,7 @@ namespace datasuite
 
     class KernelCore;
 
-    class DATASUITE_API CommManager
+    class ADRASTEA_API CommManager
     {
     public:
 

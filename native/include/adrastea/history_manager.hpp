@@ -1,15 +1,15 @@
-#ifndef DATASUITE_HISTORY_MANAGER_HPP
-#define DATASUITE_HISTORY_MANAGER_HPP
+#ifndef ADRASTEA_HISTORY_MANAGER_HPP
+#define ADRASTEA_HISTORY_MANAGER_HPP
 
 #include <string>
 #include <vector>
 
-#include "datasuite.hpp"
+#include "adrastea.hpp"
 #include "json.hpp"
 
-namespace datasuite
+namespace adrastea
 {
-    class DATASUITE_API HistoryManager
+    class ADRASTEA_API HistoryManager
     {
     public:
 
@@ -47,7 +47,7 @@ namespace datasuite
         virtual json searchImpl(const std::string& pattern, bool raw, bool output, int n, bool unique) const = 0;
     };
 
-    DATASUITE_API
+    ADRASTEA_API
     std::unique_ptr<HistoryManager> makeInMemoryHistoryManager();
 }
 

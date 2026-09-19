@@ -22,19 +22,19 @@ async function run(cmd, args) {
 }
 
 async function main() {
-    console.log('🔨 Building datasuite-r...\n');
+    console.log('🔨 Building jovian...\n');
     
     if (!existsSync(DIST)) {
         mkdirSync(DIST, { recursive: true });
     }
     
-    console.log('📦 Step 1/2: Building native targets (datasuite-r + datasuite-supervisor)...');
+    console.log('📦 Step 1/2: Building native targets (elara + themisto)...');
     const vcpkgRoot = process.env.VCPKG_ROOT || '';
     const toolchainFile = vcpkgRoot ? `${vcpkgRoot}/scripts/buildsystems/vcpkg.cmake` : '';
 
     // Plain CMake now that there's no Node addon target needing cmake-js's
     // Node-ABI-aware configure step (CMAKE_JS_INC/LIB, forced /MT runtime).
-    // DATASUITE_BUILD_KERNEL_EXE/SUPERVISOR are independent options (both
+    // JOVIAN_BUILD_ELARA/THEMISTO are independent options (both
     // default ON), so this single configure+build produces both targets.
     const configureArgs = ['-S', '.', '-B', 'dist/native'];
     if (toolchainFile) {

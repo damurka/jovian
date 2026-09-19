@@ -48,7 +48,7 @@ const manager = new SessionManager();
 /** @type {import('../../dist/lib/index.js').Session | null} */
 let session = null;
 let plotCounter = 0;
-const plotsDir = await mkdtemp(join(tmpdir(), 'datasuite-r-playground-'));
+const plotsDir = await mkdtemp(join(tmpdir(), 'jovian-playground-'));
 
 function openFile(filePath) {
     const cmd = process.platform === 'win32' ? `start "" "${filePath}"`
@@ -270,7 +270,7 @@ function isBalanced(code) {
     return depth <= 0 && inString === null;
 }
 
-console.log(paint('bold', '\ndatasuite-r playground (terminal)\n'));
+console.log(paint('bold', '\njovian playground (terminal)\n'));
 
 await createSession();
 

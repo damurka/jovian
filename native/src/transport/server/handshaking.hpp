@@ -1,14 +1,14 @@
-#ifndef DATASUITE_HANSHAKING_HPP
-#define DATASUITE_HANSHAKING_HPP
+#ifndef ADRASTEA_HANSHAKING_HPP
+#define ADRASTEA_HANSHAKING_HPP
 
 #include "zmq_addon.hpp"
 
-#include "datasuite/kernel_configuration.hpp"
-#include "datasuite/server.hpp"
+#include "adrastea/kernel_configuration.hpp"
+#include "adrastea/server.hpp"
 
 #include "../common/authentication.hpp"
 
-namespace datasuite
+namespace adrastea
 {
 
     KernelConfiguration getKernelConfiguration(const configuration& config);

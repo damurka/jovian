@@ -3,10 +3,13 @@
 #include <regex>
 #include <stdexcept>
 
-#include "datasuite/middleware.hpp"
+#include "adrastea/middleware.hpp"
 
-namespace datasuite::supervisor
+namespace themisto
 {
+    // Themisto builds on the Adrastea framework; name its symbols unqualified here.
+    using namespace adrastea;
+
     namespace
     {
         std::string extractSessionId(const std::string& uri)
@@ -46,8 +49,8 @@ namespace datasuite::supervisor
         // OS for the real ephemeral port after an OS-assigned (0) bind. Pick
         // one explicitly instead, the same way ZMQ ports are already picked
         // elsewhere in this codebase (see findFreePort() usage in
-        // datasuite-r.cpp/datasuite_engine.cpp).
-        int port = std::stoi(datasuite::findFreePort());
+        // elara.cpp/engine.cpp).
+        int port = std::stoi(adrastea::findFreePort());
         m_server = std::make_unique<ix::WebSocketServer>(port, "127.0.0.1");
 
         m_server->setOnConnectionCallback(

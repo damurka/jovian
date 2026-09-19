@@ -1,5 +1,5 @@
 {
-  "name": "datasuite-r",
+  "name": "jovian",
   "version": "1.0.0",
   "dependencies": [
     "nlohmann-json",

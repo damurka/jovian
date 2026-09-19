@@ -1,11 +1,11 @@
-#ifndef DATASUITE_HEARTBEAT_HPP
-#define DATASUITE_HEARTBEAT_HPP
+#ifndef ADRASTEA_HEARTBEAT_HPP
+#define ADRASTEA_HEARTBEAT_HPP
 
 #include <string>
 
 #include "zmq.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     class Heartbeat
     {

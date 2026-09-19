@@ -1,5 +1,5 @@
-#ifndef DATASUITE_SUPERVISOR_SESSION_REGISTRY_HPP
-#define DATASUITE_SUPERVISOR_SESSION_REGISTRY_HPP
+#ifndef THEMISTO_SESSION_REGISTRY_HPP
+#define THEMISTO_SESSION_REGISTRY_HPP
 
 #include <atomic>
 #include <functional>
@@ -9,17 +9,20 @@
 #include <string>
 #include <thread>
 
-#include "datasuite/context.hpp"
-#include "datasuite/json.hpp"
+#include "adrastea/context.hpp"
+#include "adrastea/json.hpp"
 
 #include "transport/client/client_handshake_zmq.hpp"
 #include "transport/client/client_zmq.hpp"
 
 #include "kernel_process.hpp"
 
-namespace datasuite::supervisor
+namespace themisto
 {
-    using json = datasuite::json;
+    // Themisto builds on the Adrastea framework; name its symbols unqualified here.
+    using namespace adrastea;
+
+    using json = adrastea::json;
 
     struct SessionOptions
     {
@@ -40,7 +43,7 @@ namespace datasuite::supervisor
 
     std::string toString(SessionStatus status);
 
-    // One R kernel session: the spawned datasuite-r process plus the ZMQ
+    // One R kernel session: the spawned elara process plus the ZMQ
     // client connected to it. Message traffic (execute/interrupt replies,
     // iopub output) is pumped out via `onMessage`, set by whichever
     // WebSocket connection is currently attached to this session
@@ -52,8 +55,8 @@ namespace datasuite::supervisor
         std::string id;
         SessionOptions options;
         std::unique_ptr<KernelProcess> process;
-        std::unique_ptr<datasuite::Context> zmqContext;
-        std::unique_ptr<datasuite::ClientZmq> client;
+        std::unique_ptr<adrastea::Context> zmqContext;
+        std::unique_ptr<adrastea::ClientZmq> client;
         std::atomic<SessionStatus> status{ SessionStatus::Starting };
 
         std::mutex callbackMutex;
@@ -125,8 +128,8 @@ namespace datasuite::supervisor
         std::string m_registrationPort;
         std::string m_registrationKey;
 
-        std::unique_ptr<datasuite::Context> m_registrationContext;
-        std::unique_ptr<datasuite::ClientHandshakeZmq> m_registrationListener;
+        std::unique_ptr<adrastea::Context> m_registrationContext;
+        std::unique_ptr<adrastea::ClientHandshakeZmq> m_registrationListener;
         std::mutex m_registrationMutex;
 
         std::mutex m_sessionsMutex;

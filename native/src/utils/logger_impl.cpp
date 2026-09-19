@@ -1,11 +1,11 @@
 #include <fstream>
 #include <iostream>
 
-#include "datasuite/json.hpp"
-#include "datasuite/message.hpp"
+#include "adrastea/json.hpp"
+#include "adrastea/message.hpp"
 #include "logger_impl.hpp"
 
-namespace datasuite
+namespace adrastea
 {
 
     /********************************
@@ -106,7 +106,7 @@ namespace datasuite
     void LoggerCommon::logReceivedMessageImpl(const Message& message, Logger::channel c) const
     {
         std::string id = message.identities()[0];
-        std::string socket_info = "DATASUITE: received message on "
+        std::string socket_info = "ADRASTEA: received message on "
             + channel_str[c] + " - "
             + (isUtf8Valid(id) ? id : "invalid UTF8");
         Logger::logMessage(socket_info,
@@ -119,7 +119,7 @@ namespace datasuite
     void LoggerCommon::logSentMessageImpl(const Message& message, Logger::channel c) const
     {
         std::string id = message.identities()[0];
-        std::string socket_info = "DATASUITE: sent message on "
+        std::string socket_info = "ADRASTEA: sent message on "
             + channel_str[c] + " - "
             + (isUtf8Valid(id) ? id : "invalid UTF8");
         Logger::logMessage(socket_info,
@@ -131,7 +131,7 @@ namespace datasuite
 
     void LoggerCommon::logIopubMessageImpl(const PubMessage& message) const
     {
-        std::string socket_info = "DATASUITE: sent message on iopub - "
+        std::string socket_info = "ADRASTEA: sent message on iopub - "
             + message.topic();
         Logger::logMessage(socket_info,
             message.header(),

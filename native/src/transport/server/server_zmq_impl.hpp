@@ -1,24 +1,24 @@
-#ifndef DATASUITE_SERVER_ZMQ_IMPL_HPP
-#define DATASUITE_SERVER_ZMQ_IMPL_HPP
+#ifndef ADRASTEA_SERVER_ZMQ_IMPL_HPP
+#define ADRASTEA_SERVER_ZMQ_IMPL_HPP
 
 #include <memory>
 
 #include "zmq.hpp"
 #include "zmq_addon.hpp"
 
-#include "datasuite/context.hpp"
-#include "datasuite/kernel_configuration.hpp"
-#include "datasuite/server.hpp"
+#include "adrastea/context.hpp"
+#include "adrastea/kernel_configuration.hpp"
+#include "adrastea/server.hpp"
 
-#include "datasuite/datasuite.hpp"
-#include "datasuite/thread.hpp"
+#include "adrastea/adrastea.hpp"
+#include "adrastea/thread.hpp"
 
 #include "../common/authentication.hpp"
 #include "publisher.hpp"
 #include "heartbeat.hpp"
 #include "trivial_messenger.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     class ServerZmqImpl
     {

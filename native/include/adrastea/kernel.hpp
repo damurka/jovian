@@ -1,11 +1,11 @@
-#ifndef DATASUITE_KERNEL_HPP
-#define DATASUITE_KERNEL_HPP
+#ifndef ADRASTEA_KERNEL_HPP
+#define ADRASTEA_KERNEL_HPP
 
 #include <memory>
 #include <string>
 #include <functional>
 
-#include "datasuite.hpp"
+#include "adrastea.hpp"
 #include "context.hpp"
 #include "history_manager.hpp"
 #include "interpreter.hpp"
@@ -13,14 +13,14 @@
 #include "server.hpp"
 #include "logger.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     class KernelCore;
 
-    DATASUITE_API
+    ADRASTEA_API
     std::string getUserName();
 
-    class DATASUITE_API Kernel
+    class ADRASTEA_API Kernel
     {
     public:
 

@@ -1,8 +1,8 @@
 #include "zmq.hpp"
 
-#include "datasuite/context.hpp"
+#include "adrastea/context.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     std::unique_ptr<Context> makeZmqContext()
     {

@@ -6,11 +6,11 @@
 #include <string>
 #include <utility>
 
-#include "datasuite/json.hpp"
-#include "datasuite/guid.hpp"
-#include "datasuite/message.hpp"
+#include "adrastea/json.hpp"
+#include "adrastea/guid.hpp"
+#include "adrastea/message.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     MessageBase::MessageBase(
         json header,
@@ -78,7 +78,7 @@ namespace datasuite
 
     std::string_view getProtocolVersion()
     {
-        return datasuite::version::kernel_protocol_version;
+        return adrastea::version::kernel_protocol_version;
     }
 
     json makeHeader(const std::string& msg_type,

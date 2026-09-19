@@ -1,12 +1,15 @@
-#include "datasuite/datasuite_engine.hpp"
+#include "elara/engine.hpp"
 
-namespace datasuite
+namespace elara
 {
+    // Elara builds on the Adrastea framework; name its symbols unqualified here.
+    using namespace adrastea;
+
     // =========================================================================
-    // DATASUITE SERVER IMPLEMENTATION
+    // ELARA SERVER IMPLEMENTATION
     // =========================================================================
-    void DatasuiteServer::setupEnvironment() {
-        printf("[DatasuiteServer] setup_environment() called\n");
+    void Server::setupEnvironment() {
+        printf("[elara::Server] setup_environment() called\n");
         fflush(stdout);
 
         // Set R_HOME
@@ -16,13 +19,13 @@ namespace datasuite
             std::string r_home_win = env_config.r_home;
             std::replace(r_home_win.begin(), r_home_win.end(), '/', '\\');
             _putenv_s("R_HOME", r_home_win.c_str());
-            printf("[DatasuiteServer] Set R_HOME=%s\n", r_home_win.c_str());
+            printf("[elara::Server] Set R_HOME=%s\n", r_home_win.c_str());
             fflush(stdout);
             #else
             setenv("R_HOME", env_config.r_home.c_str(), 1);
             #endif
         } else {
-            printf("[DatasuiteServer] WARNING: R_HOME is empty!\n");
+            printf("[elara::Server] WARNING: R_HOME is empty!\n");
             fflush(stdout);
         }
 
@@ -34,7 +37,7 @@ namespace datasuite
             std::string current_path = getenv("PATH") ? getenv("PATH") : "";
             std::string new_path = r_path_win + ";" + current_path;
             _putenv_s("PATH", new_path.c_str());
-            printf("[DatasuiteServer] Added to PATH=%s\n", r_path_win.c_str());
+            printf("[elara::Server] Added to PATH=%s\n", r_path_win.c_str());
             fflush(stdout);
             #else
             std::string current_path = getenv("PATH") ? getenv("PATH") : "";
@@ -51,9 +54,9 @@ namespace datasuite
             _putenv_s("R_LIBS", r_libs_win.c_str());
             _putenv_s("R_LIBS_USER", r_libs_win.c_str());
             _putenv_s("R_LIBS_SITE", r_libs_win.c_str());
-            printf("[DatasuiteServer] Set R_LIBS=%s\n", r_libs_win.c_str());
-            printf("[DatasuiteServer] Set R_LIBS_USER=%s\n", r_libs_win.c_str());
-            printf("[DatasuiteServer] Set R_LIBS_SITE=%s\n", r_libs_win.c_str());
+            printf("[elara::Server] Set R_LIBS=%s\n", r_libs_win.c_str());
+            printf("[elara::Server] Set R_LIBS_USER=%s\n", r_libs_win.c_str());
+            printf("[elara::Server] Set R_LIBS_SITE=%s\n", r_libs_win.c_str());
             fflush(stdout);
             #else
             setenv("R_LIBS", env_config.r_libs.c_str(), 1);
@@ -73,7 +76,7 @@ namespace datasuite
             std::string current_path = getenv("PATH") ? getenv("PATH") : "";
             std::string new_path = pandoc_path_win + ";" + current_path;
             _putenv_s("PATH", new_path.c_str());
-            printf("[DatasuiteServer] Set RSTUDIO_PANDOC=%s\n", pandoc_path_win.c_str());
+            printf("[elara::Server] Set RSTUDIO_PANDOC=%s\n", pandoc_path_win.c_str());
             fflush(stdout);
             #else
             setenv("RSTUDIO_PANDOC", env_config.pandoc_path.c_str(), 1);
@@ -89,23 +92,23 @@ namespace datasuite
             #ifdef _WIN32
             std::string hera_src_win = env_config.hera_src_path;
             std::replace(hera_src_win.begin(), hera_src_win.end(), '/', '\\');
-            _putenv_s("DATASUITE_HERA_SRC", hera_src_win.c_str());
-            printf("[DatasuiteServer] Set DATASUITE_HERA_SRC=%s\n", hera_src_win.c_str());
+            _putenv_s("ELARA_HERA_SRC", hera_src_win.c_str());
+            printf("[elara::Server] Set ELARA_HERA_SRC=%s\n", hera_src_win.c_str());
             fflush(stdout);
             #else
-            setenv("DATASUITE_HERA_SRC", env_config.hera_src_path.c_str(), 1);
+            setenv("ELARA_HERA_SRC", env_config.hera_src_path.c_str(), 1);
             #endif
         }
 
-        printf("[DatasuiteServer] setup_environment() completed\n");
+        printf("[elara::Server] setup_environment() completed\n");
         fflush(stdout);
     }
 
     // Runs entirely on the calling thread -- see the class comment
-    // (datasuite_engine.hpp) for why that's deliberate. Blocks until the
-    // kernel shuts down; the caller (datasuite-r.cpp's main()) has nothing
+    // (engine.hpp) for why that's deliberate. Blocks until the
+    // kernel shuts down; the caller (elara.cpp's main()) has nothing
     // left to do afterward but return.
-    void DatasuiteServer::start(const KernelConfiguration& config, std::function<void()> on_ready) {
+    void Server::start(const KernelConfiguration& config, std::function<void()> on_ready) {
         try {
             // CRITICAL: Setup R environment BEFORE initializing R interpreter!
             this->setupEnvironment();

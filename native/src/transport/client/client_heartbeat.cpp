@@ -4,7 +4,7 @@
 #include "client_zmq_impl.hpp"
 #include "../common/middleware_impl.hpp"
 
-namespace datasuite
+namespace adrastea
 {
 
     ClientHeartbeat::ClientHeartbeat(zmq::context_t& context,

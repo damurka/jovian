@@ -4,7 +4,7 @@
 #include "../common/authentication.hpp"
 #include "../common/zmq_serializer.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     namespace
     {

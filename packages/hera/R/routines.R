@@ -1,5 +1,5 @@
 publish_stream <- function(name, text) {
-  hera_dot_call("datasuite_publish_stream", name, text)
+  hera_dot_call("elara_publish_stream", name, text)
 }
 
 # jsonlite::toJSON() base64-encodes raw vectors (e.g. plot image bytes) via
@@ -33,19 +33,19 @@ sanitize_raw_for_json <- function(x) {
 #'
 #' @export
 display_data <- function(data = NULL, metadata = NULL) {
-  invisible(hera_dot_call("datasuite_display_data",
+  invisible(hera_dot_call("elara_display_data",
                           enc2utf8(toJSON(sanitize_raw_for_json(data), auto_unbox = TRUE)),
                           enc2utf8(toJSON(metadata, auto_unbox = TRUE))))
 }
 
 update_display_data <- function(data = NULL, metadata = NULL) {
-  invisible(hera_dot_call("datasuite_update_display_data",
+  invisible(hera_dot_call("elara_update_display_data",
                           enc2utf8(toJSON(sanitize_raw_for_json(data), auto_unbox = TRUE)),
                           enc2utf8(toJSON(metadata, auto_unbox = TRUE))))
 }
 
 kernel_info_request <- function() {
-  hera_dot_call("datasuite_kernel_info_request")
+  hera_dot_call("elara_kernel_info_request")
 }
 
 
@@ -61,11 +61,11 @@ kernel_info_request <- function() {
 #' @return NULL invisibly
 #' @export
 clear_output <- function(wait = FALSE) {
-  invisible(hera_dot_call("datasuite_clear_output", isTRUE(wait)))
+  invisible(hera_dot_call("elara_clear_output", isTRUE(wait)))
 }
 
 is_complete_request <- function(code) {
-  hera_dot_call("datasuite_is_complete_request", code)
+  hera_dot_call("elara_is_complete_request", code)
 }
 
 #' View

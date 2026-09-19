@@ -1,10 +1,10 @@
 #include <fstream>
 #include <string>
 
-#include "datasuite/json.hpp"
-#include "datasuite/kernel_configuration.hpp"
+#include "adrastea/json.hpp"
+#include "adrastea/kernel_configuration.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     namespace
     {

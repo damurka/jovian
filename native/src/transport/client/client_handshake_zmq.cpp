@@ -1,7 +1,7 @@
 #include "zmq.hpp"
 #include "zmq_addon.hpp"
 
-#include "datasuite/json.hpp"
+#include "adrastea/json.hpp"
 
 #include "client_handshake_zmq.hpp"
 
@@ -9,7 +9,7 @@
 #include "../common/middleware_impl.hpp"
 #include "../common/zmq_serializer.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     /******************************
      * ClientHandshakeZmqImpl *

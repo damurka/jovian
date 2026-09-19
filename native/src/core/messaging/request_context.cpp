@@ -1,7 +1,7 @@
-#include "datasuite/json.hpp"
-#include "datasuite/request_context.hpp"
+#include "adrastea/json.hpp"
+#include "adrastea/request_context.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     RequestContext::RequestContext(json header, guid_list id)
         : m_header(std::move(header)), m_id(std::move(id))

@@ -2,7 +2,7 @@
 // Visual playground for exercising this package's real public API
 // (SessionManager/Session from dist/lib/index.js -- the exact same module
 // index.js itself uses) through a browser instead of hand-editing a script.
-// Each "session" here is a real R process spawned by datasuite-supervisor,
+// Each "session" here is a real R process spawned by themisto,
 // not a mock -- Run/Stop/Kill and the preset buttons drive the genuine
 // execute()/stop()/kill() calls and surface their real events (stdout,
 // structured iopub messages, kernel crashes) live over Server-Sent Events.
@@ -271,7 +271,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-    console.log(`\nDatasuite-R playground running at http://127.0.0.1:${PORT}\n`);
+    console.log(`\nJovian playground running at http://127.0.0.1:${PORT}\n`);
     console.log(`R install: ${JSON.stringify(defaultREnv(), null, 2)}\n`);
     console.log('Press Ctrl+C to stop.\n');
 });

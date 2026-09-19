@@ -1,5 +1,5 @@
-#ifndef DATASUITE_EXPORT_HPP
-#define DATASUITE_EXPORT_HPP
+#ifndef ADRASTEA_EXPORT_HPP
+#define ADRASTEA_EXPORT_HPP
 
 #include <array>
 #include <string_view>
@@ -7,20 +7,20 @@
 // 1. MACROS FOR COMPILATION CONTROL
 // These must remain macros as they handle compiler-specific visibility attributes.
 #ifdef _WIN32
-	#ifdef DATASUITE_STATIC_LIB
-		#define DATASUITE_API
+	#ifdef ADRASTEA_STATIC_LIB
+		#define ADRASTEA_API
 	#else
-		#ifdef DATASUITE_EXPORTS
-			#define DATASUITE_API __declspec(dllexport)
+		#ifdef ADRASTEA_EXPORTS
+			#define ADRASTEA_API __declspec(dllexport)
 		#else
-			#define DATASUITE_API __declspec(dllimport)
+			#define ADRASTEA_API __declspec(dllimport)
 		#endif
 	#endif
 #else
-	#define DATASUITE_API __attribute__((visibility("default")))
+	#define ADRASTEA_API __attribute__((visibility("default")))
 #endif
 
-namespace datasuite {
+namespace adrastea {
 
 	namespace version {
 		// Project version
@@ -38,7 +38,7 @@ namespace datasuite {
 		inline constexpr int kernel_protocol_major = 5;
 		inline constexpr int kernel_protocol_minor = 6;
 
-        // Compile-time string generator to replace DATASUITE_CONCATENATE and DATASUITE_STRINGIFY
+        // Compile-time string generator to replace ADRASTEA_CONCATENATE and ADRASTEA_STRINGIFY
         consteval auto makeVersionString() {
             std::array<char, 16> buf{};
             int index = 0;
@@ -81,4 +81,4 @@ namespace datasuite {
 }
 
 
-#endif // DATASUITE_EXPORT_HPP
+#endif // ADRASTEA_EXPORT_HPP

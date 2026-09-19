@@ -1,8 +1,8 @@
-#include "datasuite/json.hpp"
-#include "datasuite/middleware.hpp"
+#include "adrastea/json.hpp"
+#include "adrastea/middleware.hpp"
 #include "client_messenger.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     ClientMessenger::ClientMessenger(zmq::context_t& context)
         : m_iopubController(context, zmq::socket_type::req)

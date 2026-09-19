@@ -2,7 +2,7 @@
 // client_zmq.cpp) plus everything they compose (DealerChannel, ClientIopub's
 // message-received path, ClientMessenger's connect/stopChannels). Before
 // this, the only thing exercising this stack was SessionRegistryTest's real
-// datasuite-r.exe kernel -- which only ever drives sendOnShell/
+// elara.exe kernel -- which only ever drives sendOnShell/
 // receiveOnShell(false) via SessionRegistry::pollLoop(), never poll(),
 // waitForMessage(), the shell/control *listener* callbacks, or a real iopub
 // publish. This file stands in a hand-rolled "fake kernel" (bare ROUTER/PUB
@@ -13,15 +13,15 @@
 
 #include <gtest/gtest.h>
 
-#include "datasuite/context.hpp"
-#include "datasuite/kernel_configuration.hpp"
-#include "datasuite/message.hpp"
+#include "adrastea/context.hpp"
+#include "adrastea/kernel_configuration.hpp"
+#include "adrastea/message.hpp"
 #include "transport/client/client_zmq.hpp"
 #include "transport/common/authentication.hpp"
 #include "transport/common/middleware_impl.hpp"
 #include "transport/common/zmq_serializer.hpp"
 
-using namespace datasuite;
+using namespace adrastea;
 
 namespace
 {
@@ -44,7 +44,7 @@ namespace
         return predicate();
     }
 
-    // Stands in for the datasuite-r kernel process ClientZmq normally talks
+    // Stands in for the elara kernel process ClientZmq normally talks
     // to: bare ROUTER sockets for shell/control (mirrors server_zmq_impl.cpp),
     // a PUB socket for iopub, and an unattended REP socket for heartbeat
     // (never answered -- ClientHeartbeat's hardcoded 20s timeout means the
@@ -141,7 +141,7 @@ namespace
     // RAII around connect()+start()+stopChannels(): every test below needs
     // this exact bracketing -- ClientIopub::run()/ClientHeartbeat::run() are
     // infinite loops that only exit on stopChannels()'s controller signal,
-    // and datasuite::Thread (their storage type) joins in its own destructor,
+    // and adrastea::Thread (their storage type) joins in its own destructor,
     // so skipping stopChannels() before a client goes out of scope hangs the
     // test rather than failing it.
     struct StartedClient

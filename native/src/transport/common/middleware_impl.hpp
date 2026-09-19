@@ -1,12 +1,12 @@
-#ifndef DATASUITE_MIDDLEWARE_IMPL_HPP
-#define DATASUITE_MIDDLEWARE_IMPL_HPP
+#ifndef ADRASTEA_MIDDLEWARE_IMPL_HPP
+#define ADRASTEA_MIDDLEWARE_IMPL_HPP
 
 #include <string>
 #include "zmq.hpp"
 
-#include "datasuite/middleware.hpp"
+#include "adrastea/middleware.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     void initSocket(zmq::socket_t& socket,
         const std::string& transport,

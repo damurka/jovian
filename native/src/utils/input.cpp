@@ -1,9 +1,9 @@
 #include <string>
 
-#include "datasuite/input.hpp"
-#include "datasuite/interpreter.hpp"
+#include "adrastea/input.hpp"
+#include "adrastea/interpreter.hpp"
 
-namespace datasuite
+namespace adrastea
 {
     std::string blockingInputRequest(
         const std::string& prompt,
