@@ -9,9 +9,6 @@
 
 namespace themisto
 {
-    // Themisto builds on the Adrastea framework; name its symbols unqualified here.
-    using namespace adrastea;
-
     // One WebSocket connection per session, at /sessions/<id>/messages.
     // Outbound: iopub/shell traffic relayed from Session::onMessage
     // (populated by SessionRegistry's poll thread) plus a kernelExit event

@@ -21,12 +21,9 @@
 
 namespace elara
 {
-    // Elara builds on the Adrastea framework; name its symbols unqualified here.
-    using namespace adrastea;
-
     namespace routines
     {
-        SEXP toRJson(const json &js)
+        SEXP toRJson(const adrastea::json &js)
         {
             SEXP out = PROTECT(Rf_mkString(js.dump(4).c_str()));
             Rf_classgets(out, Rf_mkString("json"));
@@ -37,7 +34,7 @@ namespace elara
 
         SEXP kernelInfoRequest()
         {
-            auto info = getInterpreter().kernelInfoRequest();
+            auto info = adrastea::getInterpreter().kernelInfoRequest();
             SEXP out = PROTECT(Rf_mkString(info.dump(4).c_str()));
             Rf_classgets(out, Rf_mkString("json"));
             UNPROTECT(1);
@@ -57,22 +54,22 @@ namespace elara
 
         SEXP displayData(SEXP js_data, SEXP js_metadata)
         {
-            auto data = json::parse(CHAR(STRING_ELT(js_data, 0)));
-            auto metadata = json::parse(CHAR(STRING_ELT(js_metadata, 0)));
+            auto data = adrastea::json::parse(CHAR(STRING_ELT(js_data, 0)));
+            auto metadata = adrastea::json::parse(CHAR(STRING_ELT(js_metadata, 0)));
 
             getRInterpreter()->displayData(
-                std::move(data), std::move(metadata), /* transient = */ json::object());
+                std::move(data), std::move(metadata), /* transient = */ adrastea::json::object());
 
             return R_NilValue;
         }
 
         SEXP updateDisplayData(SEXP js_data, SEXP js_metadata)
         {
-            auto data = json::parse(CHAR(STRING_ELT(js_data, 0)));
-            auto metadata = json::parse(CHAR(STRING_ELT(js_metadata, 0)));
+            auto data = adrastea::json::parse(CHAR(STRING_ELT(js_data, 0)));
+            auto metadata = adrastea::json::parse(CHAR(STRING_ELT(js_metadata, 0)));
 
             getRInterpreter()->updateDisplayData(
-                std::move(data), std::move(metadata), /* transient = */ json::object());
+                std::move(data), std::move(metadata), /* transient = */ adrastea::json::object());
 
             return R_NilValue;
         }
@@ -108,7 +105,7 @@ namespace elara
         {
             std::string name = CHAR(STRING_ELT(name_, 0));
 
-            auto callback = [name](Comm &&comm, Message request)
+            auto callback = [name](adrastea::Comm &&comm, adrastea::Message request)
             {
                 // comm
                 auto ptr_comm = new adrastea::Comm(std::move(comm));
@@ -119,11 +116,11 @@ namespace elara
                 SEXP r6_comm = PROTECT(r::newHeraR6("Comm", xp_comm));
 
                 // request
-                auto ptr_request = new Message(std::move(request));
+                auto ptr_request = new adrastea::Message(std::move(request));
                 SEXP xptr_request = PROTECT(R_MakeExternalPtr(
                     reinterpret_cast<void *>(ptr_request), R_NilValue, R_NilValue));
                 R_RegisterCFinalizerEx(xptr_request, [](SEXP xp)
-                                       { delete reinterpret_cast<Message *>(R_ExternalPtrAddr(xp)); }, FALSE);
+                                       { delete reinterpret_cast<adrastea::Message *>(R_ExternalPtrAddr(xp)); }, FALSE);
                 SEXP r6_request = PROTECT(r::newHeraR6("Message", xptr_request));
 
                 // callback
@@ -132,7 +129,7 @@ namespace elara
                 UNPROTECT(4);
             };
 
-            getInterpreter().getCommManager().registerCommTarget(name, callback);
+            adrastea::getInterpreter().getCommManager().registerCommTarget(name, callback);
             return R_NilValue;
         }
 
@@ -140,19 +137,19 @@ namespace elara
         {
             std::string name = CHAR(STRING_ELT(name_, 0));
 
-            getInterpreter().getCommManager().unregisterCommTarget(name);
+            adrastea::getInterpreter().getCommManager().unregisterCommTarget(name);
             return R_NilValue;
         }
 
         SEXP CommManager__newComm(SEXP target_name_, SEXP s_description)
         {
-            auto target = getInterpreter().getCommManager().target(CHAR(STRING_ELT(target_name_, 0)));
+            auto target = adrastea::getInterpreter().getCommManager().target(CHAR(STRING_ELT(target_name_, 0)));
             if (target == nullptr)
             {
                 return R_NilValue;
             }
 
-            auto id = newGuid();
+            auto id = adrastea::newGuid();
             auto comm = new adrastea::Comm(target, id);
             SEXP xp_comm = PROTECT(R_MakeExternalPtr(
                 reinterpret_cast<void *>(comm), R_NilValue, R_NilValue));
@@ -167,7 +164,7 @@ namespace elara
 
         SEXP CommManager__getCommInfo(SEXP target_name_)
         {
-            auto comms = getInterpreter().getCommManager().comms();
+            auto comms = adrastea::getInterpreter().getCommManager().comms();
 
             bool keep_all = Rf_isNull(target_name_);
             std::string target_name(keep_all ? "" : CHAR(STRING_ELT(target_name_, 0)));
@@ -230,9 +227,9 @@ namespace elara
 
         namespace
         {
-            buffer_sequence toBufferSequence(SEXP r_buffers)
+            adrastea::buffer_sequence toBufferSequence(SEXP r_buffers)
             {
-                buffer_sequence out;
+                adrastea::buffer_sequence out;
                 if (r_buffers == R_NilValue)
                 {
                     return out;
@@ -251,8 +248,8 @@ namespace elara
 
         SEXP Comm__open(SEXP xp_comm, SEXP js_metadata, SEXP js_data, SEXP r_buffers)
         {
-            auto metadata = json::parse(CHAR(STRING_ELT(js_metadata, 0)));
-            auto data = json::parse(CHAR(STRING_ELT(js_data, 0)));
+            auto metadata = adrastea::json::parse(CHAR(STRING_ELT(js_metadata, 0)));
+            auto data = adrastea::json::parse(CHAR(STRING_ELT(js_data, 0)));
 
             auto *comm = reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp_comm));
             comm->open(metadata, data, toBufferSequence(r_buffers));
@@ -262,8 +259,8 @@ namespace elara
 
         SEXP Comm__close(SEXP xp_comm, SEXP js_metadata, SEXP js_data, SEXP r_buffers)
         {
-            auto metadata = json::parse(CHAR(STRING_ELT(js_metadata, 0)));
-            auto data = json::parse(CHAR(STRING_ELT(js_data, 0)));
+            auto metadata = adrastea::json::parse(CHAR(STRING_ELT(js_metadata, 0)));
+            auto data = adrastea::json::parse(CHAR(STRING_ELT(js_data, 0)));
 
             auto *comm = reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp_comm));
             comm->close(metadata, data, toBufferSequence(r_buffers));
@@ -273,8 +270,8 @@ namespace elara
 
         SEXP Comm__send(SEXP xp_comm, SEXP js_metadata, SEXP js_data, SEXP r_buffers)
         {
-            auto metadata = json::parse(CHAR(STRING_ELT(js_metadata, 0)));
-            auto data = json::parse(CHAR(STRING_ELT(js_data, 0)));
+            auto metadata = adrastea::json::parse(CHAR(STRING_ELT(js_metadata, 0)));
+            auto data = adrastea::json::parse(CHAR(STRING_ELT(js_data, 0)));
 
             auto *comm = reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp_comm));
             comm->send(metadata, data, toBufferSequence(r_buffers));
@@ -287,7 +284,7 @@ namespace elara
         public:
             CommMessageHandler(SEXP handler) : m_handler(handler) {}
 
-            inline void operator()(Message message)
+            inline void operator()(adrastea::Message message)
             {
                 auto ptr_message = new adrastea::Message(std::move(message));
                 SEXP xptr_message = PROTECT(R_MakeExternalPtr(
@@ -322,31 +319,31 @@ namespace elara
 
         SEXP Message__getContent(SEXP xptr_msg)
         {
-            auto ptr_msg = reinterpret_cast<Message *>(R_ExternalPtrAddr(xptr_msg));
+            auto ptr_msg = reinterpret_cast<adrastea::Message *>(R_ExternalPtrAddr(xptr_msg));
             return toRJson(ptr_msg->content());
         }
 
         SEXP Message__getHeader(SEXP xptr_msg)
         {
-            auto ptr_msg = reinterpret_cast<Message *>(R_ExternalPtrAddr(xptr_msg));
+            auto ptr_msg = reinterpret_cast<adrastea::Message *>(R_ExternalPtrAddr(xptr_msg));
             return toRJson(ptr_msg->header());
         }
 
         SEXP Message__getParentHeader(SEXP xptr_msg)
         {
-            auto ptr_msg = reinterpret_cast<Message *>(R_ExternalPtrAddr(xptr_msg));
+            auto ptr_msg = reinterpret_cast<adrastea::Message *>(R_ExternalPtrAddr(xptr_msg));
             return toRJson(ptr_msg->parentHeader());
         }
 
         SEXP Message__getMetadata(SEXP xptr_msg)
         {
-            auto ptr_msg = reinterpret_cast<Message *>(R_ExternalPtrAddr(xptr_msg));
+            auto ptr_msg = reinterpret_cast<adrastea::Message *>(R_ExternalPtrAddr(xptr_msg));
             return toRJson(ptr_msg->metadata());
         }
 
         SEXP Message__getBuffers(SEXP xptr_msg)
         {
-            auto *msg = reinterpret_cast<Message *>(R_ExternalPtrAddr(xptr_msg));
+            auto *msg = reinterpret_cast<adrastea::Message *>(R_ExternalPtrAddr(xptr_msg));
             const auto &bufs = msg->buffers();
             SEXP out = PROTECT(Rf_allocVector(VECSXP, bufs.size()));
             for (size_t i = 0; i < bufs.size(); ++i)

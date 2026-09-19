@@ -35,9 +35,6 @@
 
 namespace elara
 {
-    // Elara builds on the Adrastea framework; name its symbols unqualified here.
-    using namespace adrastea;
-
     static RInterpreter* p_interpreter = nullptr;
     RInterpreter* getRInterpreter()
     {
@@ -170,7 +167,7 @@ namespace elara
         R_Consolefile = NULL;
 #endif
 
-        registerInterpreter(this);
+        adrastea::registerInterpreter(this);
         p_interpreter = this;
     }
 
@@ -331,12 +328,12 @@ namespace elara
         send_reply_callback cb,
         int execution_count,
         const std::string& code,
-        ExecuteRequestConfig config,
-        json /*user_expressions*/
+        adrastea::ExecuteRequestConfig config,
+        adrastea::json /*user_expressions*/
     )
     {
         if (config.store_history) {
-            const_cast<HistoryManager&>(getHistoryManager()).storeInputs(0, execution_count, code);
+            const_cast<adrastea::HistoryManager&>(getHistoryManager()).storeInputs(0, execution_count, code);
         }
 
         SEXP code_ = PROTECT(Rf_mkString(code.c_str()));
@@ -358,24 +355,24 @@ namespace elara
             }
 
             publishExecutionError(evalue, ename, trace_back);
-            cb(createErrorReply(evalue, ename, std::move(trace_back)));
+            cb(adrastea::createErrorReply(evalue, ename, std::move(trace_back)));
         }
         else {
            if (Rf_inherits(result, "execution_result")) {
                 SEXP data_ = VECTOR_ELT(result, 0);
                 SEXP metadata_ = VECTOR_ELT(result, 1);
-                auto data = json::parse(CHAR(STRING_ELT(data_, 0)));
-                auto metadata = json::parse(CHAR(STRING_ELT(metadata_, 0)));
+                auto data = adrastea::json::parse(CHAR(STRING_ELT(data_, 0)));
+                auto metadata = adrastea::json::parse(CHAR(STRING_ELT(metadata_, 0)));
                 publishExecutionResult(execution_count, data, metadata);
             }
 
-            cb(createSuccessfulReply(/*payload, user_expressions*/));
+            cb(adrastea::createSuccessfulReply(/*payload, user_expressions*/));
         }
 
         UNPROTECT(4);
     }
 
-    json RInterpreter::isCompleteRequestImpl(const std::string& code_)
+    adrastea::json RInterpreter::isCompleteRequestImpl(const std::string& code_)
     {
         SEXP code = PROTECT(Rf_mkString(code_.c_str()));
 
@@ -410,22 +407,22 @@ namespace elara
             reinterpret_cast<void*>(code)
         );
 
-        json res = createIsCompleteReply(CHAR(STRING_ELT(code, 0)), "");
+        adrastea::json res = adrastea::createIsCompleteReply(CHAR(STRING_ELT(code, 0)), "");
         UNPROTECT(1);
         return res;
     }
 
-    json jsonFromCharacterVector(SEXP x) {
+    adrastea::json jsonFromCharacterVector(SEXP x) {
         auto n = XLENGTH(x);
         std::vector<std::string> vec(n);
 
         for (decltype(n) i = 0; i < n; i++) {
             vec[i] = std::string(CHAR(STRING_ELT(x, i)));
         }
-        return json(vec);
+        return adrastea::json(vec);
     }
 
-    json RInterpreter::completeRequestImpl(const std::string& code, int cursor_pos)
+    adrastea::json RInterpreter::completeRequestImpl(const std::string& code, int cursor_pos)
     {
         SEXP code_ = PROTECT(Rf_mkString(code.c_str()));
         SEXP cursor_pos_ = PROTECT(Rf_ScalarInteger(cursor_pos));
@@ -436,10 +433,10 @@ namespace elara
         int cursor_end = INTEGER_ELT(VECTOR_ELT(result, 1), 1);
 
         UNPROTECT(3);
-        return createCompleteReply(matches, cursor_start, cursor_end);
+        return adrastea::createCompleteReply(matches, cursor_start, cursor_end);
     }
 
-    json RInterpreter::inspectRequestImpl(const std::string& code, int cursor_pos, int /*detail_level*/)
+    adrastea::json RInterpreter::inspectRequestImpl(const std::string& code, int cursor_pos, int /*detail_level*/)
     {
         SEXP code_ = PROTECT(Rf_mkString(code.c_str()));
         SEXP cursor_pos_ = PROTECT(Rf_ScalarInteger(cursor_pos));
@@ -448,29 +445,29 @@ namespace elara
         bool found = LOGICAL_ELT(VECTOR_ELT(result, 0), 0);
         if (!found) {
             UNPROTECT(3);
-            return createInspectReply(false);
+            return adrastea::createInspectReply(false);
         }
 
-        auto data = json::parse(CHAR(STRING_ELT(VECTOR_ELT(result, 1), 0)));
+        auto data = adrastea::json::parse(CHAR(STRING_ELT(VECTOR_ELT(result, 1), 0)));
         UNPROTECT(3);
-        return createInspectReply(found, data);
+        return adrastea::createInspectReply(found, data);
     }
 
-    json RInterpreter::shutdownRequestImpl(bool /*restart*/)
+    adrastea::json RInterpreter::shutdownRequestImpl(bool /*restart*/)
     {
         Rf_endEmbeddedR(0);
-        return createShutdownReply(false);
+        return adrastea::createShutdownReply(false);
     }
 
-    json RInterpreter::interruptRequestImpl()
+    adrastea::json RInterpreter::interruptRequestImpl()
     {
-        return createInterruptReply();
+        return adrastea::createInterruptReply();
     }
 
-    json RInterpreter::kernelInfoRequestImpl()
+    adrastea::json RInterpreter::kernelInfoRequestImpl()
     {
         const std::string  implementation = "xr";
-        const std::string  implementation_version{ version::kernel_protocol_version };
+        const std::string  implementation_version{ adrastea::version::kernel_protocol_version };
         const std::string  language_name = "R";
         const std::string  language_version = std::string(R_MAJOR) + "." + std::string(R_MINOR);
         const std::string  language_mimetype = "text/x-R";
@@ -479,9 +476,9 @@ namespace elara
         const std::string  language_codemirror_mode = "";
         const std::string  language_nbconvert_exporter = "";
         const std::string  banner = "xr";
-        const json     help_links = json::array();
+        const adrastea::json     help_links = adrastea::json::array();
 
-        return createInfoReply(
+        return adrastea::createInfoReply(
             implementation,
             implementation_version,
             language_name,

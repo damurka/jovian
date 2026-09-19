@@ -19,9 +19,6 @@
 
 namespace themisto
 {
-    // Themisto builds on the Adrastea framework; name its symbols unqualified here.
-    using namespace adrastea;
-
     using json = adrastea::json;
 
     struct SessionOptions

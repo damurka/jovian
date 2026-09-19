@@ -17,9 +17,6 @@
 
 namespace elara
 {
-    // Elara builds on the Adrastea framework; name its symbols unqualified here.
-    using namespace adrastea;
-
 
     // =========================================================================
     // ENVIRONMENT CONFIGURATION
@@ -78,7 +75,7 @@ namespace elara
         // on this same thread, so the caller can do its own setup (e.g. a
         // registration handshake) between "ports are live" and "kernel is
         // now consuming its own thread until shutdown".
-        void start(const KernelConfiguration& config, std::function<void()> on_ready = nullptr);
+        void start(const adrastea::KernelConfiguration& config, std::function<void()> on_ready = nullptr);
 
     private:
         void setupEnvironment();

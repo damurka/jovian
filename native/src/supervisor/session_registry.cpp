@@ -17,9 +17,6 @@
 
 namespace themisto
 {
-    // Themisto builds on the Adrastea framework; name its symbols unqualified here.
-    using namespace adrastea;
-
     namespace
     {
         // Unlike the addon (native/src/bridge/engine.cpp's

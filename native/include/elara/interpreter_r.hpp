@@ -10,13 +10,10 @@
 
 namespace elara
 {
-    // Elara builds on the Adrastea framework; name its symbols unqualified here.
-    using namespace adrastea;
-
-    class ADRASTEA_API RInterpreter : public Interpreter
+    class ADRASTEA_API RInterpreter : public adrastea::Interpreter
     {
     public:
-        using base_type = Interpreter;
+        using base_type = adrastea::Interpreter;
 
         RInterpreter() = delete;
 		RInterpreter(int argc, char* argv[]);
@@ -33,22 +30,22 @@ namespace elara
             send_reply_callback cb,
             int execution_counter,
             const std::string& code,
-            ExecuteRequestConfig config,
-            json user_expressions) override;
+            adrastea::ExecuteRequestConfig config,
+            adrastea::json user_expressions) override;
 
-        json completeRequestImpl(const std::string& code, int cursor_pos) override;
+        adrastea::json completeRequestImpl(const std::string& code, int cursor_pos) override;
 
-        json inspectRequestImpl(const std::string& code,
+        adrastea::json inspectRequestImpl(const std::string& code,
             int cursor_pos,
             int detail_level) override;
 
-        json isCompleteRequestImpl(const std::string& code) override;
+        adrastea::json isCompleteRequestImpl(const std::string& code) override;
 
-        json kernelInfoRequestImpl() override;
+        adrastea::json kernelInfoRequestImpl() override;
 
-        json shutdownRequestImpl(bool restart) override;
+        adrastea::json shutdownRequestImpl(bool restart) override;
 
-        json interruptRequestImpl() override;
+        adrastea::json interruptRequestImpl() override;
     };
 
     RInterpreter* getRInterpreter();

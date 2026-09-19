@@ -9,9 +9,6 @@
 
 namespace themisto
 {
-    // Themisto builds on the Adrastea framework; name its symbols unqualified here.
-    using namespace adrastea;
-
     // REST surface for session lifecycle only (create/list/get/delete/
     // restart) -- all execute/interrupt/message traffic goes over WsRelay
     // instead, so there's exactly one place doing request/reply

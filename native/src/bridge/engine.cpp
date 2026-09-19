@@ -2,9 +2,6 @@
 
 namespace elara
 {
-    // Elara builds on the Adrastea framework; name its symbols unqualified here.
-    using namespace adrastea;
-
     // =========================================================================
     // ELARA SERVER IMPLEMENTATION
     // =========================================================================
@@ -108,12 +105,12 @@ namespace elara
     // (engine.hpp) for why that's deliberate. Blocks until the
     // kernel shuts down; the caller (elara.cpp's main()) has nothing
     // left to do afterward but return.
-    void Server::start(const KernelConfiguration& config, std::function<void()> on_ready) {
+    void Server::start(const adrastea::KernelConfiguration& config, std::function<void()> on_ready) {
         try {
             // CRITICAL: Setup R environment BEFORE initializing R interpreter!
             this->setupEnvironment();
 
-            auto context = makeZmqContext();
+            auto context = adrastea::makeZmqContext();
             // Don't use --vanilla, it prevents loading default packages
             char* r_argv[] = { (char*)"R", (char*)"--quiet", (char*)"--no-save", (char*)"--no-restore" };
             int r_argc = sizeof(r_argv) / sizeof(r_argv[0]);
@@ -121,10 +118,10 @@ namespace elara
             using interpreter_ptr = std::unique_ptr<RInterpreter>;
             interpreter_ptr interpreter = interpreter_ptr(new RInterpreter(r_argc, r_argv));
 
-            auto history = makeInMemoryHistoryManager();
-            auto logger = makeConsoleLogger(Logger::level::msg_type);
+            auto history = adrastea::makeInMemoryHistoryManager();
+            auto logger = adrastea::makeConsoleLogger(adrastea::Logger::level::msg_type);
 
-            Kernel engine(config, getUserName(), std::move(context), std::move(interpreter), makeServerDefault, std::move(history), std::move(logger));
+            adrastea::Kernel engine(config, adrastea::getUserName(), std::move(context), std::move(interpreter), adrastea::makeServerDefault, std::move(history), std::move(logger));
 
             if (on_ready) {
                 on_ready();
