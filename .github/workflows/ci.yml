@@ -30,6 +30,17 @@ jobs:
           # interpreter treats hera as optional and continues without it
           # (see native/src/core/execution/interpreter_r.cpp), and none of
           # the native/npm tests below exercise hera-dependent code paths.
+          # Rtools (Windows only) is for compiling R packages with native
+          # code, which we never do -- but this action's default (true) puts
+          # its entire mingw toolchain (its own cmake.exe, g++.exe, and
+          # bash.exe) on PATH ahead of everything else, which is what
+          # actually caused the earlier "unset CC CXX" fix to not work: the
+          # `cmake` it ran was Rtools' own bundled build, not a real
+          # Windows/MSVC-aware one, so the *generator* choice was never
+          # CMake auto-detecting wrong -- it was the wrong cmake.exe
+          # entirely. Opting out is the actual fix.
+          windows-path-include-rtools: false
+          windows-path-include-mingw: false
 
       - name: Install libuuid (Linux)
         if: runner.os == 'Linux'
@@ -64,29 +75,14 @@ jobs:
           restore-keys: |
             vcpkg-archives-${{ runner.os }}-
 
-      # r-lib/actions/setup-r puts Rtools on PATH ahead of everything else,
-      # and its bash.exe (not Git Bash) ends up serving every `shell: bash`
-      # step from here on -- discovered because CMake silently configured
-      # the project as GCC/mingw ("Unix Makefiles", Rtools' own compiler)
-      # instead of MSVC. Forcing a specific -G "Visual Studio <N> <year>"
-      # isn't the fix: it hardcodes a version that may not match whatever
-      # Visual Studio the runner actually ships (confirmed the hard way --
-      # "Visual Studio 17 2022" isn't installed on this runner image at
-      # all). The actual cause is Rtools' bash also exporting CC/CXX for
-      # its own mingw toolchain; clearing them lets CMake's normal Windows
-      # default (auto-detect whichever Visual Studio is installed) run
-      # uncorrupted, however many versions from now that ends up being.
-      # Harmless on Linux/macOS, where CC/CXX were never set to begin with.
-      #
-      # This CMakeLists.txt assumes MSVC throughout once selected (compile
-      # options, MSVC_RUNTIME_LIBRARY matching vcpkg's triplet, the /STACK
-      # linker option) -- even had the mingw/GCC configuration found
-      # libuuid, GCC-compiled objects can't link against vcpkg's MSVC-built
-      # x64-windows dependencies (incompatible ABI).
+      # This CMakeLists.txt assumes MSVC on Windows throughout once CMake
+      # selects it (compile options, MSVC_RUNTIME_LIBRARY matching vcpkg's
+      # triplet, the /STACK linker option) -- see the windows-path-include-*
+      # comment above for why that selection needs help getting there at
+      # all on this runner.
       - name: Configure native (Release)
         shell: bash
         run: |
-          unset CC CXX
           cmake -S . -B dist/native \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DCMAKE_BUILD_TYPE=Release
@@ -100,7 +96,6 @@ jobs:
       - name: Configure native tests
         shell: bash
         run: |
-          unset CC CXX
           cmake -S . -B dist/native-test -DJOVIAN_BUILD_TESTS=ON \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DCMAKE_BUILD_TYPE=Release
