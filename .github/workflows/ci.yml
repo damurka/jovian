@@ -116,8 +116,19 @@ jobs:
       - name: Run native tests (ctest)
         run: ctest --test-dir dist/native-test -C Release --output-on-failure --timeout 180
 
+      # A real, pre-existing version conflict, unrelated to anything else
+      # in this workflow: package.json pins typescript@^7.0.2, but
+      # @typescript-eslint/eslint-plugin@^8.0.0's peer dependency wants
+      # typescript <6.1.0. `npm ci`'s strict peer-dependency resolution
+      # (unlike a plain `npm install`, which is more lenient) is what
+      # surfaces this -- this is the first time `npm ci` has run against
+      # this lockfile from a genuinely clean state. --legacy-peer-deps
+      # doesn't change any declared version, just how npm resolves the
+      # conflict; the real fix (pin an eslint-plugin version that supports
+      # TS 7, or pin an older typescript) is a version decision for
+      # whoever owns that choice, not something to make silently here.
       - name: npm ci
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       - name: Build TypeScript
         run: npx tsc --build
