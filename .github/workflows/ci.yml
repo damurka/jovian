@@ -64,26 +64,30 @@ jobs:
           restore-keys: |
             vcpkg-archives-${{ runner.os }}-
 
-      # r-lib/actions/setup-r puts Rtools' mingw/GCC toolchain on PATH, which
-      # CMake's compiler auto-detection prefers over MSVC when no generator
-      # is specified -- discovered because it silently built the project as
-      # a GCC/mingw "Unix Makefiles" configuration instead of MSVC, which
-      # then couldn't find libuuid (the MSVC branch of
-      # jovian_apply_platform_guid_define never needs it) and, even had that
-      # resolved, would have tried to link GCC-compiled objects against
-      # vcpkg's MSVC-built x64-windows dependencies -- incompatible ABIs.
-      # The rest of this CMakeLists.txt assumes MSVC throughout (compile
+      # r-lib/actions/setup-r puts Rtools on PATH ahead of everything else,
+      # and its bash.exe (not Git Bash) ends up serving every `shell: bash`
+      # step from here on -- discovered because CMake silently configured
+      # the project as GCC/mingw ("Unix Makefiles", Rtools' own compiler)
+      # instead of MSVC. Forcing a specific -G "Visual Studio <N> <year>"
+      # isn't the fix: it hardcodes a version that may not match whatever
+      # Visual Studio the runner actually ships (confirmed the hard way --
+      # "Visual Studio 17 2022" isn't installed on this runner image at
+      # all). The actual cause is Rtools' bash also exporting CC/CXX for
+      # its own mingw toolchain; clearing them lets CMake's normal Windows
+      # default (auto-detect whichever Visual Studio is installed) run
+      # uncorrupted, however many versions from now that ends up being.
+      # Harmless on Linux/macOS, where CC/CXX were never set to begin with.
+      #
+      # This CMakeLists.txt assumes MSVC throughout once selected (compile
       # options, MSVC_RUNTIME_LIBRARY matching vcpkg's triplet, the /STACK
-      # linker option), so force it explicitly here rather than relying on
-      # whichever compiler happens to be first on PATH.
+      # linker option) -- even had the mingw/GCC configuration found
+      # libuuid, GCC-compiled objects can't link against vcpkg's MSVC-built
+      # x64-windows dependencies (incompatible ABI).
       - name: Configure native (Release)
         shell: bash
         run: |
-          GENERATOR_ARGS=()
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            GENERATOR_ARGS=(-G "Visual Studio 17 2022" -A x64)
-          fi
-          cmake -S . -B dist/native "${GENERATOR_ARGS[@]}" \
+          unset CC CXX
+          cmake -S . -B dist/native \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DCMAKE_BUILD_TYPE=Release
 
@@ -96,11 +100,8 @@ jobs:
       - name: Configure native tests
         shell: bash
         run: |
-          GENERATOR_ARGS=()
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            GENERATOR_ARGS=(-G "Visual Studio 17 2022" -A x64)
-          fi
-          cmake -S . -B dist/native-test "${GENERATOR_ARGS[@]}" -DJOVIAN_BUILD_TESTS=ON \
+          unset CC CXX
+          cmake -S . -B dist/native-test -DJOVIAN_BUILD_TESTS=ON \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DCMAKE_BUILD_TYPE=Release
 
