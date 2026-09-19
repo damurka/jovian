@@ -6,6 +6,9 @@
 #include "R.h"
 #include "Rinternals.h"
 
+#include <stdexcept>
+#include <string>
+
 namespace elara
 {
     namespace r
@@ -43,9 +46,34 @@ namespace elara
 
             SEXP call_triple_colon = PROTECT(rCall(sym_triple_colon, sym_hera, sym_hera_call));
             SEXP call = PROTECT(rCall(call_triple_colon, Rf_mkString(f), args...));
-            SEXP result = Rf_eval(call, R_GlobalEnv);
+
+            // hera:::hera_call(f, ...) itself failing to evaluate (most
+            // commonly: hera isn't installed/loadable at all -- it's
+            // optional, see RInterpreter::configureImpl()) is different
+            // from a normal *user* code error, which hera's own R-level
+            // execute() already catches internally and returns as a
+            // hera-shaped "error_reply" R object (see executeRequestImpl's
+            // Rf_inherits(result, "error_reply") check) -- there's no such
+            // object here, since the call never produced a result at all.
+            // This used to be a raw, unprotected Rf_eval(): an uncaught
+            // R-level error had no established recovery context to longjmp
+            // back to, which hung the whole kernel forever on the very
+            // first execute_request if hera wasn't loaded (confirmed via a
+            // real repro, not hypothetical) rather than failing just that
+            // one request. R_tryEval() catches it safely; throwing here is
+            // caught by KernelCore's existing per-message try/catch
+            // (kernel_core.cpp's handleMessage, "ERROR: received bad
+            // message"), which logs it and keeps the kernel alive instead.
+            int errorOccurred = 0;
+            SEXP result = R_tryEval(call, R_GlobalEnv, &errorOccurred);
 
             UNPROTECT(2);
+
+            if (errorOccurred) {
+                throw std::runtime_error(
+                    std::string("R evaluation of hera:::hera_call(\"") + f + "\", ...) failed "
+                    "(is the 'hera' package installed?): " + R_curErrorBuf());
+            }
             return result;
         }
 

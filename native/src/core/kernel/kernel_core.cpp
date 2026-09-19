@@ -7,6 +7,7 @@
 
 #include "adrastea/json.hpp"
 #include "adrastea/history_manager.hpp"
+#include "adrastea/helper.hpp"
 #include "adrastea/request_context.hpp"
 #include "kernel_core.hpp"
 
@@ -224,54 +225,63 @@ namespace adrastea
     void KernelCore::executeRequest(Message request, channel)
     {
         // adrastea assumes execute_request will be executed on SHELL only
+        const json& content = request.content();
+        std::string code = content.value("code", "");
+        bool silent = content.value("silent", false);
+        bool store_history = content.value("store_history", true);
+        store_history = store_history && !silent;
+        json user_expression = content.value("user_expressions", json::object());
+        bool allow_stdin = content.value("allow_stdin", true);
+        bool stop_on_error = content.value("stop_on_error", false);
+
+        RequestContext RequestContext(request.header(), request.identities());
+        ExecuteRequestConfig config{ silent, store_history, allow_stdin };
+
+        // Declared outside the try block (below) so the catch handler can
+        // still reach it -- an interpreter that throws before ever calling
+        // this itself needs the exact same sendReply()/publishStatus("idle")
+        // treatment a normal error reply gets, or the client is left
+        // waiting forever for an execute_reply and an idle status that will
+        // now never arrive (confirmed via a real repro: RInterpreter::
+        // executeRequestImpl throwing when hera isn't loaded/loadable used
+        // to vanish into this function's old catch block, which only
+        // logged to stderr and sent nothing back at all).
+        auto reply_callback = [this, RequestContext, config, stop_on_error, code](json reply)
+            {
+                int execution_count = 1;
+                execution_count = reply.value("execution_count", 1);
+                std::string status;
+                status = reply.value("status", "error");
+                json metadata = getMetadata();
+
+                sendReply(
+                    RequestContext.id(),
+                    "execute_reply",
+                    RequestContext.header(),
+                    std::move(metadata),
+                    std::move(reply),
+                    channel::SHELL
+                );
+
+                if (!config.silent && config.store_history)
+                {
+                    p_historyManager->storeInputs(0, execution_count, code);
+                }
+                if (!config.silent && status == "error" && stop_on_error)
+                {
+                    constexpr long polling_interval = 50;
+                    p_server->abortQueue(std::bind(&KernelCore::abortRequest, this, _1), polling_interval);
+                }
+
+                // idle
+                publishStatus(RequestContext.header(), "idle", channel::SHELL);
+            };
+
         try
         {
-            const json& content = request.content();
-            std::string code = content.value("code", "");
-            bool silent = content.value("silent", false);
-            bool store_history = content.value("store_history", true);
-            store_history = store_history && !silent;
-            json user_expression = content.value("user_expressions", json::object());
-            bool allow_stdin = content.value("allow_stdin", true);
-            bool stop_on_error = content.value("stop_on_error", false);
-
-            RequestContext RequestContext(request.header(), request.identities());
-            ExecuteRequestConfig config{ silent, store_history, allow_stdin };
-
-            auto reply_callback = [this, RequestContext, config, stop_on_error, code](json reply)
-                {
-                    int execution_count = 1;
-                    execution_count = reply.value("execution_count", 1);
-                    std::string status;
-                    status = reply.value("status", "error");
-                    json metadata = getMetadata();
-
-                    sendReply(
-                        RequestContext.id(),
-                        "execute_reply",
-                        RequestContext.header(),
-                        std::move(metadata),
-                        std::move(reply),
-                        channel::SHELL
-                    );
-
-                    if (!config.silent && config.store_history)
-                    {
-                        p_historyManager->storeInputs(0, execution_count, code);
-                    }
-                    if (!config.silent && status == "error" && stop_on_error)
-                    {
-                        constexpr long polling_interval = 50;
-                        p_server->abortQueue(std::bind(&KernelCore::abortRequest, this, _1), polling_interval);
-                    }
-
-                    // idle
-                    publishStatus(RequestContext.header(), "idle", channel::SHELL);
-                };
-
             p_interpreter->executeRequest(
                 std::move(RequestContext),
-                std::move(reply_callback),
+                reply_callback,
                 code,
                 config,
                 std::move(user_expression)
@@ -281,6 +291,7 @@ namespace adrastea
         {
             std::cerr << "ERROR: during execute_request" << std::endl;
             std::cerr << e.what() << std::endl;
+            reply_callback(createErrorReply("InternalError", e.what()));
         }
     }
 
