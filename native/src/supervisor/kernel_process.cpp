@@ -68,6 +68,12 @@ namespace themisto
         // unless something explicitly arranges it. A job object is that
         // arrangement, enforced by the OS, not by any cleanup code path
         // actually executing.
+        //
+        // Windows-only (Job Objects): its one call site, in start()'s
+        // CreateProcess branch below, is already inside an #ifdef _WIN32
+        // block, but this definition wasn't -- HANDLE and friends don't
+        // exist on POSIX, so the whole file failed to even compile there.
+#ifdef _WIN32
         HANDLE getKernelJobObject()
         {
             static HANDLE job = []() -> HANDLE {
@@ -87,6 +93,7 @@ namespace themisto
             }();
             return job;
         }
+#endif
     }
 
     KernelProcess::KernelProcess(const KernelProcessOptions& options) : m_options(options) {}

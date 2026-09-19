@@ -191,6 +191,11 @@ function(jovian_apply_platform_guid_define target_name)
         target_compile_options(${target_name} PRIVATE /wd4251 /wd4996)
     elseif (APPLE)
         target_compile_definitions(${target_name} PRIVATE -DGUID_CFUUID)
+        # guid.cpp's GUID_CFUUID branch calls CFUUIDCreate/CFUUIDGetUUIDBytes/
+        # CFRelease, which live in the CoreFoundation framework -- unlinked,
+        # this fails at link time with "symbol(s) not found for architecture
+        # arm64" the moment it's actually built on macOS.
+        target_link_libraries(${target_name} PRIVATE "-framework CoreFoundation")
     else ()
         target_compile_definitions(${target_name} PRIVATE -DGUID_LIBUUID)
         # guid.cpp's GUID_LIBUUID branch calls uuid_generate() (<uuid/uuid.h>),

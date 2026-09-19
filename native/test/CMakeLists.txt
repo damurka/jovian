@@ -37,6 +37,9 @@ if (MSVC)
     target_compile_options(adrastea_core PRIVATE /wd4251 /wd4996)
 elseif (APPLE)
     target_compile_definitions(adrastea_core PRIVATE -DGUID_CFUUID)
+    # See the matching comment on jovian_apply_platform_guid_define
+    # (native/CMakeLists.txt) -- guid.cpp's CFUUID calls need CoreFoundation.
+    target_link_libraries(adrastea_core PRIVATE "-framework CoreFoundation")
 else ()
     target_compile_definitions(adrastea_core PRIVATE -DGUID_LIBUUID)
     # See the matching comment on jovian_apply_platform_guid_define
@@ -85,6 +88,9 @@ if (MSVC)
     target_compile_options(themisto_core PRIVATE /wd4251 /wd4996)
 elseif (APPLE)
     target_compile_definitions(themisto_core PRIVATE -DGUID_CFUUID)
+    # See the matching comment on jovian_apply_platform_guid_define
+    # (native/CMakeLists.txt) -- guid.cpp's CFUUID calls need CoreFoundation.
+    target_link_libraries(themisto_core PRIVATE "-framework CoreFoundation")
 else ()
     target_compile_definitions(themisto_core PRIVATE -DGUID_LIBUUID)
     # See the matching comment on jovian_apply_platform_guid_define
