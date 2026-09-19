@@ -469,9 +469,13 @@ TEST_F(SessionRegistryTest, RestartSessionReplacesTheKernelButKeepsTheSameId)
 TEST_F(SessionRegistryTest, ConcurrentRestartsForTheSameSessionDontLeakAnExtraKernelProcess)
 {
 #ifndef _WIN32
+    // GTEST_SKIP() alone doesn't help here: it only skips at runtime, but
+    // the whole body below still has to compile, and countProcessesNamed()
+    // doesn't exist on this platform (see its own comment) -- so the body
+    // is only compiled on Windows at all.
     GTEST_SKIP() << "countProcessesNamed() is Windows-only (Toolhelp32Snapshot); "
                     "a /proc or libproc equivalent hasn't been written yet.";
-#endif
+#else
     // Regression test for a real, reproduced bug: two overlapping
     // restartSession() calls for the same id used to race -- each
     // independently stopped the old kernel and spawned its own new one
@@ -520,14 +524,18 @@ TEST_F(SessionRegistryTest, ConcurrentRestartsForTheSameSessionDontLeakAnExtraKe
         << countProcessesNamed(L"elara.exe");
 
     m_registry->stopSession(id);
+#endif
 }
 
 TEST_F(SessionRegistryTest, ConcurrentExecuteDuringARestartDoesNotCrashOrLeak)
 {
 #ifndef _WIN32
+    // See the matching comment on ConcurrentRestartsForTheSameSession...
+    // above: GTEST_SKIP() alone doesn't stop the body below from having to
+    // compile, so the body is only compiled on Windows at all.
     GTEST_SKIP() << "countProcessesNamed() is Windows-only (Toolhelp32Snapshot); "
                     "a /proc or libproc equivalent hasn't been written yet.";
-#endif
+#else
     // sendExecute()/sendInterrupt() used to look up a session and call
     // straight into its ClientZmq with no serialization against a
     // concurrent stopSession()/restartSession() for that same id -- a
@@ -599,6 +607,7 @@ TEST_F(SessionRegistryTest, ConcurrentExecuteDuringARestartDoesNotCrashOrLeak)
     EXPECT_TRUE(gotReply) << "session never replied to an execute_request after the race";
 
     m_registry->stopSession(id);
+#endif
 }
 
 // Own main() instead of linking GTest::gtest_main, as a second line of
