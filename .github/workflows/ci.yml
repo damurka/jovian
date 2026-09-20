@@ -47,7 +47,7 @@ jobs:
       # runner images ship a Python already, but pinning it explicitly
       # (matching r-version: 'release' above) keeps this from silently
       # depending on whatever a given image happens to preinstall.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.x'
 
