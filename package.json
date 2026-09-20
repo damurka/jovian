@@ -33,8 +33,7 @@
     "packages/hera/LICENSE",
     "packages/hera/R/**/*",
     "packages/hera/man/**/*",
-    "README.md",
-    "LICENSE"
+    "README.md"
   ],
   "scripts": {
     "clean": "node scripts/clean.js",
@@ -65,7 +64,7 @@
     "native"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "UNLICENSED",
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
