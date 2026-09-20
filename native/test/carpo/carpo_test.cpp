@@ -12,8 +12,11 @@
 // lifecycle -- CPython explicitly supports a full finalize-then-reinitialize
 // cycle within the same process, which is all this sequential (never
 // concurrent) construct-then-destruct pattern relies on.
+#include <algorithm>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -164,4 +167,177 @@ TEST(CarpoTest, IsCompleteRequestRecognizesInvalidCode)
     carpo::PyInterpreter interpreter(0, nullptr);
 
     EXPECT_EQ(interpreter.isCompleteRequest("def f(:").at("status").get<std::string>(), "invalid");
+}
+
+TEST(CarpoTest, CompleteRequestFindsRealAttributesOnAKnownObject)
+{
+    SKIP_IF_NO_PYTHON();
+    carpo::PyInterpreter interpreter(0, nullptr);
+
+    // Give the session a variable to complete against, matching how a real
+    // notebook session would have state by the time a completion request
+    // comes in.
+    ASSERT_EQ(runCode(interpreter, "x = 'hello'").at("status").get<std::string>(), "ok");
+
+    std::string code = "x.uppe";
+    json reply = interpreter.completeRequest(code, static_cast<int>(code.size()));
+
+    EXPECT_EQ(reply.at("status").get<std::string>(), "ok");
+    auto matches = reply.at("matches").get<std::vector<std::string>>();
+    EXPECT_NE(std::find(matches.begin(), matches.end(), "x.upper()"), matches.end());
+}
+
+TEST(CarpoTest, CompleteRequestReturnsNoMatchesForAnUnknownPrefix)
+{
+    SKIP_IF_NO_PYTHON();
+    carpo::PyInterpreter interpreter(0, nullptr);
+
+    std::string code = "totally_unknown_name_xyz";
+    json reply = interpreter.completeRequest(code, static_cast<int>(code.size()));
+
+    EXPECT_EQ(reply.at("status").get<std::string>(), "ok");
+    EXPECT_TRUE(reply.at("matches").get<std::vector<std::string>>().empty());
+}
+
+TEST(CarpoTest, InspectRequestDescribesARealObject)
+{
+    SKIP_IF_NO_PYTHON();
+    carpo::PyInterpreter interpreter(0, nullptr);
+
+    ASSERT_EQ(runCode(interpreter, "x = 42").at("status").get<std::string>(), "ok");
+
+    json reply = interpreter.inspectRequest("x", 1, 0);
+
+    EXPECT_TRUE(reply.at("found").get<bool>());
+    std::string text = reply.at("data").at("text/plain").get<std::string>();
+    EXPECT_NE(text.find("int"), std::string::npos);
+}
+
+TEST(CarpoTest, InspectRequestReportsNotFoundForAnUndefinedName)
+{
+    SKIP_IF_NO_PYTHON();
+    carpo::PyInterpreter interpreter(0, nullptr);
+
+    json reply = interpreter.inspectRequest("totally_undefined_xyz", 20, 0);
+
+    EXPECT_FALSE(reply.at("found").get<bool>());
+}
+
+TEST(CarpoTest, ExecuteRequestStreamsStdoutInRealTimeNotBatchedAtTheEnd)
+{
+    // Distinguishes real-time native-callback streaming from the earlier
+    // io.StringIO-capture-then-publish-once design: a loop with several
+    // separate print() calls must produce *multiple* separate publish()
+    // invocations (one per write(), as each print() happens), not a single
+    // publish() carrying all the output concatenated together at the end.
+    SKIP_IF_NO_PYTHON();
+    carpo::PyInterpreter interpreter(0, nullptr);
+
+    std::vector<std::string> streamedChunks;
+    interpreter.registerPublisher([&](RequestContext, const std::string& msgType, json /*metadata*/, json content, buffer_sequence) {
+        if (msgType == "stream" && content.value("name", "") == "stdout")
+        {
+            streamedChunks.push_back(content.value("text", ""));
+        }
+    });
+
+    json reply = runCode(interpreter, "for i in range(3):\n    print(i)");
+
+    EXPECT_EQ(reply.at("status").get<std::string>(), "ok");
+    EXPECT_GT(streamedChunks.size(), 1u) << "expected multiple separate stream publishes, not one batched write";
+
+    std::string combined;
+    for (const auto& chunk : streamedChunks) combined += chunk;
+    EXPECT_NE(combined.find("0"), std::string::npos);
+    EXPECT_NE(combined.find("1"), std::string::npos);
+    EXPECT_NE(combined.find("2"), std::string::npos);
+}
+
+#ifdef CARPO_TEST_PYTHON_HOME
+TEST(CarpoTest, VenvPathActivatesTheVenvsSitePackagesDirectory)
+{
+    // Real end-to-end check, not just "the code compiles": actually
+    // creates a throwaway venv with this test's own Python (`python -m
+    // venv`), points CARPO_VENV_PATH at it (the same env var
+    // carpo::Server::setupEnvironment() sets from EnvironmentConfig::
+    // venv_path in production -- bridge/engine.cpp), and confirms the
+    // bootstrap source's venv-activation snippet actually put that venv's
+    // site-packages directory on sys.path.
+    SKIP_IF_NO_PYTHON();
+
+    std::filesystem::path venvDir = std::filesystem::temp_directory_path() / "carpo_test_venv";
+    std::error_code ec;
+    std::filesystem::remove_all(venvDir, ec);
+
+#ifdef _WIN32
+    std::string pythonExe = std::string(CARPO_TEST_PYTHON_HOME) + "/python.exe";
+#else
+    std::string pythonExe = std::string(CARPO_TEST_PYTHON_HOME) + "/bin/python3";
+#endif
+    std::string createVenvCmd = "\"" + pythonExe + "\" -m venv \"" + venvDir.string() + "\"";
+#ifdef _WIN32
+    // cmd.exe's own quoting gotcha: when a command STARTS with a quoted
+    // path, it needs an extra outer pair of quotes around the whole thing
+    // or cmd mis-parses it ("The filename, directory name, or volume label
+    // syntax is incorrect.", confirmed directly) -- std::system() shells
+    // out via cmd /c on this platform. Not needed on POSIX, where
+    // std::system() uses /bin/sh directly.
+    createVenvCmd = "\"" + createVenvCmd + "\"";
+#endif
+    int rc = std::system(createVenvCmd.c_str());
+    ASSERT_EQ(rc, 0) << "failed to create throwaway venv via: " << createVenvCmd;
+
+    std::string venvPathStr = venvDir.string();
+#ifdef _WIN32
+    _putenv_s("CARPO_VENV_PATH", venvPathStr.c_str());
+#else
+    setenv("CARPO_VENV_PATH", venvPathStr.c_str(), 1);
+#endif
+
+    {
+        carpo::PyInterpreter interpreter(0, nullptr);
+
+        json reply = runCode(interpreter,
+            "import os, sys\n"
+            "_venv = os.environ.get('CARPO_VENV_PATH', '')\n"
+            "assert _venv, 'CARPO_VENV_PATH not set'\n"
+            "assert any(p.startswith(_venv) for p in sys.path), sys.path\n");
+
+        EXPECT_EQ(reply.at("status").get<std::string>(), "ok")
+            << "evalue: " << reply.value("evalue", "");
+    }
+
+#ifdef _WIN32
+    _putenv_s("CARPO_VENV_PATH", "");
+#else
+    unsetenv("CARPO_VENV_PATH");
+#endif
+    std::filesystem::remove_all(venvDir, ec);
+}
+#endif
+
+TEST(CarpoTest, ExecuteRequestStreamsStderrSeparatelyFromStdout)
+{
+    SKIP_IF_NO_PYTHON();
+    carpo::PyInterpreter interpreter(0, nullptr);
+
+    std::vector<std::string> stdoutChunks;
+    std::vector<std::string> stderrChunks;
+    interpreter.registerPublisher([&](RequestContext, const std::string& msgType, json /*metadata*/, json content, buffer_sequence) {
+        if (msgType != "stream") return;
+        if (content.value("name", "") == "stdout") stdoutChunks.push_back(content.value("text", ""));
+        if (content.value("name", "") == "stderr") stderrChunks.push_back(content.value("text", ""));
+    });
+
+    json reply = runCode(interpreter, "import sys\nprint('to stdout')\nprint('to stderr', file=sys.stderr)");
+
+    EXPECT_EQ(reply.at("status").get<std::string>(), "ok");
+    ASSERT_FALSE(stdoutChunks.empty());
+    ASSERT_FALSE(stderrChunks.empty());
+
+    std::string stdoutCombined, stderrCombined;
+    for (const auto& c : stdoutChunks) stdoutCombined += c;
+    for (const auto& c : stderrChunks) stderrCombined += c;
+    EXPECT_NE(stdoutCombined.find("to stdout"), std::string::npos);
+    EXPECT_NE(stderrCombined.find("to stderr"), std::string::npos);
 }

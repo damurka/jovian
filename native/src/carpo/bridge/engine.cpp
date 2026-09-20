@@ -30,6 +30,22 @@ namespace carpo
 #endif
         }
 
+        // Not a real Python env var -- CARPO_VENV_PATH is this codebase's
+        // own signal, read by the bootstrap source (interpreter_py.cpp's
+        // kBootstrapSource) to prepend the venv's site-packages directory to
+        // sys.path. PYTHONHOME above still points at the *base* install
+        // (set from env_config.python_home, not this venv) -- a venv has no
+        // libpython/stdlib of its own for an embedded interpreter to load.
+        if (!env_config.venv_path.empty()) {
+#ifdef _WIN32
+            _putenv_s("CARPO_VENV_PATH", env_config.venv_path.c_str());
+#else
+            setenv("CARPO_VENV_PATH", env_config.venv_path.c_str(), 1);
+#endif
+            printf("[carpo::Server] Set CARPO_VENV_PATH=%s\n", env_config.venv_path.c_str());
+            fflush(stdout);
+        }
+
         printf("[carpo::Server] setup_environment() completed\n");
         fflush(stdout);
     }

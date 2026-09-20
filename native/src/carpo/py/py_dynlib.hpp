@@ -23,11 +23,21 @@
 // struct layout never matters here: PyObject stays a fully opaque type, and
 // even reference counting goes through the real Py_IncRef/Py_DecRef
 // *functions* (not the Py_INCREF/Py_DECREF macros, which would read/write
-// ob_refcnt directly). PyMethodDef/PyModuleDef, which a real native-callback
-// module would need, are deliberately NOT declared here at all: this
-// implementation runs all interpreter logic (packages/hera's equivalent, see
-// py_bootstrap in interpreter_py.cpp) as pure Python source executed via
-// PyRun_String, with no native-callback module needed.
+// ob_refcnt directly).
+//
+// PyMethodDef is the one exception to "no struct layouts, ever": real-time
+// stdout/stderr streaming (matching R's WriteConsoleEx callback -- see
+// interpreter_py.cpp's carpoNativeWriteStdout()/WriteStderr()) needs a
+// native C function callable from Python, and that needs a PyMethodDef to
+// wrap it into a PyObject via PyCFunction_NewEx(). PyMethodDef's 4-field
+// layout (name, C function pointer, calling-convention flags, docstring) is
+// itself part of CPython's stable ABI -- guaranteed never to change, since
+// every compiled extension module ever built statically embeds this exact
+// layout and there is no CPython-side code path that could migrate them all
+// at once. No PyModuleDef/module machinery is needed alongside it: the
+// resulting callables are inserted directly into the bootstrap's own globals
+// dict (PyDict_SetItemString), not exposed via `import` -- see
+// interpreter_py.cpp's constructor.
 //
 // Only the handful of stable-ABI functions this codebase actually calls are
 // declared -- not an attempt at a general-purpose CPython binding.
@@ -91,16 +101,34 @@ extern "C" {
 
     using PyDict_New_t = PyObject* (*)(void);
     using PyDict_GetItemString_t = PyObject* (*)(PyObject*, const char*);
+    using PyDict_SetItemString_t = int (*)(PyObject*, const char*, PyObject*);
 
     using PyList_Size_t = Py_ssize_t (*)(PyObject*);
     using PyList_GetItem_t = PyObject* (*)(PyObject*, Py_ssize_t);
 
     using PyLong_AsLong_t = long (*)(PyObject*);
+    using PyLong_FromLong_t = PyObject* (*)(long);
 
     using PyImport_AddModule_t = PyObject* (*)(const char*);
     using PyModule_GetDict_t = PyObject* (*)(PyObject*);
 
     using PyRun_String_t = PyObject* (*)(const char*, int, PyObject*, PyObject*);
+
+    // METH_VARARGS' calling convention: a C function receiving (self, args)
+    // where args is a plain positional-argument tuple -- the flag value
+    // (0x0001) is part of the same stable ABI as everything else here,
+    // unchanged since Python 2.
+    using PyCFunction = PyObject* (*)(PyObject*, PyObject*);
+
+    struct PyMethodDef
+    {
+        const char* ml_name;
+        PyCFunction ml_meth;
+        int ml_flags;
+        const char* ml_doc;
+    };
+
+    using PyCFunction_NewEx_t = PyObject* (*)(PyMethodDef*, PyObject*, PyObject*);
 }
 
 namespace carpo { namespace py { namespace api {
@@ -130,16 +158,27 @@ namespace carpo { namespace py { namespace api {
 
     extern PyDict_New_t p_PyDict_New;
     extern PyDict_GetItemString_t p_PyDict_GetItemString;
+    extern PyDict_SetItemString_t p_PyDict_SetItemString;
 
     extern PyList_Size_t p_PyList_Size;
     extern PyList_GetItem_t p_PyList_GetItem;
 
     extern PyLong_AsLong_t p_PyLong_AsLong;
+    extern PyLong_FromLong_t p_PyLong_FromLong;
 
     extern PyImport_AddModule_t p_PyImport_AddModule;
     extern PyModule_GetDict_t p_PyModule_GetDict;
 
     extern PyRun_String_t p_PyRun_String;
+
+    extern PyCFunction_NewEx_t p_PyCFunction_NewEx;
+
+    // A DATA symbol (the actual singleton PyObject struct, not a function),
+    // resolved once at load time -- see py_dynlib.cpp's comment on why this
+    // one resolves differently from the function pointers above (its real
+    // exported name is "_Py_NoneStruct"; "Py_None" itself is only ever a
+    // macro in Python's own headers, never a linker-visible symbol).
+    extern PyObject* p_Py_None;
 } } }
 
 #define Py_Initialize (*::carpo::py::api::p_Py_Initialize)
@@ -168,16 +207,29 @@ namespace carpo { namespace py { namespace api {
 
 #define PyDict_New (*::carpo::py::api::p_PyDict_New)
 #define PyDict_GetItemString (*::carpo::py::api::p_PyDict_GetItemString)
+#define PyDict_SetItemString (*::carpo::py::api::p_PyDict_SetItemString)
 
 #define PyList_Size (*::carpo::py::api::p_PyList_Size)
 #define PyList_GetItem (*::carpo::py::api::p_PyList_GetItem)
 
 #define PyLong_AsLong (*::carpo::py::api::p_PyLong_AsLong)
+#define PyLong_FromLong (*::carpo::py::api::p_PyLong_FromLong)
 
 #define PyImport_AddModule (*::carpo::py::api::p_PyImport_AddModule)
 #define PyModule_GetDict (*::carpo::py::api::p_PyModule_GetDict)
 
 #define PyRun_String (*::carpo::py::api::p_PyRun_String)
+
+#define PyCFunction_NewEx (*::carpo::py::api::p_PyCFunction_NewEx)
+
+// Py_None is a plain extern variable holding the resolved singleton's
+// address (unlike R_GlobalEnv/R_NilValue in r_dynlib.hpp, which are
+// pointer-to-pointer -- see py_dynlib.cpp), so no dereference here.
+#define Py_None (::carpo::py::api::p_Py_None)
+
+// METH_VARARGS' real value (Python.h's methodobject.h) -- see PyCFunction's
+// comment above.
+#define CARPO_PY_METH_VARARGS 0x0001
 
 // Py_file_input's numeric value (Python.h's Include/compile.h /
 // cpython/compile.h) -- part of the same stable ABI everything else in this

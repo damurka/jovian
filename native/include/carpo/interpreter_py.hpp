@@ -18,11 +18,11 @@ namespace carpo
     // design (a small Python-side bootstrap module, hera's equivalent,
     // handling execute/is-complete logic in Python itself).
     //
-    // Deliberately scoped: executeRequestImpl and isCompleteRequestImpl are
-    // real. completeRequestImpl/inspectRequestImpl are not (still an honest
-    // "not implemented" stub) -- code completion/object inspection would
-    // need their own bootstrap logic (jedi-equivalent), left for a later
-    // pass rather than attempted alongside real execution in the same one.
+    // executeRequestImpl, isCompleteRequestImpl, completeRequestImpl, and
+    // inspectRequestImpl are all real, backed by a small Python-side
+    // bootstrap module (interpreter_py.cpp's kBootstrapSource) using only
+    // the standard library (ast/contextlib/traceback/codeop/rlcompleter/
+    // inspect) -- no third-party dependency (no jedi) needed.
     class ADRASTEA_API PyInterpreter : public adrastea::Interpreter
     {
     public:
@@ -76,6 +76,8 @@ namespace carpo
         void* m_userGlobals;        // borrowed (owned by the __main__ module; outlives us)
         void* m_bootstrapRunFn;     // owned (one strong ref), null after finalizeIfOwned()
         void* m_bootstrapIsCompleteFn; // owned (one strong ref), null after finalizeIfOwned()
+        void* m_bootstrapCompleteFn;   // owned (one strong ref), null after finalizeIfOwned()
+        void* m_bootstrapInspectFn;    // owned (one strong ref), null after finalizeIfOwned()
         std::string m_languageVersion;
         bool m_ownsInterpreter;
         bool m_finalized;

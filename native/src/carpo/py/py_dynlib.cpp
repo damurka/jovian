@@ -41,16 +41,22 @@ namespace api {
 
     PyDict_New_t p_PyDict_New = nullptr;
     PyDict_GetItemString_t p_PyDict_GetItemString = nullptr;
+    PyDict_SetItemString_t p_PyDict_SetItemString = nullptr;
 
     PyList_Size_t p_PyList_Size = nullptr;
     PyList_GetItem_t p_PyList_GetItem = nullptr;
 
     PyLong_AsLong_t p_PyLong_AsLong = nullptr;
+    PyLong_FromLong_t p_PyLong_FromLong = nullptr;
 
     PyImport_AddModule_t p_PyImport_AddModule = nullptr;
     PyModule_GetDict_t p_PyModule_GetDict = nullptr;
 
     PyRun_String_t p_PyRun_String = nullptr;
+
+    PyCFunction_NewEx_t p_PyCFunction_NewEx = nullptr;
+
+    PyObject* p_Py_None = nullptr;
 }
 
 namespace {
@@ -297,16 +303,31 @@ void loadPyApi(const std::string& pythonHome) {
 
     resolve(handle, "PyDict_New", p_PyDict_New, libPath);
     resolve(handle, "PyDict_GetItemString", p_PyDict_GetItemString, libPath);
+    resolve(handle, "PyDict_SetItemString", p_PyDict_SetItemString, libPath);
 
     resolve(handle, "PyList_Size", p_PyList_Size, libPath);
     resolve(handle, "PyList_GetItem", p_PyList_GetItem, libPath);
 
     resolve(handle, "PyLong_AsLong", p_PyLong_AsLong, libPath);
+    resolve(handle, "PyLong_FromLong", p_PyLong_FromLong, libPath);
 
     resolve(handle, "PyImport_AddModule", p_PyImport_AddModule, libPath);
     resolve(handle, "PyModule_GetDict", p_PyModule_GetDict, libPath);
 
     resolve(handle, "PyRun_String", p_PyRun_String, libPath);
+
+    resolve(handle, "PyCFunction_NewEx", p_PyCFunction_NewEx, libPath);
+
+    // A DATA symbol, not a function -- "_Py_NoneStruct" is the actual
+    // exported singleton object; Python's own headers only ever expose it
+    // as the macro "Py_None" (#define Py_None (&_Py_NoneStruct)), never
+    // under that name in the library itself. resolve()'s cast is still
+    // correct here: dlsym/GetProcAddress already gives us the struct's
+    // address directly, which is exactly what "Py_None" (a PyObject*)
+    // needs to hold -- unlike R_NilValue/R_GlobalEnv in r_dynlib.cpp,
+    // which are pointer *variables* (SEXP R_NilValue;) needing an extra
+    // dereference, _Py_NoneStruct is the object itself.
+    resolve(handle, "_Py_NoneStruct", p_Py_None, libPath);
 
     g_loaded = true;
 }
