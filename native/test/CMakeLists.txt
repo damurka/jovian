@@ -113,21 +113,57 @@ endif ()
 add_test(NAME ElaraTest COMMAND elara_test)
 
 # ==========================================
-# CARPO TESTS (Phase 5 scaffolding -- see native/include/carpo/interpreter_py.hpp)
+# CARPO TESTS (see native/include/carpo/interpreter_py.hpp)
 # ==========================================
-# Only built/registered when JOVIAN_BUILD_CARPO is on (default OFF) -- the
-# scaffold isn't part of a normal build/test run until it's an actual
-# working Python kernel.
+# Only built/registered when JOVIAN_BUILD_CARPO is on (default OFF) -- not
+# part of a normal build/test run yet, since it needs a real Python
+# installation available wherever it runs (mirrors ElaraTest needing R).
 if (JOVIAN_BUILD_CARPO)
     add_executable(carpo_test
         carpo/carpo_test.cpp
         ${JOVIAN_SOURCE_DIR}/carpo/interpreter_py.cpp
+        ${JOVIAN_SOURCE_DIR}/carpo/py/py_dynlib.cpp
     )
     target_compile_features(carpo_test PRIVATE cxx_std_23)
     target_link_libraries(carpo_test PRIVATE
         adrastea
         GTest::gtest_main
     )
+    if (NOT WIN32)
+        target_link_libraries(carpo_test PRIVATE ${CMAKE_DL_LIBS})
+    endif ()
+
+    # Unlike R_HOME (found unconditionally in the root CMakeLists.txt via
+    # find_package(R REQUIRED), since every other target needs it), Python
+    # discovery only matters here, for this optional (JOVIAN_BUILD_CARPO
+    # default OFF) test target -- so it's resolved locally instead of
+    # burdening every configure with a Python dependency. CMake's own
+    # FindPython3 locates an interpreter; asking THAT interpreter for its
+    # own sys.prefix (rather than guessing from its executable's directory,
+    # which is wrong on POSIX -- .../bin/python3's parent isn't the
+    # install prefix) matches exactly what PyInterpreter needs PYTHONHOME
+    # set to for that same interpreter to load correctly.
+    find_package(Python3 COMPONENTS Interpreter)
+    if (Python3_Interpreter_FOUND)
+        execute_process(
+            COMMAND "${Python3_EXECUTABLE}" -c "import sys; print(sys.prefix)"
+            OUTPUT_VARIABLE CARPO_TEST_PYTHON_HOME
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        # sys.prefix reports backslashes on Windows -- normalized to
+        # forward slashes both so it survives being embedded in a quoted
+        # compile-definition string literal unescaped, and because
+        # Windows' own APIs/std::filesystem accept forward slashes fine
+        # (R_HOME gets the same normalization for free, since `R RHOME`
+        # already reports forward slashes on every platform).
+        string(REPLACE "\\" "/" CARPO_TEST_PYTHON_HOME "${CARPO_TEST_PYTHON_HOME}")
+    endif ()
+
+    if (CARPO_TEST_PYTHON_HOME)
+        target_compile_definitions(carpo_test PRIVATE
+            "CARPO_TEST_PYTHON_HOME=\"${CARPO_TEST_PYTHON_HOME}\"")
+    endif ()
+
     add_test(NAME CarpoTest COMMAND carpo_test)
 endif ()
 

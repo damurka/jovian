@@ -135,15 +135,17 @@ set(ELARA_EXE_SOURCES
     ${JOVIAN_SOURCE_DIR}/elara/bridge/engine.cpp
 )
 
-# Phase 5 scaffolding for a future Python kernel ("Carpo"), modeled on
-# Positron's Ark/xeus-python -- see native/include/carpo/interpreter_py.hpp's
-# file comment. NOT a working Python interpreter: every *RequestImpl() that
-# would need real execution returns a clear "not yet implemented" error.
-# Mirrors ELARA_R_SOURCES/ELARA_EXE_SOURCES exactly in shape, deliberately,
-# to prove Adrastea's extension point (adrastea::Interpreter) genuinely
-# generalizes beyond Elara/R.
+# A real Python kernel ("Carpo"), modeled on Positron's Ark/xeus-python --
+# see native/include/carpo/interpreter_py.hpp's file comment. Mirrors
+# ELARA_R_SOURCES/ELARA_EXE_SOURCES in shape deliberately, proving Adrastea's
+# extension point (adrastea::Interpreter) genuinely generalizes beyond
+# Elara/R: py/py_dynlib.cpp is Carpo's equivalent of elara/r/r_dynlib.cpp
+# (dynamically loading Python's C API at runtime instead of linking against
+# a specific installation at build time, for the same reasons).
 set(CARPO_SOURCES
     ${JOVIAN_SOURCE_DIR}/carpo/interpreter_py.cpp
+    ${JOVIAN_SOURCE_DIR}/carpo/py/py_dynlib.cpp
+    ${JOVIAN_SOURCE_DIR}/carpo/py/py_dynlib.hpp
 )
 
 set(CARPO_EXE_SOURCES
@@ -373,13 +375,13 @@ if (JOVIAN_BUILD_THEMISTO)
 endif ()
 
 if (JOVIAN_BUILD_CARPO)
-    message(STATUS "Building scaffolded Python kernel executable (carpo) -- NOT YET FUNCTIONAL...")
+    message(STATUS "Building Python kernel executable (carpo)...")
 
     # ==========================================
-    # CARPO (SCAFFOLDING ONLY) EXECUTABLE TARGET
+    # CARPO EXECUTABLE TARGET
     # ==========================================
-    # No Python embedding at all yet -- see CARPO_SOURCES's comment above
-    # and native/include/carpo/interpreter_py.hpp's file comment.
+    # See CARPO_SOURCES's comment above and native/include/carpo/
+    # interpreter_py.hpp's file comment for what's real vs. still stubbed.
     add_executable(carpo
         ${CARPO_SOURCES}
         ${CARPO_EXE_SOURCES}
@@ -392,6 +394,14 @@ if (JOVIAN_BUILD_CARPO)
     # and JOVIAN_INCLUDE_DIR/JOVIAN_SOURCE_DIR all arrive transitively via
     # linking `adrastea` (PUBLIC on that target).
     target_link_libraries(carpo PRIVATE adrastea)
+
+    # carpo loads Python's shared library dynamically at runtime on every
+    # platform instead of linking against it at build time -- see
+    # native/src/carpo/py/py_dynlib.hpp/.cpp for why (mirrors elara's own
+    # R_LIBRARIES-free dlopen()/LoadLibrary() approach exactly).
+    if (NOT WIN32)
+        target_link_libraries(carpo PRIVATE ${CMAKE_DL_LIBS})
+    endif ()
 
     set_target_properties(carpo PROPERTIES
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")

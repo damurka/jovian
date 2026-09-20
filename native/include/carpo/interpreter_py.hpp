@@ -9,20 +9,20 @@
 
 namespace carpo
 {
-    // Scaffolding for a future Python kernel, modeled on Positron's Ark and
-    // xeus-python -- NOT a working Python interpreter. Every *RequestImpl()
-    // that would need real Python execution returns a clear "not yet
-    // implemented" error instead of pretending to work; kernelInfoRequestImpl()
-    // is the one exception, fully implemented, so kernel discovery/jupyter_client
-    // tooling can see this kernel identify itself correctly even though it
-    // can't execute anything yet.
+    // A real, working Python kernel on top of Adrastea, proving out the
+    // *shape* elara::RInterpreter established (native/src/elara/r/
+    // interpreter_r.cpp) generalizes to a second language backend -- see
+    // native/src/carpo/py/py_dynlib.hpp for how Python's C API is loaded
+    // (dynamically, at runtime, mirroring native/src/elara/r/r_dynlib.hpp)
+    // and native/src/carpo/interpreter_py.cpp's file comment for the overall
+    // design (a small Python-side bootstrap module, hera's equivalent,
+    // handling execute/is-complete logic in Python itself).
     //
-    // This exists to prove out the *shape* elara::RInterpreter established
-    // (native/src/elara/r/interpreter_r.cpp) generalizes to a second language
-    // backend on top of Adrastea -- see docs/cpp-usage.md's "Writing a new
-    // interpreter" section for what a real implementation would replace this
-    // with (embedding CPython, likely via xeus-python or a direct CPython C
-    // API embedding, the same way RInterpreter embeds R via Rf_initEmbeddedR).
+    // Deliberately scoped: executeRequestImpl and isCompleteRequestImpl are
+    // real. completeRequestImpl/inspectRequestImpl are not (still an honest
+    // "not implemented" stub) -- code completion/object inspection would
+    // need their own bootstrap logic (jedi-equivalent), left for a later
+    // pass rather than attempted alongside real execution in the same one.
     class ADRASTEA_API PyInterpreter : public adrastea::Interpreter
     {
     public:
@@ -31,7 +31,10 @@ namespace carpo
         PyInterpreter() = delete;
         PyInterpreter(int argc, char* argv[]);
 
-        virtual ~PyInterpreter() = default;
+        virtual ~PyInterpreter();
+
+        PyInterpreter(const PyInterpreter&) = delete;
+        PyInterpreter& operator=(const PyInterpreter&) = delete;
 
     protected:
         void configureImpl() override;
@@ -56,6 +59,26 @@ namespace carpo
         adrastea::json shutdownRequestImpl(bool restart) override;
 
         adrastea::json interruptRequestImpl() override;
+
+    private:
+        // Releases this instance's own references to the bootstrap
+        // functions and, if this instance is the one that called
+        // Py_Initialize() in the first place, finalizes the interpreter.
+        // Called from both shutdownRequestImpl() (the normal path) and the
+        // destructor (a safety net if shutdown_request was never sent) --
+        // idempotent, so whichever runs first does the real work and the
+        // other is a no-op.
+        void finalizeIfOwned();
+
+        // PyObject* -- kept as void* here so this header (and everything
+        // that includes it) never needs to see py_dynlib.hpp's PyObject
+        // declaration. Ownership noted per member.
+        void* m_userGlobals;        // borrowed (owned by the __main__ module; outlives us)
+        void* m_bootstrapRunFn;     // owned (one strong ref), null after finalizeIfOwned()
+        void* m_bootstrapIsCompleteFn; // owned (one strong ref), null after finalizeIfOwned()
+        std::string m_languageVersion;
+        bool m_ownsInterpreter;
+        bool m_finalized;
     };
 
     PyInterpreter* getPyInterpreter();

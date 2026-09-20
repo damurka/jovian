@@ -1,8 +1,9 @@
-// Standalone Jupyter-protocol Python kernel executable ("carpo") --
-// SCAFFOLDING ONLY, see carpo/interpreter_py.hpp's file comment. Mirrors
-// elara.cpp's shape deliberately (CLI parsing, registration handshake with
-// a supervisor, or standard Jupyter connection-file mode) to prove that
-// launch mechanism generalizes to a second language kernel, not just Elara.
+// Standalone Jupyter-protocol Python kernel executable ("carpo") -- see
+// carpo/interpreter_py.hpp's file comment for what's real vs. still
+// stubbed. Mirrors elara.cpp's shape deliberately (CLI parsing, registration
+// handshake with a supervisor, or standard Jupyter connection-file mode) to
+// prove that launch mechanism generalizes to a second language kernel, not
+// just Elara.
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -96,8 +97,7 @@ int main(int argc, char* argv[])
     if (!standaloneJupyterMode && (opts.registrationPort.empty() || opts.key.empty()))
     {
         std::cerr << "[carpo] --registration-port and --key are required unless -f/--connection-file is "
-                     "given. NOTE: carpo is scaffolding only -- it identifies itself correctly over the "
-                     "Jupyter protocol (kernel_info_request) but cannot execute Python code yet."
+                     "given."
                   << std::endl;
         return 1;
     }
@@ -144,7 +144,7 @@ int main(int argc, char* argv[])
         if (standaloneJupyterMode)
         {
             server.start(kernelConfig, [&]() {
-                std::cerr << "[carpo] ready (Jupyter connection-file mode, scaffolding only), shell="
+                std::cerr << "[carpo] ready (Jupyter connection-file mode), shell="
                           << kernelConfig.m_shellPort << " control=" << kernelConfig.m_controlPort
                           << " iopub=" << kernelConfig.m_iopubPort << std::endl;
             });

@@ -30,8 +30,7 @@ namespace carpo
 #endif
         }
 
-        printf("[carpo::Server] setup_environment() completed -- carpo is scaffolding only, "
-               "no real Python is embedded yet\n");
+        printf("[carpo::Server] setup_environment() completed\n");
         fflush(stdout);
     }
 

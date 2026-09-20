@@ -16,11 +16,11 @@
 namespace carpo
 {
     // Mirrors elara::EnvironmentConfig (native/include/elara/engine.hpp) --
-    // Python's equivalent of R_HOME/R_LIBS. A real implementation would set
-    // these from wherever it locates a Python installation (e.g. its own
-    // dynamic-loading equivalent of native/src/elara/r/r_dynlib.hpp, loading
-    // libpython at runtime rather than embedding CPython statically, for the
-    // same "switch versions without a rebuild" reasons documented there).
+    // Python's equivalent of R_HOME/R_LIBS. python_home is set as PYTHONHOME
+    // (Server::setupEnvironment(), bridge/engine.cpp) before PyInterpreter's
+    // constructor loads Python's shared library dynamically at runtime (see
+    // native/src/carpo/py/py_dynlib.hpp, mirroring native/src/elara/r/
+    // r_dynlib.hpp). venv_path is not consulted yet -- a later pass's job.
     struct ADRASTEA_API EnvironmentConfig
     {
         std::string python_home;
