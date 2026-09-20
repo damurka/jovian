@@ -9,6 +9,10 @@ out/
 
 # Dependencies
 node_modules/
+
+# tools/playground (Next.js app) build output
+.next/
+next-env.d.ts
 vcpkg_installed/
 
 # TypeScript
