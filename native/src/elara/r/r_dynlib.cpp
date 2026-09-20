@@ -61,12 +61,26 @@ namespace api {
     ptr_R_ReadConsole_t* p_ptr_R_ReadConsole = nullptr;
     FILE** p_R_Outputfile = nullptr;
     FILE** p_R_Consolefile = nullptr;
+    int* p_R_Interactive = nullptr;
+#else
+    R_setStartTime_t p_R_setStartTime = nullptr;
+    R_DefParamsEx_t p_R_DefParamsEx = nullptr;
+    R_common_command_line_t p_R_common_command_line = nullptr;
+    R_SetParams_t p_R_SetParams = nullptr;
+    R_set_command_line_arguments_t p_R_set_command_line_arguments = nullptr;
+    setup_Rmainloop_t p_setup_Rmainloop = nullptr;
+    get_R_HOME_t p_get_R_HOME = nullptr;
+    getRUser_t p_getRUser = nullptr;
 #endif
 }
 
 namespace {
 
     bool g_loaded = false;
+
+#ifdef _WIN32
+    bool g_hasWindowsEmbeddingApi = false;
+#endif
 
 #ifdef _WIN32
     using LibHandle = HMODULE;
@@ -186,6 +200,16 @@ namespace {
         out = reinterpret_cast<FnPtr>(sym);
     }
 
+    // Unlike resolve(), a missing symbol is not an error -- reports whether it
+    // was found (and leaves `out` null if not). Only for symbols that don't
+    // exist in every R version this loader supports.
+    template <class FnPtr>
+    bool tryResolve(LibHandle handle, const char* name, FnPtr& out) {
+        void* sym = getSym(handle, name);
+        out = reinterpret_cast<FnPtr>(sym);
+        return sym != nullptr;
+    }
+
     template <class T>
     void resolveData(LibHandle handle, const char* name, T*& out, const std::string& libPath) {
         void* sym = getSym(handle, name);
@@ -201,6 +225,10 @@ namespace {
 } // namespace
 
 bool isRApiLoaded() { return g_loaded; }
+
+#ifdef _WIN32
+bool hasWindowsEmbeddingApi() { return g_hasWindowsEmbeddingApi; }
+#endif
 
 void loadRApi() {
     if (g_loaded) return;
@@ -261,6 +289,24 @@ void loadRApi() {
     resolveData(handle, "ptr_R_ReadConsole", p_ptr_R_ReadConsole, libPath);
     resolveData(handle, "R_Outputfile", p_R_Outputfile, libPath);
     resolveData(handle, "R_Consolefile", p_R_Consolefile, libPath);
+    // Lenient on purpose (a plain dlsym, not resolveData()): if some libR
+    // doesn't export it, readline() just keeps its old behavior rather than
+    // R failing to start over a setting that only matters for stdin.
+    p_R_Interactive = static_cast<int*>(getSym(handle, "R_Interactive"));
+#else
+    // Optional, not resolve(): R_DefParamsEx (the versioned-Rstart entry
+    // point) only exists from R 4.2.0. All-or-nothing -- a partial set is no
+    // better than none, since the whole documented sequence is needed
+    // together (see RInterpreter's Windows startup).
+    g_hasWindowsEmbeddingApi =
+        tryResolve(handle, "R_setStartTime", p_R_setStartTime) &&
+        tryResolve(handle, "R_DefParamsEx", p_R_DefParamsEx) &&
+        tryResolve(handle, "R_common_command_line", p_R_common_command_line) &&
+        tryResolve(handle, "R_SetParams", p_R_SetParams) &&
+        tryResolve(handle, "R_set_command_line_arguments", p_R_set_command_line_arguments) &&
+        tryResolve(handle, "setup_Rmainloop", p_setup_Rmainloop) &&
+        tryResolve(handle, "get_R_HOME", p_get_R_HOME) &&
+        tryResolve(handle, "getRUser", p_getRUser);
 #endif
 
     g_loaded = true;

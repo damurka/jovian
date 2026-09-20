@@ -54,6 +54,18 @@
 #include "Rinterface.h"
 #endif
 
+#ifdef _WIN32
+// Windows R's documented embedding API (R_ext/RStartup.h, "Writing R
+// Extensions" section 8.2.2). structRstart's Windows-only fields
+// (ReadConsole/WriteConsoleEx/CharacterMode/...) are only visible under
+// `Win32`, which R's own build defines but an embedder has to define itself
+// -- R's own rtest.c example does exactly this. Included here, before the
+// macro section below, for the same reason Rinterface.h is above.
+#define Win32
+#include "R_ext/RStartup.h"
+#undef Win32
+#endif
+
 #ifdef _MSC_VER
 #undef _Complex
 #endif
@@ -74,6 +86,16 @@ namespace elara { namespace r {
     void loadRApi();
 
     bool isRApiLoaded();
+
+#ifdef _WIN32
+    // Whether R.dll exports everything RInterpreter's Windows startup needs
+    // (R_DefParamsEx and friends, all resolved by loadRApi() but -- unlike
+    // every other symbol -- optionally, since R_DefParamsEx only exists from
+    // R 4.2.0). False means an older R: the caller falls back to plain
+    // Rf_initEmbeddedR(), which works but has no way to install a
+    // ReadConsole callback, so R's readline()/scan() can't be answered.
+    bool hasWindowsEmbeddingApi();
+#endif
 
 } }
 
@@ -131,26 +153,40 @@ extern "C" {
 // guessed -- an ABI mismatch here would be exactly the kind of
 // hard-to-debug failure dynamic loading exists to avoid.
 //
-// CONFIRMED genuinely Unix-only, not just header-gated: tried extending
-// this to Windows too (on the theory that GetProcAddress might still find
-// the data symbol even without the header declaring it) as part of this
-// stdin feature -- R.dll on Windows does NOT export "ptr_R_WriteConsole" at
-// all ("'R.dll' was loaded but is missing the expected symbol
-// 'ptr_R_WriteConsole'", loadRApi()'s own error, hit directly). Windows R
-// embeds via a completely different mechanism (structRstart/R_SetParams,
-// Rembedded.h's Windows-specific API), which this codebase doesn't
-// implement -- so on Windows, R's WriteConsoleEx()/ReadConsole() hooks
-// below are simply never wired up, and R falls back to its own default
-// console I/O (the hidden AllocConsole() window this constructor creates).
-// Net effect: readline()/scan() genuinely hang forever on Windows (nothing
-// can type into that hidden window), the same bug this whole feature exists
-// to fix, just still open for R specifically on this one platform -- Carpo/
-// Python's input() is unaffected (CPython's embedding has no equivalent
-// Unix-only restriction) and works correctly on Windows.
+// Genuinely Unix-only, not just header-gated: R.dll on Windows does NOT
+// export "ptr_R_WriteConsole"/"ptr_R_ReadConsole" at all (loadRApi() fails
+// with "missing the expected symbol 'ptr_R_WriteConsole'" if you try --
+// confirmed directly, and by inspecting R.dll's export table: R_ReadConsole/
+// R_WriteConsole(Ex) exist there, but as plain functions, not assignable
+// pointers). Windows R hooks the same callbacks through the documented
+// Rstart startup sequence instead (R_DefParamsEx/R_SetParams with
+// Rp->ReadConsole; see the api::p_R_DefParamsEx block below and
+// RInterpreter's initEmbeddedRWindows()). Without that, R fell back to its
+// own terminal I/O -- the hidden AllocConsole() window -- so readline()/
+// scan() blocked forever with nothing able to answer them.
 extern "C" {
     using ptr_R_WriteConsole_t = void (*)(const char*, int);
     using ptr_R_WriteConsoleEx_t = void (*)(const char*, int, int);
     using ptr_R_ReadConsole_t = int (*)(const char*, unsigned char*, int, int);
+}
+#endif
+
+#ifdef _WIN32
+// Windows-only counterpart to the ptr_R_* block above: R.dll does not export
+// those (confirmed -- see interpreter_r.cpp's constructor), so console I/O
+// is hooked through the documented Rstart callbacks instead. All plain
+// functions (verified: every one lives in R.dll's .text section, none are
+// data), called only through api::p_* below, never macro-redirected -- their
+// names are also declared by RStartup.h itself.
+extern "C" {
+    using R_setStartTime_t = void (*)(void);
+    using R_DefParamsEx_t = int (*)(Rstart, int);
+    using R_common_command_line_t = void (*)(int*, char**, Rstart);
+    using R_SetParams_t = void (*)(Rstart);
+    using R_set_command_line_arguments_t = void (*)(int, char**);
+    using setup_Rmainloop_t = void (*)(void);
+    using get_R_HOME_t = char* (*)(void);
+    using getRUser_t = char* (*)(void);
 }
 #endif
 
@@ -211,6 +247,18 @@ namespace elara { namespace r { namespace api {
     extern ptr_R_ReadConsole_t* p_ptr_R_ReadConsole;
     extern FILE** p_R_Outputfile;
     extern FILE** p_R_Consolefile;
+    // Rboolean R_Interactive -- an int-sized enum. Resolved leniently (may
+    // be null), unlike the pointers above: see RInterpreter's constructor.
+    extern int* p_R_Interactive;
+#else
+    extern R_setStartTime_t p_R_setStartTime;
+    extern R_DefParamsEx_t p_R_DefParamsEx;
+    extern R_common_command_line_t p_R_common_command_line;
+    extern R_SetParams_t p_R_SetParams;
+    extern R_set_command_line_arguments_t p_R_set_command_line_arguments;
+    extern setup_Rmainloop_t p_setup_Rmainloop;
+    extern get_R_HOME_t p_get_R_HOME;
+    extern getRUser_t p_getRUser;
 #endif
 } } }
 

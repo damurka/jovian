@@ -20,8 +20,21 @@
 
 #include "elara/r/rtools.hpp"
 
+#include <cstdio>
+#include <cstdlib>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
 #ifdef _WIN32
 #include <windows.h>
+// windows.h #defines ReadConsole -> ReadConsoleA and WriteConsole ->
+// WriteConsoleA, which silently rewrites structRstart's ReadConsole/
+// WriteConsole callback fields (R_ext/RStartup.h, included earlier via
+// r_dynlib.hpp, so its declarations kept the real names) into names that
+// don't exist. Nothing in this file calls the Win32 console API.
+#undef ReadConsole
+#undef WriteConsole
 #endif
 
 #ifdef _MSC_VER
@@ -94,12 +107,123 @@ namespace elara
             return 0;
         }
 
-        std::size_t size = std::min(res.size(), std::size_t(length));
+        // R's ReadConsole contract: `buffer` (of `length` bytes) receives a
+        // NUL-terminated line, conventionally ending in '\n'. This used to
+        // copy up to `length` bytes and then write '\n' at buffer[size] --
+        // one byte past the end when the reply was `length` bytes or longer
+        // -- and never NUL-terminated at all, so R's strlen() over the
+        // buffer could read stale bytes left over from an earlier, longer
+        // line. Leaves room for both the newline and the terminator.
+        if (length < 2)
+        {
+            return 0;
+        }
+        std::size_t size = std::min(res.size(), std::size_t(length - 2));
         std::copy(res.c_str(), res.c_str() + size, buffer);
         buffer[size] = '\n';
+        buffer[size + 1] = '\0';
 
         return 1;
     }
+
+#ifdef _WIN32
+    // Windows R has no ptr_R_ReadConsole to assign after the fact (R.dll
+    // exports R_ReadConsole/R_WriteConsole(Ex) as plain functions, not
+    // hookable pointers -- confirmed by inspecting its export table), so
+    // the only way to intercept console input is the documented embedding
+    // sequence ("Writing R Extensions" 8.2.2, R's own rtest.c): fill in an
+    // Rstart, install callbacks through it, R_SetParams(), then
+    // setup_Rmainloop(). That's what Rf_initEmbeddedR() does internally
+    // too, just with R's own terminal callbacks instead of ours -- which,
+    // for input, means reading real keyboard input from the hidden
+    // AllocConsole() window nothing can type into, so readline()/scan()
+    // used to block forever with no way to ever answer them.
+    void noopCallBack() {}
+    void showMessageCallback(const char* message)
+    {
+        std::fprintf(stderr, "[R] %s\n", message ? message : "");
+    }
+    // 0 = Cancel (1 Yes, -1 No) -- there's no one to ask.
+    int yesNoCancelCallback(const char*) { return 0; }
+    void busyCallback(int) {}
+
+    void initEmbeddedRWindows(int argc, char* argv[])
+    {
+        // R keeps Rp->rhome/home as raw pointers (R_SetWin32 stores them
+        // into globals), so they must outlive this call -- static storage.
+        static std::string rHome;
+        static std::string rUser;
+        // structRstart itself is only read by R_SetParams(), not kept, but
+        // static costs nothing and rules the question out.
+        static structRstart rp;
+
+        r::api::p_R_setStartTime();
+        r::api::p_R_DefParamsEx(&rp, RSTART_VERSION);
+
+        // Parses (and removes from the copy) the same options
+        // Rf_initialize_R() would: --quiet, --no-save, --no-restore, ...
+        int ac = argc;
+        std::vector<char*> av(argv, argv + argc);
+        r::api::p_R_common_command_line(&ac, av.data(), &rp);
+
+        const char* homeFromR = r::api::p_get_R_HOME();
+        if (homeFromR && *homeFromR)
+        {
+            rHome = homeFromR;
+        }
+        else if (const char* homeFromEnv = std::getenv("R_HOME"))
+        {
+            rHome = homeFromEnv;
+        }
+        else
+        {
+            throw std::runtime_error("R_HOME is not set and R could not locate itself -- cannot start R.");
+        }
+        const char* userFromR = r::api::p_getRUser();
+        rUser = (userFromR && *userFromR) ? userFromR : rHome;
+        rp.rhome = rHome.data();
+        rp.home = rUser.data();
+
+        rp.CharacterMode = LinkDLL;
+        // Interactive is what makes R's readline() actually call
+        // ReadConsole instead of returning "" immediately -- see
+        // do_readln() in R's scan.c. Safe: our ReadConsole answers EOF
+        // (and reports why on stderr) whenever the current execute_request
+        // didn't opt into stdin, rather than blocking.
+        rp.R_Interactive = 1;
+        rp.ReadConsole = ReadConsole;
+        rp.WriteConsole = nullptr;
+        rp.WriteConsoleEx = WriteConsoleEx;
+        rp.CallBack = noopCallBack;
+        rp.ShowMessage = showMessageCallback;
+        rp.YesNoCancel = yesNoCancelCallback;
+        rp.Busy = busyCallback;
+
+        r::api::p_R_SetParams(&rp);
+        r::api::p_R_set_command_line_arguments(argc, argv);
+
+        // graphapp initialization -- R's own rtest.c calls this at exactly
+        // this point, and Rf_initEmbeddedR()/Rf_initialize_R() do it
+        // internally. Without it, anything that touches a GDI-backed
+        // graphics device (hera's default device on Windows is png(),
+        // whose "windows" bitmap type is graphapp underneath) crashes the
+        // whole R process on first use: confirmed directly, plot(1:10)
+        // killed the kernel with this omitted and works with it. Lives in
+        // Rgraphapp.dll, not R.dll (a dependency of R.dll, so already
+        // loaded by now). Non-fatal if it can't be found: R still starts,
+        // it's only graphics that would then be unsafe.
+        using GA_initapp_t = int (*)(int, char**);
+        if (HMODULE graphapp = ::GetModuleHandleA("Rgraphapp.dll"))
+        {
+            if (auto gaInit = reinterpret_cast<GA_initapp_t>(::GetProcAddress(graphapp, "GA_initapp")))
+            {
+                gaInit(0, nullptr);
+            }
+        }
+
+        r::api::p_setup_Rmainloop();
+    }
+#endif
 
     RInterpreter::RInterpreter(int argc, char* argv[])
     {
@@ -164,7 +288,21 @@ namespace elara
         // (the first real-kernel test, [elara::Server] logging
         // "setup_environment() completed" and then nothing further) the
         // first time this was ever run on those platforms.
+#ifdef _WIN32
+        if (r::hasWindowsEmbeddingApi())
+        {
+            initEmbeddedRWindows(argc, argv);
+        }
+        else
+        {
+            // R older than 4.2 (no R_DefParamsEx): still starts, but with
+            // R's own terminal callbacks, so readline()/scan() can't be
+            // answered through the stdin channel on this R version.
+            Rf_initEmbeddedR(argc, argv);
+        }
+#else
         Rf_initEmbeddedR(argc, argv);
+#endif
 
         printf("[R Interpreter AFTER Init] Rf_initEmbeddedR completed\n");
         fflush(stdout);
@@ -172,29 +310,32 @@ namespace elara
         registerRRoutines();
 
 #ifndef _WIN32
-        // KNOWN LIMITATION, not an oversight: tried extending this to
-        // Windows too as part of building out full interactive stdin
-        // support (readline()/scan() need ReadConsole() wired up the same
-        // way Linux/macOS already have it) -- confirmed directly that
-        // R.dll on Windows does NOT export "ptr_R_WriteConsole"/
-        // "ptr_R_ReadConsole" at all (loadRApi() fails loudly: "'R.dll' was
-        // loaded but is missing the expected symbol 'ptr_R_WriteConsole'").
-        // These are a Unix-only R frontend mechanism (Rinterface.h's
-        // R_INTERFACE_PTRS, see r_dynlib.hpp's own comment); Windows R
-        // embeds via a completely different, unimplemented-here mechanism
-        // (structRstart/R_SetParams). Net effect: on Windows, R falls back
-        // to its own default console I/O -- the hidden AllocConsole()
-        // window this constructor creates above -- so readline()/scan()
-        // still block forever with nothing able to answer them (unlike
-        // Carpo/Python's input(), which has no such platform restriction
-        // and works correctly on Windows). Fixing this for real needs the
-        // Windows Rstart-based embedding API, which is a separate, larger
-        // piece of work than this feature's scope.
+        // Unix hooks console I/O by assigning libR's exported ptr_R_*
+        // function pointers after the fact (Rinterface.h's R_INTERFACE_PTRS
+        // mechanism). Windows has no such pointers -- R.dll doesn't export
+        // them, confirmed by inspecting its export table -- and hooks the
+        // same ReadConsole/WriteConsoleEx through the documented Rstart
+        // startup sequence instead: see initEmbeddedRWindows() above.
         ptr_R_WriteConsole = nullptr;
         ptr_R_WriteConsoleEx = WriteConsoleEx;
         ptr_R_ReadConsole = ReadConsole;
         R_Outputfile = NULL;
         R_Consolefile = NULL;
+
+        // Without this, R's readline() never reaches ReadConsole at all:
+        // do_readln() (R's scan.c) only reads the console when
+        // R_Interactive is set, and otherwise just returns "" -- and an
+        // embedded R started without a terminal on stdin (which is always
+        // the case under themisto) isn't interactive. Windows gets the
+        // same setting through Rstart::R_Interactive. Safe: ReadConsole
+        // above answers EOF, with the reason on stderr, whenever the
+        // current execute_request didn't opt into stdin, rather than
+        // blocking. Lenient: a libR that somehow doesn't export the symbol
+        // just keeps its old behavior instead of failing to start.
+        if (r::api::p_R_Interactive)
+        {
+            *r::api::p_R_Interactive = 1;
+        }
 #endif
 
         adrastea::registerInterpreter(this);

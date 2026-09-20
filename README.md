@@ -36,6 +36,25 @@ await manager.stopAll();
 
 Each session spawns its own `elara`/`carpo` process (per its `kernelType`) via `themisto`, so one session blocking on a long-running call (e.g. a Shiny app via `session.createShiny()`, or a long Python loop) never starves another. See [`examples/`](examples) for runnable examples: [`basic/simple-execute.js`](examples/basic/simple-execute.js) (a single session) and [`advanced/two-sessions.js`](examples/advanced/two-sessions.js) (two concurrent sessions, one blocking, one not).
 
+### Interactive input
+
+`input()` (Python) and `readline()` / `readLines(stdin())` (R) block the kernel until someone answers. Opt in per call with `allowStdin: true`, listen for `input_request`, and answer with `sendInputReply()`:
+
+```typescript
+session.on('input_request', ({ prompt, password }) => {
+    session.sendInputReply(askTheUser(prompt, password));
+});
+await session.execute('name = input("name? ")', { allowStdin: true });
+```
+
+Without `allowStdin`, a blocking read fails fast instead of hanging the kernel (Python raises a `RuntimeError`; R reports why on stderr and gets no input). While an execution is waiting on a prompt its timeout no longer applies, so a slow human can't trip it.
+
+### History and session options
+
+- `session.options` — the options the session was created with (e.g. which `rHome`/`pythonHome`).
+- `session.getHistory()` — this session's own transcript: every `execute()` call's code plus each message it produced, output included. In-memory, for the life of the `Session` object.
+- `await session.queryKernelHistory({ n: 20 })` — asks the *kernel itself* what it has run, over Jupyter's `history_request`. Authoritative regardless of which client ran the code, but inputs only.
+
 ## Building
 
 Prerequisites: an R installation, [vcpkg](https://github.com/microsoft/vcpkg) (`VCPKG_ROOT` set), and Node.js. A Python installation is only needed at *runtime* to actually run a Python session (and to build/run `CarpoTest`) — `carpo` itself loads Python's C API dynamically, so it compiles without one.
@@ -52,4 +71,4 @@ CI builds and tests this repo on Windows, Linux and macOS on every push to `main
 
 ## Status
 
-Both kernels support execute, streaming output (real-time for both -- Carpo via a native stdout/stderr callback, mirroring Elara's use of R's own `WriteConsoleEx`), display data, errors, completion, inspection, interrupt, and session restart/crash-recovery. Elara additionally has a standard Jupyter connection-file launch mode alongside the Themisto-supervised one (Carpo's kernelspec exists too, via `npm run jupyter:kernelspec`, but hasn't been exercised against a real `jupyter lab`/`jupyter console` install). Carpo also supports pointing a session at a venv's `site-packages`.
+Both kernels support execute, streaming output (real-time for both -- Carpo via a native stdout/stderr callback, mirroring Elara's use of R's own `WriteConsoleEx`), display data, errors, completion, inspection, interrupt, interactive input (`input()` / `readline()` over the Jupyter stdin channel), and session restart/crash-recovery — a kernel process killed from outside is detected within milliseconds. Elara additionally has a standard Jupyter connection-file launch mode alongside the Themisto-supervised one (Carpo's kernelspec exists too, via `npm run jupyter:kernelspec`, but hasn't been exercised against a real `jupyter lab`/`jupyter console` install). Carpo also supports pointing a session at a venv's `site-packages`.
