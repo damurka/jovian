@@ -148,13 +148,42 @@ export class ExecutionQueue {
                 });
                 break;
 
-            case 'execute_reply':
-                pending.finish({
+            case 'execute_reply': {
+                const executionCount = message.content?.execution_count;
+                const finishNow = () => pending.finish({
                     success: message.content?.status === 'ok',
                     output: pending.output,
-                    executionCount: message.content?.execution_count
+                    executionCount
                 });
+
+                // iopub (stream/execute_result/display_data) and shell
+                // (execute_reply) are separate ZMQ channels/sockets with no
+                // cross-channel delivery-order guarantee -- the kernel
+                // publishes iopub content before sending the shell reply
+                // (confirmed directly: RInterpreter/PyInterpreter's own
+                // executeRequestImpl always calls publishExecutionResult()
+                // before invoking the reply callback), but nothing enforces
+                // that this client *observes* them in that same order once
+                // they've gone through themisto's relay. Confirmed as a
+                // real, if rare, flake via CI (a passing execute_reply
+                // resolving with empty output, the execute_result iopub
+                // message arriving microseconds later, too late to matter).
+                // Only a short, bounded wait for output that should exist --
+                // an actually-empty-output execution (e.g. a bare
+                // assignment) still resolves immediately, since this only
+                // triggers on the narrow "ok but nothing collected yet"
+                // case, not on every execution.
+                if (pending.output.length === 0 && message.content?.status === 'ok') {
+                    setTimeout(() => {
+                        if (this.pending.has(message.parentMsgId)) {
+                            finishNow();
+                        }
+                    }, 50);
+                } else {
+                    finishNow();
+                }
                 break;
+            }
 
             default:
                 break;

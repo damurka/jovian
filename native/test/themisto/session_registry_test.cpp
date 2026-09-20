@@ -403,7 +403,14 @@ TEST(SessionRegistryEmptyStateTest, CreateSessionFailsFastWhenTheKernelProcessDi
 
     EXPECT_TRUE(id.empty());
     EXPECT_FALSE(error.empty());
-    EXPECT_LT(elapsed, std::chrono::seconds(10))
+    // 30s, not a tighter bound closer to the poll loop's actual ~250ms
+    // interval: a real Windows CI run hit 13.9s here once (process-spawn
+    // overhead on a loaded runner, not a regression -- the poll loop
+    // itself is unaffected), which a 10s bound flagged as a failure. 30s
+    // still catches the actual regression this guards against (the old
+    // behavior waited the full 60s ceiling every time), with real margin
+    // for a slow runner instead of a tight one that flakes under load.
+    EXPECT_LT(elapsed, std::chrono::seconds(30))
         << "createSession() took " << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count()
         << "ms -- expected the dead-process fast path to fire well under the 60s registration timeout";
 #endif

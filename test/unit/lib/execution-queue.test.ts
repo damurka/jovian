@@ -28,6 +28,66 @@ test('ExecutionQueue', async (t) => {
         assert.strictEqual(result.output[0].content.text, 'hello\n');
     });
 
+    await t.test('should still collect output that arrives just after an ok execute_reply', async () => {
+        // Regression test for a real, confirmed-via-CI flake: iopub
+        // (execute_result) and shell (execute_reply) are separate channels
+        // with no cross-channel delivery-order guarantee, so a passing
+        // execute_reply can arrive at this client before the iopub message
+        // it depends on, even though the kernel always publishes iopub
+        // content first. See handleMessage()'s 'execute_reply' case.
+        const emitter = new EventEmitter();
+        const mockAddon = { execute: () => 'msg-race' };
+
+        const queue = new ExecutionQueue(mockAddon, emitter);
+        const resultPromise = queue.execute('2');
+
+        // execute_reply arrives first, with nothing collected yet...
+        emitter.emit('message', message('execute_reply', 'msg-race', { status: 'ok', execution_count: 1 }));
+        // ...then the execute_result iopub message arrives microseconds later.
+        emitter.emit('message', message('execute_result', 'msg-race', { data: { 'text/plain': '2' } }));
+
+        const result = await resultPromise;
+        assert.strictEqual(result.success, true);
+        assert.strictEqual(result.output.length, 1);
+        assert.strictEqual(result.output[0].content.data['text/plain'], '2');
+    });
+
+    await t.test('should resolve promptly with empty output when nothing ever arrives after an ok reply', async () => {
+        // The grace period added for the race above must not turn a
+        // genuinely-empty-output execution (e.g. a bare assignment) into a
+        // slow one it isn't already -- it should still resolve once the
+        // grace period elapses, not hang.
+        const emitter = new EventEmitter();
+        const mockAddon = { execute: () => 'msg-empty' };
+
+        const queue = new ExecutionQueue(mockAddon, emitter);
+        const resultPromise = queue.execute('x <- 1');
+        emitter.emit('message', message('execute_reply', 'msg-empty', { status: 'ok', execution_count: 1 }));
+
+        const result = await resultPromise;
+        assert.strictEqual(result.success, true);
+        assert.strictEqual(result.output.length, 0);
+    });
+
+    await t.test('should not double-resolve if the queue is cleared during the post-reply grace period', async () => {
+        const emitter = new EventEmitter();
+        const mockAddon = { execute: () => 'msg-cleared' };
+
+        const queue = new ExecutionQueue(mockAddon, emitter);
+        const resultPromise = queue.execute('1');
+        emitter.emit('message', message('execute_reply', 'msg-cleared', { status: 'ok', execution_count: 1 }));
+
+        // Cleared while the grace-period timer is still pending -- must
+        // reject (from clear()), not later also resolve once the timer fires.
+        queue.clear();
+        await assert.rejects(resultPromise, /Queue cleared/);
+
+        // Let the grace-period timer actually elapse to confirm it's a
+        // harmless no-op (an already-settled promise can't change outcome
+        // either way, but this exercises the has()-guard path directly).
+        await new Promise((resolve) => setTimeout(resolve, 60));
+    });
+
     await t.test('should reject when kernel reports an error', async () => {
         const emitter = new EventEmitter();
         const mockAddon = { execute: () => 'msg-err' };

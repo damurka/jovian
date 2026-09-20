@@ -21,6 +21,27 @@ interface CreateSessionResponse {
     error?: string;
 }
 
+// Pulled out as its own pure function (rather than inlined in createSession/
+// restartSession) so the exact shape sent to the supervisor's POST /sessions
+// and .../restart bodies is unit-testable without mocking fetch() or
+// spawning a real supervisor process. Undefined fields are dropped by
+// JSON.stringify() (e.g. rHome for a 'python' session), so passing every
+// field unconditionally is harmless -- session_registry.cpp's
+// parseSessionOptions() only reads the ones matching kernelType anyway.
+export function buildSessionOptionsBody(options: Partial<EngineOptions>): Record<string, unknown> {
+    return {
+        kernelType: options.kernelType,
+        rHome: options.rHome,
+        rPath: options.rPath,
+        rLibs: options.rLibs,
+        pandocPath: options.pandocPath,
+        heraSrcPath: options.heraSrcPath,
+        pythonHome: options.pythonHome,
+        pythonPath: options.pythonPath,
+        venvPath: options.venvPath
+    };
+}
+
 // themisto plays the role Positron's Kallichore plays for Ark:
 // it's the only process in this system that ever links a native ZMQ
 // binding. It spawns/owns `elara` kernel processes, speaks ZMQ to
@@ -89,17 +110,7 @@ export class SupervisorClient {
         const res = await fetch(`${httpBase}/sessions`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-                kernelType: options.kernelType,
-                rHome: options.rHome,
-                rPath: options.rPath,
-                rLibs: options.rLibs,
-                pandocPath: options.pandocPath,
-                heraSrcPath: options.heraSrcPath,
-                pythonHome: options.pythonHome,
-                pythonPath: options.pythonPath,
-                venvPath: options.venvPath
-            })
+            body: JSON.stringify(buildSessionOptionsBody(options))
         });
 
         const body = await res.json() as CreateSessionResponse;
@@ -138,17 +149,7 @@ export class SupervisorClient {
             method: 'POST',
             ...(options ? {
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                    kernelType: options.kernelType,
-                    rHome: options.rHome,
-                    rPath: options.rPath,
-                    rLibs: options.rLibs,
-                    pandocPath: options.pandocPath,
-                    heraSrcPath: options.heraSrcPath,
-                    pythonHome: options.pythonHome,
-                    pythonPath: options.pythonPath,
-                    venvPath: options.venvPath
-                })
+                body: JSON.stringify(buildSessionOptionsBody(options))
             } : {})
         });
         const body = await res.json() as CreateSessionResponse;
