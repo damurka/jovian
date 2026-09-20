@@ -20,7 +20,7 @@ const PORT = Number(process.env.PLAYGROUND_PORT) || 4173;
 
 const manager = new SessionManager();
 
-/** @type {Map<string, { session: import('../../dist/lib/index.js').Session, clients: Set<import('node:http').ServerResponse>, status: string }>} */
+/** @type {Map<string, { session: import('../../dist/lib/index.js').Session, clients: Set<import('node:http').ServerResponse>, status: string, kernelType?: string }>} */
 const sessions = new Map();
 
 // R_HOME isn't set as an inherited env var by every R install (confirmed
@@ -50,6 +50,27 @@ function defaultREnv() {
     };
 }
 
+// Same "ask the runtime itself" pattern as discoverRHome() above (and
+// tools/jupyter-kernelspec/generate.js's own copy of this) -- sys.prefix is
+// the portable, correct PYTHONHOME for whichever Python is actually found.
+function discoverPythonHome() {
+    if (process.env.PYTHONHOME) return process.env.PYTHONHOME;
+    for (const cmd of ['python3', 'python']) {
+        try {
+            return execSync(`${cmd} -c "import sys; print(sys.prefix)"`, { encoding: 'utf8' }).trim();
+        } catch {
+            // Try the next candidate command name.
+        }
+    }
+    return '';
+}
+
+function defaultPythonEnv() {
+    return {
+        pythonHome: discoverPythonHome()
+    };
+}
+
 function broadcast(id, payload) {
     const entry = sessions.get(id);
     if (!entry) return;
@@ -74,9 +95,13 @@ async function createSession(options) {
     let session;
     try {
         session = await manager.createSession({
+            kernelType: options.kernelType,
             rHome: options.rHome,
             rPath: options.rPath || undefined,
             rLibs: options.rLibs || undefined,
+            pythonHome: options.pythonHome || undefined,
+            pythonPath: options.pythonPath || undefined,
+            venvPath: options.venvPath || undefined,
             enableLogging: true,
             logger: (level, message, data) => {
                 broadcast(id, { event: 'log', level, message, data });
@@ -89,6 +114,7 @@ async function createSession(options) {
 
     entry.session = session;
     entry.status = 'ready';
+    entry.kernelType = options.kernelType || 'r';
 
     // Not also forwarding session.on('stdout', ...): StreamHandler
     // (lib/handlers/stream-handler.ts) emits it from the exact same
@@ -161,14 +187,14 @@ const server = createServer(async (req, res) => {
 
         // GET /api/defaults
         if (req.method === 'GET' && url.pathname === '/api/defaults') {
-            sendJson(res, 200, defaultREnv());
+            sendJson(res, 200, { ...defaultREnv(), ...defaultPythonEnv() });
             return;
         }
 
         // GET /api/sessions
         if (req.method === 'GET' && url.pathname === '/api/sessions') {
             sendJson(res, 200, {
-                sessions: [...sessions.entries()].map(([id, e]) => ({ id, status: e.status }))
+                sessions: [...sessions.entries()].map(([id, e]) => ({ id, status: e.status, kernelType: e.kernelType }))
             });
             return;
         }
@@ -176,12 +202,18 @@ const server = createServer(async (req, res) => {
         // POST /api/sessions
         if (req.method === 'POST' && url.pathname === '/api/sessions') {
             const body = await readJsonBody(req);
-            const defaults = defaultREnv();
+            const kernelType = body.kernelType === 'python' ? 'python' : 'r';
+            const rDefaults = defaultREnv();
+            const pyDefaults = defaultPythonEnv();
             try {
                 const id = await createSession({
-                    rHome: body.rHome || defaults.rHome,
-                    rPath: body.rPath || defaults.rPath,
-                    rLibs: body.rLibs || defaults.rLibs
+                    kernelType,
+                    rHome: body.rHome || rDefaults.rHome,
+                    rPath: body.rPath || rDefaults.rPath,
+                    rLibs: body.rLibs || rDefaults.rLibs,
+                    pythonHome: body.pythonHome || pyDefaults.pythonHome,
+                    pythonPath: body.pythonPath,
+                    venvPath: body.venvPath
                 });
                 sendJson(res, 201, { id });
             } catch (error) {
@@ -240,6 +272,17 @@ const server = createServer(async (req, res) => {
                 return;
             }
 
+            // POST /api/sessions/:id/interrupt
+            if (req.method === 'POST' && parts[3] === 'interrupt') {
+                if (!entry) {
+                    sendJson(res, 404, { error: 'unknown session' });
+                    return;
+                }
+                entry.session.interrupt();
+                sendJson(res, 200, { ok: true });
+                return;
+            }
+
             // POST /api/sessions/:id/restart
             if (req.method === 'POST' && parts[3] === 'restart') {
                 if (!entry) {
@@ -288,7 +331,8 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, () => {
     console.log(`\nJovian playground running at http://127.0.0.1:${PORT}\n`);
-    console.log(`R install: ${JSON.stringify(defaultREnv(), null, 2)}\n`);
+    console.log(`R install: ${JSON.stringify(defaultREnv(), null, 2)}`);
+    console.log(`Python install: ${JSON.stringify(defaultPythonEnv(), null, 2)}\n`);
     console.log('Press Ctrl+C to stop.\n');
 });
 

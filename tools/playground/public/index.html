@@ -1,578 +1,1096 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>jovian playground</title>
-<style>
-  :root {
-    --bg: #0f1115;
-    --panel: #161922;
-    --panel-2: #1d212c;
-    --border: #2a2f3a;
-    --text: #e6e9ef;
-    --text-dim: #8b92a3;
-    --accent: #5b8cff;
-    --ok: #3ecf8e;
-    --warn: #e8b339;
-    --err: #ff6b6b;
-    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  }
-  * { box-sizing: border-box; }
-  html, body {
-    margin: 0; height: 100%; background: var(--bg); color: var(--text);
-    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-  }
-  body { display: flex; flex-direction: column; }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>jovian playground</title>
+  <style>
+    :root {
+      --bg-primary: #12151c;
+      --bg-secondary: #1a1e29;
+      --bg-tertiary: #232838;
+      --bg-active: #2b3247;
+      --border-color: #31384f;
+      --border-focus: #4e6ef2;
+      --text-main: #e6edf3;
+      --text-muted: #8b949e;
+      --accent-python: #3776ab;
+      --accent-python-light: #5ba3df;
+      --accent-r: #226b9f;
+      --accent-r-light: #449ad6;
+      --status-running: #2ea043;
+      --status-busy: #d29922;
+      --status-stopped: #f85149;
+      --code-bg: #0d1117;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', Courier, monospace;
+      --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
 
-  header {
-    padding: 14px 20px; border-bottom: 1px solid var(--border);
-    display: flex; align-items: baseline; gap: 10px; flex-shrink: 0;
-  }
-  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
-  header span { color: var(--text-dim); font-size: 13px; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
-  .layout { flex: 1; display: flex; min-height: 0; }
+    body {
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      font-family: var(--font-ui);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      font-size: 13px;
+    }
 
-  aside {
-    width: 300px; flex-shrink: 0; border-right: 1px solid var(--border);
-    background: var(--panel); display: flex; flex-direction: column;
-    overflow-y: auto;
-  }
-  .side-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
-  .side-section h2 {
-    font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
-    color: var(--text-dim); margin: 0 0 10px;
-  }
-  .field { margin-bottom: 8px; }
-  .field label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 3px; }
-  .field input {
-    width: 100%; background: var(--bg); border: 1px solid var(--border);
-    color: var(--text); border-radius: 6px; padding: 6px 8px; font-size: 12px;
-    font-family: var(--mono);
-  }
-  button {
-    cursor: pointer; border: 1px solid var(--border); background: var(--panel-2);
-    color: var(--text); border-radius: 6px; padding: 7px 12px; font-size: 13px;
-    transition: background 0.12s, border-color 0.12s;
-  }
-  button:hover:not(:disabled) { background: #262b38; border-color: #3a4152; }
-  button:disabled { opacity: 0.45; cursor: not-allowed; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  button.primary:hover:not(:disabled) { background: #4a7dff; }
-  button.danger { border-color: #5a2a2a; color: var(--err); }
-  button.danger:hover:not(:disabled) { background: #2a1717; }
-  button.full { width: 100%; }
+    header {
+      background-color: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      height: 48px;
+      flex-shrink: 0;
+    }
 
-  .session-list { display: flex; flex-direction: column; gap: 4px; }
-  .session-item {
-    display: flex; align-items: center; gap: 8px; padding: 8px 10px;
-    border-radius: 6px; cursor: pointer; font-size: 12px; font-family: var(--mono);
-    border: 1px solid transparent;
-  }
-  .session-item:hover { background: var(--panel-2); }
-  .session-item.active { background: var(--panel-2); border-color: var(--accent); }
-  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .dot.ready { background: var(--ok); }
-  .dot.starting { background: var(--warn); animation: pulse 1s infinite; }
-  .dot.stopped { background: var(--text-dim); }
-  .dot.crashed { background: var(--err); }
-  @keyframes pulse { 50% { opacity: 0.35; } }
-  .session-item .label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .brand-area { display: flex; align-items: center; gap: 12px; }
+    .brand-badge {
+      width: 28px; height: 28px;
+      background: linear-gradient(135deg, #ff6b4a 0%, #4e6ef2 100%);
+      border-radius: 6px; display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 14px; color: #fff;
+    }
+    .brand-title { font-weight: 600; font-size: 15px; letter-spacing: -0.2px; display: flex; align-items: center; gap: 8px; }
+    .brand-tag {
+      font-size: 10px; background: var(--bg-tertiary); border: 1px solid var(--border-color);
+      color: var(--text-muted); padding: 2px 6px; border-radius: 10px; text-transform: uppercase; font-weight: bold;
+    }
 
-  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  .empty-state {
-    flex: 1; display: flex; align-items: center; justify-content: center;
-    color: var(--text-dim); font-size: 14px; text-align: center; padding: 40px;
-  }
+    .global-actions { display: flex; align-items: center; gap: 10px; }
 
-  .session-header {
-    padding: 10px 18px; border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; gap: 10px; flex-shrink: 0;
-  }
-  .session-header .title { font-family: var(--mono); font-size: 13px; }
-  .session-header .status-badge {
-    font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--border);
-    color: var(--text-dim);
-  }
-  .session-header .spacer { flex: 1; }
+    button {
+      font-family: inherit; cursor: pointer; display: inline-flex; align-items: center;
+      justify-content: center; gap: 6px; border-radius: 5px; font-size: 12px;
+      transition: all 0.15s ease; font-weight: 500;
+    }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
 
-  .console {
-    flex: 1; overflow-y: auto; padding: 14px 18px; font-family: var(--mono);
-    font-size: 12.5px; line-height: 1.55; background: var(--bg);
-  }
-  .entry { margin-bottom: 6px; white-space: pre-wrap; word-break: break-word; }
-  .entry .tag {
-    display: inline-block; font-size: 10px; letter-spacing: 0.04em; padding: 0 5px;
-    border-radius: 3px; margin-right: 6px; vertical-align: 1px;
-  }
-  .entry.stdout { color: var(--text); }
-  .entry.stderr { color: var(--warn); }
-  .entry.stderr .tag { background: #3a2f10; color: var(--warn); }
-  .entry.result { color: var(--ok); }
-  .entry.result .tag { background: #123326; color: var(--ok); }
-  .entry.error { color: var(--err); background: #2a1414; border: 1px solid #4a2020; border-radius: 6px; padding: 8px 10px; }
-  .entry.error .tag { background: #4a2020; color: var(--err); }
-  .entry.system { color: var(--text-dim); font-style: italic; }
-  .entry.log { color: #6f7684; font-size: 11.5px; }
-  .entry.code-echo { color: var(--accent); opacity: 0.85; }
-  .entry.code-echo .tag { background: #17233e; color: var(--accent); }
-  .entry img { max-width: 100%; border-radius: 6px; margin-top: 4px; display: block; }
+    .btn-secondary { background-color: var(--bg-tertiary); border: 1px solid var(--border-color); color: var(--text-main); padding: 6px 12px; }
+    .btn-secondary:hover:not(:disabled) { background-color: var(--bg-active); border-color: #434c6b; }
 
-  .composer { border-top: 1px solid var(--border); padding: 12px 18px; flex-shrink: 0; }
-  .composer textarea {
-    width: 100%; min-height: 70px; resize: vertical; background: var(--panel);
-    border: 1px solid var(--border); color: var(--text); border-radius: 8px;
-    padding: 10px 12px; font-family: var(--mono); font-size: 13px;
-  }
-  .composer-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-  .composer-actions .hint { color: var(--text-dim); font-size: 11px; flex: 1; }
+    .btn-primary { background: #3b82f6; border: 1px solid #2563eb; color: #fff; padding: 6px 14px; }
+    .btn-primary:hover:not(:disabled) { background: #2563eb; }
 
-  .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-  .presets button { font-size: 11.5px; padding: 5px 10px; }
-  .presets button.kind-error { border-color: #5a2a2a; color: var(--err); }
-  .presets button.kind-crash { border-color: #5a2a2a; color: var(--err); background: #1c0f0f; }
-</style>
+    .btn-danger { background: rgba(248, 81, 73, 0.15); border: 1px solid rgba(248, 81, 73, 0.4); color: #ff7b72; padding: 6px 10px; }
+    .btn-danger:hover:not(:disabled) { background: rgba(248, 81, 73, 0.25); }
+
+    .btn-warn { background: rgba(210, 153, 34, 0.15); border: 1px solid rgba(210, 153, 34, 0.4); color: #e3b341; padding: 6px 10px; }
+    .btn-warn:hover:not(:disabled) { background: rgba(210, 153, 34, 0.25); }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 260px 1fr 320px;
+      flex: 1;
+      overflow: hidden;
+      background: var(--bg-primary);
+    }
+
+    .sidebar {
+      background-color: var(--bg-secondary);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-section-header {
+      padding: 12px 14px 8px 14px;
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 600;
+    }
+
+    .session-list { list-style: none; overflow-y: auto; flex: 1; padding: 4px 8px; }
+
+    .session-item {
+      padding: 10px 12px;
+      margin-bottom: 4px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .session-item:hover { background-color: var(--bg-tertiary); }
+    .session-item.active { background-color: var(--bg-active); border-color: #4b5578; }
+
+    .session-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+    .session-title { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .session-title .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .kernel-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-family: var(--font-mono); font-weight: bold; flex-shrink: 0; }
+    .badge-python { background: rgba(55, 118, 171, 0.25); color: var(--accent-python-light); border: 1px solid rgba(55, 118, 171, 0.4); }
+    .badge-r { background: rgba(34, 107, 159, 0.25); color: var(--accent-r-light); border: 1px solid rgba(34, 107, 159, 0.4); }
+
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .status-running { background-color: var(--status-running); box-shadow: 0 0 6px rgba(46, 160, 67, 0.6); }
+    .status-busy { background-color: var(--status-busy); box-shadow: 0 0 6px rgba(210, 153, 34, 0.6); animation: pulse 1s infinite alternate; }
+    .status-stopped { background-color: var(--status-stopped); }
+
+    @keyframes pulse {
+      from { opacity: 0.5; }
+      to { opacity: 1; }
+    }
+
+    .session-meta {
+      display: flex;
+      justify-content: space-between;
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+
+    .kernel-quick-ctrls {
+      border-top: 1px solid var(--border-color);
+      padding: 12px;
+      background: #151922;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .center-stage {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background-color: var(--bg-primary);
+    }
+
+    .toolbar-strip {
+      background-color: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .active-session-summary { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .active-session-summary strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .kernel-controls { display: flex; align-items: center; gap: 6px; }
+
+    .repl-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+    }
+
+    .repl-entry {
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background: var(--code-bg);
+      overflow: hidden;
+    }
+
+    .repl-header {
+      background: #161b22;
+      padding: 6px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #21262d;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .in-prompt { color: #58a6ff; font-weight: bold; }
+
+    .code-input-preview {
+      padding: 10px 14px;
+      color: #e6edf3;
+      white-space: pre-wrap;
+      line-height: 1.5;
+    }
+
+    .output-section {
+      border-top: 1px dashed #30363d;
+      padding: 10px 14px;
+      background: #0d1117;
+      color: #c9d1d9;
+      white-space: pre-wrap;
+      line-height: 1.5;
+    }
+    .output-section.stderr { color: #e3b341; }
+    .output-section.result { color: #7ee787; }
+    .output-section.error { color: #ff7b72; }
+    .output-section.system { color: var(--text-muted); font-style: italic; }
+    .output-section img { max-width: 100%; border-radius: 4px; }
+
+    .empty-state {
+      padding: 40px; color: var(--text-muted); text-align: center; line-height: 1.6;
+    }
+
+    .repl-input-dock {
+      background-color: var(--bg-secondary);
+      border-top: 1px solid var(--border-color);
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .input-row { display: flex; gap: 8px; align-items: flex-start; }
+
+    .prompt-label {
+      font-family: var(--font-mono);
+      font-weight: bold;
+      color: #58a6ff;
+      padding-top: 8px;
+      font-size: 13px;
+    }
+
+    .code-editor-area { flex: 1; position: relative; }
+
+    textarea#replInput {
+      width: 100%;
+      height: 72px;
+      background-color: var(--code-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-main);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      padding: 8px 12px;
+      resize: vertical;
+      line-height: 1.45;
+      outline: none;
+    }
+
+    textarea#replInput:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 1px var(--border-focus);
+    }
+
+    .input-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .action-shortcuts { display: flex; gap: 12px; }
+
+    .kbd-key {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      padding: 2px 5px;
+      border-radius: 3px;
+      color: var(--text-main);
+      font-family: var(--font-mono);
+      font-size: 10px;
+    }
+
+    .inspector-panel {
+      background-color: var(--bg-secondary);
+      border-left: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .tabs-header {
+      display: flex;
+      border-bottom: 1px solid var(--border-color);
+      background: #151922;
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 10px 8px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-weight: 500;
+      border-bottom: 2px solid transparent;
+      border-radius: 0;
+    }
+
+    .tab-btn.active {
+      color: var(--text-main);
+      border-bottom-color: #3b82f6;
+      background: rgba(59, 130, 246, 0.05);
+    }
+
+    .inspector-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .card {
+      background-color: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 12px;
+    }
+
+    .card-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-main);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .preset-list { display: flex; flex-direction: column; gap: 6px; }
+    .preset-row {
+      background: #1a1e29; border: 1px solid var(--border-color); border-radius: 4px;
+      padding: 8px 10px; text-align: left; color: var(--text-main); font-size: 11.5px;
+    }
+    .preset-row:hover:not(:disabled) { background: var(--bg-active); }
+    .preset-row.kind-error { border-color: #5a2a2a; color: #ff7b72; }
+    .preset-row.kind-crash { border-color: #5a2a2a; color: #ff7b72; background: #1c0f0f; }
+
+    .kv { font-family: var(--font-mono); font-size: 11px; line-height: 1.8; color: var(--text-muted); }
+    .kv b { color: #cbd5e1; font-weight: 600; }
+    .kv .val { color: #cbd5e1; word-break: break-all; }
+
+    .field { margin-bottom: 10px; }
+    .field label {
+      font-size: 11px; color: var(--text-muted); text-transform: uppercase;
+      font-weight: 600; display: block; margin-bottom: 4px;
+    }
+    .field input, .field select {
+      width: 100%; background: var(--code-bg); border: 1px solid var(--border-color);
+      color: var(--text-main); border-radius: 4px; padding: 8px; font-size: 12px; font-family: var(--font-mono);
+      outline: none;
+    }
+    .field input:focus, .field select:focus { border-color: var(--border-focus); }
+
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      z-index: 10000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.show { display: flex; }
+    .modal {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      width: 440px;
+      box-shadow: 0 16px 36px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+    .modal-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 600;
+    }
+    .modal-header button { background: none; border: none; color: var(--text-muted); font-size: 16px; }
+    .modal-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; }
+    .modal-footer {
+      padding: 12px 18px;
+      background: #141720;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .modal-error { color: #ff7b72; font-size: 12px; display: none; }
+    .modal-error.show { display: block; }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #30364a; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #444c66; }
+  </style>
 </head>
 <body>
 
-<header>
-  <h1>jovian playground</h1>
-  <span>real SessionManager sessions, driven from the browser</span>
-</header>
-
-<div class="layout">
-  <aside>
-    <div class="side-section">
-      <h2>R Environment</h2>
-      <div class="field"><label>R_HOME</label><input id="cfg-rhome" spellcheck="false" /></div>
-      <div class="field"><label>R_PATH</label><input id="cfg-rpath" spellcheck="false" /></div>
-      <div class="field"><label>R_LIBS (optional)</label><input id="cfg-rlibs" spellcheck="false" /></div>
-      <button class="primary full" id="btn-new-session">+ New Session</button>
+  <header>
+    <div class="brand-area">
+      <div class="brand-badge">J</div>
+      <div class="brand-title">
+        jovian playground
+        <span class="brand-tag">real sessions</span>
+      </div>
     </div>
-    <div class="side-section" style="flex:1;">
-      <h2>Sessions</h2>
-      <div class="session-list" id="session-list"></div>
-    </div>
-  </aside>
 
-  <main id="main">
-    <div class="empty-state" id="empty-state">
-      No sessions yet. Configure R above and click <strong>+ New Session</strong> to spawn a real
-      R kernel process and start sending it code.
+    <div class="global-actions">
+      <button class="btn-secondary" id="btnNewSession">
+        <span>+</span> New Kernel Session
+      </button>
+      <button class="btn-secondary" id="btnExportLog">
+        <span>&#128190;</span> Export Session Log
+      </button>
     </div>
-  </main>
-</div>
+  </header>
 
-<template id="session-view-template">
-  <div class="session-header">
-    <span class="title"></span>
-    <span class="status-badge"></span>
-    <div class="spacer"></div>
-    <button class="btn-restart">Restart</button>
-    <button class="btn-stop">Stop</button>
-    <button class="btn-kill danger">Kill</button>
+  <div class="workspace">
+
+    <aside class="sidebar">
+      <div class="sidebar-section-header">
+        <span>Sessions (<span id="sessionCount">0</span>)</span>
+      </div>
+
+      <ul class="session-list" id="sessionList"></ul>
+
+      <div class="kernel-quick-ctrls" id="kernelCtrls" style="display:none;">
+        <div style="font-size: 11px; font-weight: 600; color: var(--text-muted);">KERNEL LIFECYCLE</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+          <button class="btn-warn" id="btnRestartKernel">
+            <span>&#8635;</span> Restart
+          </button>
+          <button class="btn-danger" id="btnStopKernel">
+            <span>&#9209;</span> Stop
+          </button>
+        </div>
+        <button class="btn-danger" style="width: 100%;" id="btnKillKernel">
+          <span>&#10005;</span> Kill
+        </button>
+        <button class="btn-secondary" style="width: 100%; font-size: 11px; padding: 4px;" id="btnInterrupt">
+          <span>&#9889;</span> Send SIGINT (Interrupt)
+        </button>
+      </div>
+    </aside>
+
+    <main class="center-stage">
+      <div class="toolbar-strip">
+        <div class="active-session-summary">
+          <span id="activeKernelDot" class="status-dot"></span>
+          <strong id="activeSessionName">No session selected</strong>
+          <span id="activeKernelBadge" class="kernel-badge" style="display:none;"></span>
+        </div>
+
+        <div class="kernel-controls">
+          <button class="btn-secondary" id="btnClearConsole">
+            <span>&#9003;</span> Clear Output
+          </button>
+          <button class="btn-primary" id="btnExecute">
+            <span>&#9654;</span> Run
+          </button>
+        </div>
+      </div>
+
+      <div class="repl-container" id="replOutput">
+        <div class="empty-state">
+          No sessions yet. Click <strong>+ New Kernel Session</strong> above to spawn a real R or Python kernel process.
+        </div>
+      </div>
+
+      <div class="repl-input-dock" id="replDock" style="display:none;">
+        <div class="input-row">
+          <div class="prompt-label" id="inputPromptNumber">In [1]:</div>
+          <div class="code-editor-area">
+            <textarea id="replInput" placeholder="Enter code for the active kernel..." spellcheck="false"></textarea>
+          </div>
+        </div>
+
+        <div class="input-actions">
+          <div class="action-shortcuts">
+            <span><span class="kbd-key">Shift</span> + <span class="kbd-key">Enter</span> Run Cell</span>
+            <span><span class="kbd-key">Ctrl</span>/<span class="kbd-key">Cmd</span> + <span class="kbd-key">Enter</span> also works</span>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <aside class="inspector-panel">
+      <div class="tabs-header">
+        <button class="tab-btn active" id="tabPresetsBtn">Quick Presets</button>
+        <button class="tab-btn" id="tabEnvBtn">Kernel Runtime</button>
+      </div>
+
+      <div class="inspector-content" id="tabContentPresets">
+        <div class="card">
+          <div class="card-title">
+            <span>Quick Presets</span>
+          </div>
+          <div class="preset-list" id="presetList">
+            <p style="color: var(--text-muted); font-size: 11.5px;">Select a session to see presets for its kernel.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="inspector-content" id="tabContentEnv" style="display: none;">
+        <div class="card">
+          <div class="card-title">Session Details</div>
+          <div class="kv" id="sessionDetails">No session selected.</div>
+        </div>
+      </div>
+    </aside>
+
   </div>
-  <div class="console"></div>
-  <div class="composer">
-    <textarea placeholder="R code&#10;Ctrl+Enter (or Cmd+Enter) to run"></textarea>
-    <div class="composer-actions">
-      <span class="hint">Ctrl+Enter to run</span>
-      <button class="btn-run primary">Run</button>
+
+  <div class="modal-backdrop" id="newKernelModal">
+    <div class="modal">
+      <div class="modal-header">
+        <span>Launch New Kernel Session</span>
+        <button id="btnModalClose">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label>Session Name</label>
+          <input type="text" id="newKernelName" placeholder="e.g. Data exploration">
+        </div>
+        <div class="field">
+          <label>Kernel Engine Type</label>
+          <select id="newKernelType">
+            <option value="r">R (Elara)</option>
+            <option value="python">Python (Carpo)</option>
+          </select>
+        </div>
+        <p style="color: var(--text-muted); font-size: 11px; line-height: 1.5;">
+          Uses this machine's detected R/Python install (<span id="modalInstallHint"></span>). Restart an existing
+          session instead if you need to point it at a different installation.
+        </p>
+        <div class="modal-error" id="modalError"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="btnModalCancel">Cancel</button>
+        <button class="btn-primary" id="btnModalCreate">Spawn Kernel Process</button>
+      </div>
     </div>
-    <div class="presets"></div>
   </div>
-</template>
 
-<script>
-const PRESETS = [
-  { label: 'Hello world', code: `print("Hello from the playground!")` },
-  { label: 'Math', code: `sum(1:100)` },
-  { label: 'Data table', code: `head(mtcars)` },
-  { label: 'Plot (display_data)', code: `plot(1:10, main = "Playground Plot")` },
-  { label: 'Streaming loop', code: `for (i in 1:5) {\n  cat("tick", i, "\\n")\n  Sys.sleep(0.4)\n}` },
-  { label: 'Warning', code: `warning("This is a simulated warning")` },
-  { label: 'R error (stop)', kind: 'kind-error', code: `stop("Simulated error from the playground")` },
-  { label: 'Runtime error', kind: 'kind-error', code: `nonexistent_variable_xyz + 1` },
-  { label: 'Timeout (3s cap)', kind: 'kind-error', code: `Sys.sleep(30)`, timeout: 3000 },
-  // Crash detection is heartbeat-based (ClientHeartbeat, hardcoded 20s
-  // timeout x 3 retries in ClientZmqImpl) -- there's no faster process-exit
-  // signal wired up, so this genuinely takes up to ~60-80s before the
-  // "Kernel process exited unexpectedly" system entry appears. That's the
-  // real system's actual detection latency, not a bug in this tool.
-  { label: 'Crash kernel (quit — ~60s detection)', kind: 'kind-crash', code: `quit(save = "no")` },
-];
+  <script>
+    const R_PRESETS = [
+      { label: 'Hello world', code: `print("Hello from the playground!")` },
+      { label: 'Math', code: `sum(1:100)` },
+      { label: 'Data table', code: `head(mtcars)` },
+      { label: 'Plot (display_data)', code: `plot(1:10, main = "Playground Plot")` },
+      { label: 'Streaming loop', code: `for (i in 1:5) {\n  cat("tick", i, "\\n")\n  Sys.sleep(0.4)\n}` },
+      { label: 'Warning', code: `warning("This is a simulated warning")` },
+      { label: 'R error (stop)', kind: 'kind-error', code: `stop("Simulated error from the playground")` },
+      { label: 'Runtime error', kind: 'kind-error', code: `nonexistent_variable_xyz + 1` },
+      { label: 'Timeout (3s cap)', kind: 'kind-error', code: `Sys.sleep(30)`, timeout: 3000 },
+      { label: 'Crash kernel (quit — ~60s detection)', kind: 'kind-crash', code: `quit(save = "no")` },
+    ];
 
-/** @type {Record<string, {id:string, status:string, es?: EventSource, el?: HTMLElement, entries: any[]}>} */
-const sessions = {};
-let activeId = null;
+    const PYTHON_PRESETS = [
+      { label: 'Hello world', code: `print("Hello from the playground!")` },
+      { label: 'Math', code: `sum(range(1, 101))` },
+      { label: 'Comprehension', code: `{k: k ** 2 for k in range(5)}` },
+      { label: 'Streaming loop', code: `import time\nfor i in range(5):\n    print("tick", i)\n    time.sleep(0.4)` },
+      { label: 'Warning', code: `import warnings\nwarnings.warn("This is a simulated warning")` },
+      { label: 'Python error (raise)', kind: 'kind-error', code: `raise RuntimeError("Simulated error from the playground")` },
+      { label: 'Runtime error', kind: 'kind-error', code: `nonexistent_variable_xyz + 1` },
+      { label: 'Timeout (3s cap)', kind: 'kind-error', code: `import time\ntime.sleep(30)`, timeout: 3000 },
+      { label: 'Crash kernel (os._exit — ~60s detection)', kind: 'kind-crash', code: `import os\nos._exit(1)` },
+    ];
 
-const els = {
-  rhome: document.getElementById('cfg-rhome'),
-  rpath: document.getElementById('cfg-rpath'),
-  rlibs: document.getElementById('cfg-rlibs'),
-  newSessionBtn: document.getElementById('btn-new-session'),
-  sessionList: document.getElementById('session-list'),
-  main: document.getElementById('main'),
-  emptyState: document.getElementById('empty-state'),
-  template: document.getElementById('session-view-template'),
-};
+    // Each session's `cells` groups streamed output by execution (one
+    // repl-entry per runCode() call), matching the visual "In[n]: code +
+    // its output" pairing -- unlike a flat scrolling log, this needs
+    // output events attributed to whichever cell is currently running.
+    /** @type {Record<string, {id:string, name:string, kernelType:string, status:string, es?: EventSource, cells: any[], execCount: number, currentCell: any, config: any}>} */
+    const sessions = {};
+    let activeId = null;
+    let defaults = {};
 
-async function loadDefaults() {
-  try {
-    const res = await fetch('/api/defaults');
-    const defaults = await res.json();
-    els.rhome.value = defaults.rHome ?? '';
-    els.rpath.value = defaults.rPath ?? '';
-    els.rlibs.value = defaults.rLibs ?? '';
-  } catch (err) {
-    console.error('Failed to load defaults', err);
-  }
-}
+    const els = {
+      sessionList: document.getElementById('sessionList'),
+      sessionCount: document.getElementById('sessionCount'),
+      kernelCtrls: document.getElementById('kernelCtrls'),
+      replOutput: document.getElementById('replOutput'),
+      replDock: document.getElementById('replDock'),
+      replInput: document.getElementById('replInput'),
+      inputPromptNumber: document.getElementById('inputPromptNumber'),
+      activeKernelDot: document.getElementById('activeKernelDot'),
+      activeSessionName: document.getElementById('activeSessionName'),
+      activeKernelBadge: document.getElementById('activeKernelBadge'),
+      presetList: document.getElementById('presetList'),
+      sessionDetails: document.getElementById('sessionDetails'),
+      tabPresetsBtn: document.getElementById('tabPresetsBtn'),
+      tabEnvBtn: document.getElementById('tabEnvBtn'),
+      tabContentPresets: document.getElementById('tabContentPresets'),
+      tabContentEnv: document.getElementById('tabContentEnv'),
+      btnNewSession: document.getElementById('btnNewSession'),
+      btnExportLog: document.getElementById('btnExportLog'),
+      btnClearConsole: document.getElementById('btnClearConsole'),
+      btnExecute: document.getElementById('btnExecute'),
+      btnRestartKernel: document.getElementById('btnRestartKernel'),
+      btnStopKernel: document.getElementById('btnStopKernel'),
+      btnKillKernel: document.getElementById('btnKillKernel'),
+      btnInterrupt: document.getElementById('btnInterrupt'),
+      newKernelModal: document.getElementById('newKernelModal'),
+      modalError: document.getElementById('modalError'),
+      modalInstallHint: document.getElementById('modalInstallHint'),
+      newKernelName: document.getElementById('newKernelName'),
+      newKernelType: document.getElementById('newKernelType'),
+      btnModalClose: document.getElementById('btnModalClose'),
+      btnModalCancel: document.getElementById('btnModalCancel'),
+      btnModalCreate: document.getElementById('btnModalCreate'),
+    };
 
-function statusLabel(status) {
-  switch (status) {
-    case 'starting': return 'starting…';
-    case 'ready': return 'ready';
-    case 'stopped': return 'stopped';
-    case 'crashed': return 'crashed';
-    default: return status;
-  }
-}
-
-function renderSessionList() {
-  els.sessionList.innerHTML = '';
-  for (const s of Object.values(sessions)) {
-    const item = document.createElement('div');
-    item.className = 'session-item' + (s.id === activeId ? ' active' : '');
-    item.innerHTML = `<span class="dot ${s.status}"></span><span class="label">${s.id.slice(0, 8)}</span>`;
-    item.addEventListener('click', () => selectSession(s.id));
-    els.sessionList.appendChild(item);
-  }
-}
-
-function appendEntry(id, cls, tag, text) {
-  const s = sessions[id];
-  if (!s) return;
-  s.entries.push({ cls, tag, text, html: false });
-  if (id === activeId) renderEntryToConsole(s.entries[s.entries.length - 1]);
-}
-
-function appendHtmlEntry(id, cls, tag, html) {
-  const s = sessions[id];
-  if (!s) return;
-  s.entries.push({ cls, tag, html: true, text: html });
-  if (id === activeId) renderEntryToConsole(s.entries[s.entries.length - 1]);
-}
-
-function renderEntryToConsole(entry) {
-  const consoleEl = document.querySelector(`#session-${activeId} .console`);
-  if (!consoleEl) return;
-  const div = document.createElement('div');
-  div.className = 'entry ' + entry.cls;
-  const tagHtml = entry.tag ? `<span class="tag">${entry.tag}</span>` : '';
-  if (entry.html) {
-    div.innerHTML = tagHtml + entry.text;
-  } else {
-    const span = document.createElement('span');
-    span.textContent = entry.text;
-    div.innerHTML = tagHtml;
-    div.appendChild(span);
-  }
-  consoleEl.appendChild(div);
-  consoleEl.scrollTop = consoleEl.scrollHeight;
-}
-
-function redrawConsole(id) {
-  const consoleEl = document.querySelector(`#session-${id} .console`);
-  if (!consoleEl) return;
-  consoleEl.innerHTML = '';
-  for (const entry of sessions[id].entries) {
-    const div = document.createElement('div');
-    div.className = 'entry ' + entry.cls;
-    const tagHtml = entry.tag ? `<span class="tag">${entry.tag}</span>` : '';
-    if (entry.html) {
-      div.innerHTML = tagHtml + entry.text;
-    } else {
-      const span = document.createElement('span');
-      span.textContent = entry.text;
-      div.innerHTML = tagHtml;
-      div.appendChild(span);
-    }
-    consoleEl.appendChild(div);
-  }
-  consoleEl.scrollTop = consoleEl.scrollHeight;
-}
-
-function formatMimeData(data) {
-  if (!data) return null;
-  if (data['image/png']) {
-    const src = String(data['image/png']).startsWith('data:')
-      ? data['image/png']
-      : `data:image/png;base64,${data['image/png']}`;
-    return { html: `<img src="${src}" alt="plot" />`, isHtml: true };
-  }
-  if (data['text/plain'] !== undefined) {
-    const v = data['text/plain'];
-    return { html: Array.isArray(v) ? v.join('\n') : String(v), isHtml: false };
-  }
-  return { html: JSON.stringify(data), isHtml: false };
-}
-
-function handleStreamEvent(id, payload) {
-  const msg = payload.message;
-  switch (msg.msgType) {
-    case 'stream': {
-      const isErr = msg.content?.name === 'stderr';
-      appendEntry(id, isErr ? 'stderr' : 'stdout', isErr ? 'stderr' : null, msg.content?.text ?? '');
-      break;
-    }
-    case 'execute_result':
-    case 'display_data': {
-      const formatted = formatMimeData(msg.content?.data);
-      if (!formatted) break;
-      if (formatted.isHtml) {
-        appendHtmlEntry(id, 'result', 'out', formatted.html);
-      } else {
-        appendEntry(id, 'result', 'out', formatted.html);
+    async function loadDefaults() {
+      try {
+        const res = await fetch('/api/defaults');
+        defaults = await res.json();
+      } catch (err) {
+        console.error('Failed to load defaults', err);
       }
-      break;
     }
-    case 'error': {
-      const c = msg.content ?? {};
-      const traceback = Array.isArray(c.traceback) ? c.traceback.join('\n') : '';
-      appendEntry(id, 'error', 'error', `${c.ename ?? 'Error'}: ${c.evalue ?? ''}${traceback ? '\n' + traceback : ''}`);
-      break;
+
+    function escapeHtml(str) {
+      if (str === undefined || str === null) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
-    default:
-      break;
-  }
-}
 
-function openStream(id) {
-  const es = new EventSource(`/api/sessions/${id}/stream`);
-  es.onmessage = (event) => {
-    let payload;
-    try { payload = JSON.parse(event.data); } catch { return; }
-    const s = sessions[id];
-    if (!s) return;
-
-    switch (payload.event) {
-      case 'connected':
-        break;
-      case 'message':
-        handleStreamEvent(id, payload);
-        break;
-      case 'log':
-        appendEntry(id, 'log', payload.level, `[${payload.level}] ${payload.message}`);
-        break;
-      case 'exit':
-        s.status = 'crashed';
-        appendEntry(id, 'system', 'system', `Kernel process exited unexpectedly: ${payload.reason || 'unknown reason'}`);
-        renderSessionList();
-        updateSessionHeader(id);
-        break;
-      case 'stopped':
-        s.status = 'stopped';
-        appendEntry(id, 'system', 'system', 'Session stopped.');
-        renderSessionList();
-        updateSessionHeader(id);
-        break;
-      case 'restarted':
-        s.status = 'ready';
-        appendEntry(id, 'system', 'system', 'Session restarted -- fresh kernel, same session id.');
-        renderSessionList();
-        updateSessionHeader(id);
-        break;
-      case 'connectionError':
-        appendEntry(id, 'error', 'conn', `Connection error: ${payload.message}`);
-        break;
-      default:
-        break;
+    function kernelLabel(kernelType) {
+      return kernelType === 'python' ? 'Python (Carpo)' : 'R (Elara)';
     }
-  };
-  es.onerror = () => { /* EventSource retries automatically */ };
-  sessions[id].es = es;
-}
 
-function updateSessionHeader(id) {
-  const header = document.querySelector(`#session-${id} .session-header`);
-  if (!header) return;
-  const status = sessions[id].status;
-  const badge = header.querySelector('.status-badge');
-  badge.textContent = statusLabel(status);
-
-  const isStopped = status === 'stopped';
-  const isCrashed = status === 'crashed';
-  const isStarting = status === 'starting';
-
-  // Stop/Kill: only truly pointless once the session is already stopped --
-  // still useful to finalize a crashed one instead of restarting it.
-  header.querySelector('.btn-stop').disabled = isStopped;
-  header.querySelector('.btn-kill').disabled = isStopped;
-  // Restart: needs either a healthy session (Jupyter-style "Restart Kernel")
-  // or a crashed one to recover -- not while still connecting, and not
-  // after an explicit stop/kill (that intent was to end the session).
-  header.querySelector('.btn-restart').disabled = isStopped || isStarting;
-
-  const view = document.getElementById(`session-${id}`);
-  const runBtn = view.querySelector('.btn-run');
-  const presetBtns = view.querySelectorAll('.presets button');
-  const canRun = !isStopped && !isCrashed && !isStarting;
-  runBtn.disabled = !canRun;
-  presetBtns.forEach((b) => (b.disabled = !canRun));
-}
-
-function buildSessionView(id) {
-  const frag = els.template.content.cloneNode(true);
-  const root = document.createElement('div');
-  root.id = `session-${id}`;
-  root.style.display = 'flex';
-  root.style.flexDirection = 'column';
-  root.style.flex = '1';
-  root.style.minHeight = '0';
-  root.appendChild(frag);
-
-  root.querySelector('.title').textContent = id;
-
-  const presetsEl = root.querySelector('.presets');
-  for (const preset of PRESETS) {
-    const btn = document.createElement('button');
-    btn.textContent = preset.label;
-    if (preset.kind) btn.classList.add(preset.kind);
-    btn.addEventListener('click', () => {
-      const textarea = root.querySelector('textarea');
-      textarea.value = preset.code;
-      runCode(id, preset.code, preset.timeout);
-    });
-    presetsEl.appendChild(btn);
-  }
-
-  const textarea = root.querySelector('textarea');
-  const runBtn = root.querySelector('.btn-run');
-  const run = () => runCode(id, textarea.value, undefined);
-  runBtn.addEventListener('click', run);
-  textarea.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      run();
+    function kernelBadgeClass(kernelType) {
+      return kernelType === 'python' ? 'badge-python' : 'badge-r';
     }
-  });
 
-  root.querySelector('.btn-restart').addEventListener('click', () => restartSession(id));
-  root.querySelector('.btn-stop').addEventListener('click', () => stopSession(id));
-  root.querySelector('.btn-kill').addEventListener('click', () => killSession(id));
-
-  return root;
-}
-
-async function runCode(id, code, timeout) {
-  if (!code || !code.trim()) return;
-  const view = document.getElementById(`session-${id}`);
-  const runBtn = view.querySelector('.btn-run');
-  appendEntry(id, 'code-echo', 'in', code);
-  runBtn.disabled = true;
-  try {
-    const res = await fetch(`/api/sessions/${id}/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, timeout })
-    });
-    const result = await res.json();
-    if (!result.success) {
-      appendEntry(id, 'system', 'done', `✗ Execution failed${result.error ? ': ' + result.error : ''}`);
-    } else {
-      appendEntry(id, 'system', 'done', `✓ Execution finished${typeof result.executionCount === 'number' ? ' [' + result.executionCount + ']' : ''}`);
+    function statusDotClass(status) {
+      if (status === 'ready') return 'status-running';
+      if (status === 'starting') return 'status-busy';
+      return 'status-stopped';
     }
-  } catch (err) {
-    appendEntry(id, 'error', 'error', `Request failed: ${err.message}`);
-  } finally {
-    if (sessions[id] && sessions[id].status !== 'stopped' && sessions[id].status !== 'crashed') {
-      runBtn.disabled = false;
+
+    function statusLabel(status) {
+      switch (status) {
+        case 'starting': return 'starting…';
+        case 'ready': return 'ready';
+        case 'stopped': return 'stopped';
+        case 'crashed': return 'crashed';
+        default: return status;
+      }
     }
-  }
-}
 
-async function restartSession(id) {
-  const s = sessions[id];
-  if (!s) return;
-  s.status = 'starting';
-  appendEntry(id, 'system', 'system', 'Restarting session (spawning a fresh kernel, same session id)…');
-  renderSessionList();
-  updateSessionHeader(id);
+    function renderSessionList() {
+      els.sessionList.innerHTML = '';
+      const ids = Object.keys(sessions);
+      els.sessionCount.textContent = String(ids.length);
 
-  try {
-    const res = await fetch(`/api/sessions/${id}/restart`, { method: 'POST' });
-    const body = await res.json();
-    if (!res.ok || !body.ok) {
-      appendEntry(id, 'error', 'error', `Restart failed: ${body.error ?? res.statusText}`);
-      s.status = 'crashed';
+      for (const id of ids) {
+        const s = sessions[id];
+        const li = document.createElement('li');
+        li.className = 'session-item' + (id === activeId ? ' active' : '');
+        li.innerHTML = `
+          <div class="session-top">
+            <div class="session-title">
+              <span class="status-dot ${statusDotClass(s.status)}"></span>
+              <span class="name">${escapeHtml(s.name)}</span>
+            </div>
+            <span class="kernel-badge ${kernelBadgeClass(s.kernelType)}">${kernelLabel(s.kernelType)}</span>
+          </div>
+          <div class="session-meta">
+            <span>${id.slice(0, 8)}</span>
+            <span>${statusLabel(s.status)}</span>
+          </div>
+        `;
+        li.addEventListener('click', () => selectSession(id));
+        els.sessionList.appendChild(li);
+      }
+    }
+
+    function switchInspectorTab(tab) {
+      const isPresets = tab === 'presets';
+      els.tabPresetsBtn.classList.toggle('active', isPresets);
+      els.tabEnvBtn.classList.toggle('active', !isPresets);
+      els.tabContentPresets.style.display = isPresets ? 'flex' : 'none';
+      els.tabContentEnv.style.display = isPresets ? 'none' : 'flex';
+    }
+
+    function renderPresets() {
+      if (!activeId) {
+        els.presetList.innerHTML = `<p style="color: var(--text-muted); font-size: 11.5px;">Select a session to see presets for its kernel.</p>`;
+        return;
+      }
+      const s = sessions[activeId];
+      const canRun = s.status !== 'stopped' && s.status !== 'crashed';
+      const list = s.kernelType === 'python' ? PYTHON_PRESETS : R_PRESETS;
+      els.presetList.innerHTML = '';
+      for (const preset of list) {
+        const btn = document.createElement('button');
+        btn.className = 'preset-row';
+        if (preset.kind) btn.classList.add(preset.kind);
+        btn.textContent = preset.label;
+        btn.disabled = !canRun;
+        btn.addEventListener('click', () => {
+          els.replInput.value = preset.code;
+          runCode(activeId, preset.code, preset.timeout);
+        });
+        els.presetList.appendChild(btn);
+      }
+    }
+
+    function renderCells(id) {
+      if (id !== activeId) return;
+      const s = sessions[id];
+      els.replOutput.innerHTML = '';
+      if (!s || s.cells.length === 0) {
+        els.replOutput.innerHTML = `<div class="empty-state">No output yet. Run some code below, or pick a preset from the right panel.</div>`;
+        return;
+      }
+      for (const cell of s.cells) {
+        const entry = document.createElement('div');
+        entry.className = 'repl-entry';
+        let outputsHtml = '';
+        for (const out of cell.outputs) {
+          outputsHtml += `<div class="output-section ${out.cls}">${out.isHtml ? out.text : escapeHtml(out.text)}</div>`;
+        }
+        entry.innerHTML = `
+          <div class="repl-header">
+            <span><span class="in-prompt">In [${cell.inNum}]:</span> ${kernelLabel(s.kernelType)}</span>
+            <span>${cell.time.toLocaleTimeString()}</span>
+          </div>
+          <div class="code-input-preview">${escapeHtml(cell.code)}</div>
+          ${outputsHtml}
+        `;
+        els.replOutput.appendChild(entry);
+      }
+      els.replOutput.scrollTop = els.replOutput.scrollHeight;
+    }
+
+    function pushOutput(id, cls, text, isHtml) {
+      const s = sessions[id];
+      if (!s || !s.currentCell) return;
+      s.currentCell.outputs.push({ cls, text, isHtml: !!isHtml });
+      renderCells(id);
+    }
+
+    function formatMimeData(data) {
+      if (!data) return null;
+      if (data['image/png']) {
+        const src = String(data['image/png']).startsWith('data:')
+          ? data['image/png']
+          : `data:image/png;base64,${data['image/png']}`;
+        return { html: `<img src="${src}" alt="plot" />`, isHtml: true };
+      }
+      if (data['text/plain'] !== undefined) {
+        const v = data['text/plain'];
+        return { html: Array.isArray(v) ? v.join('\n') : String(v), isHtml: false };
+      }
+      return { html: JSON.stringify(data), isHtml: false };
+    }
+
+    function handleStreamEvent(id, payload) {
+      const msg = payload.message;
+      switch (msg.msgType) {
+        case 'stream': {
+          const isErr = msg.content?.name === 'stderr';
+          pushOutput(id, isErr ? 'stderr' : '', msg.content?.text ?? '');
+          break;
+        }
+        case 'execute_result':
+        case 'display_data': {
+          const formatted = formatMimeData(msg.content?.data);
+          if (!formatted) break;
+          pushOutput(id, 'result', formatted.html, formatted.isHtml);
+          break;
+        }
+        case 'error': {
+          const c = msg.content ?? {};
+          const traceback = Array.isArray(c.traceback) ? c.traceback.join('\n') : '';
+          pushOutput(id, 'error', `${c.ename ?? 'Error'}: ${c.evalue ?? ''}${traceback ? '\n' + traceback : ''}`);
+          break;
+        }
+        default:
+          break;
+      }
+    }
+
+    function openStream(id) {
+      const es = new EventSource(`/api/sessions/${id}/stream`);
+      es.onmessage = (event) => {
+        let payload;
+        try { payload = JSON.parse(event.data); } catch { return; }
+        const s = sessions[id];
+        if (!s) return;
+
+        switch (payload.event) {
+          case 'connected':
+            break;
+          case 'message':
+            handleStreamEvent(id, payload);
+            break;
+          case 'log':
+            break;
+          case 'exit':
+            s.status = 'crashed';
+            renderSessionList();
+            if (id === activeId) updateActiveHeader();
+            break;
+          case 'stopped':
+            s.status = 'stopped';
+            renderSessionList();
+            if (id === activeId) updateActiveHeader();
+            break;
+          case 'restarted':
+            s.status = 'ready';
+            renderSessionList();
+            if (id === activeId) updateActiveHeader();
+            break;
+          case 'connectionError':
+            pushOutput(id, 'error', `Connection error: ${payload.message}`);
+            break;
+          default:
+            break;
+        }
+      };
+      es.onerror = () => { /* EventSource retries automatically */ };
+      sessions[id].es = es;
+    }
+
+    function updateActiveHeader() {
+      if (!activeId || !sessions[activeId]) {
+        els.activeSessionName.textContent = 'No session selected';
+        els.activeKernelDot.className = 'status-dot';
+        els.activeKernelBadge.style.display = 'none';
+        els.kernelCtrls.style.display = 'none';
+        els.replDock.style.display = 'none';
+        els.sessionDetails.textContent = 'No session selected.';
+        renderPresets();
+        return;
+      }
+      const s = sessions[activeId];
+      const canRun = s.status !== 'stopped' && s.status !== 'crashed';
+
+      els.activeSessionName.textContent = s.name;
+      els.activeKernelDot.className = 'status-dot ' + statusDotClass(s.status);
+      els.activeKernelBadge.style.display = 'inline-block';
+      els.activeKernelBadge.className = 'kernel-badge ' + kernelBadgeClass(s.kernelType);
+      els.activeKernelBadge.textContent = kernelLabel(s.kernelType);
+
+      els.kernelCtrls.style.display = 'flex';
+      els.replDock.style.display = 'flex';
+      els.inputPromptNumber.textContent = `In [${s.execCount + 1}]:`;
+
+      els.btnExecute.disabled = !canRun;
+      els.btnRestartKernel.disabled = s.status === 'starting';
+      els.btnInterrupt.disabled = !canRun;
+      els.btnStopKernel.disabled = s.status === 'stopped';
+      els.btnKillKernel.disabled = s.status === 'stopped';
+
+      const configLabel = s.kernelType === 'python' ? 'PYTHONHOME' : 'R_HOME';
+      const configValue = s.kernelType === 'python' ? s.config.pythonHome : s.config.rHome;
+      els.sessionDetails.innerHTML = `
+        <div><b>Session ID:</b> <span class="val">${escapeHtml(activeId)}</span></div>
+        <div><b>Kernel Type:</b> <span class="val">${kernelLabel(s.kernelType)}</span></div>
+        <div><b>Status:</b> <span class="val">${statusLabel(s.status)}</span></div>
+        <div><b>Execution Count:</b> <span class="val">${s.execCount}</span></div>
+        <div><b>${configLabel}:</b> <span class="val">${escapeHtml(configValue)}</span></div>
+      `;
+
+      renderPresets();
+    }
+
+    function selectSession(id) {
+      activeId = id;
       renderSessionList();
-      updateSessionHeader(id);
+      renderCells(id);
+      updateActiveHeader();
     }
-    // On success the 'restarted' SSE event (not this response) is what
-    // flips status back to 'ready' -- it fires from the same server-side
-    // listener regardless of which client asked for the restart, so this
-    // stays correct even with more than one browser tab open.
-  } catch (err) {
-    appendEntry(id, 'error', 'error', `Restart request failed: ${err.message}`);
-    s.status = 'crashed';
-    renderSessionList();
-    updateSessionHeader(id);
-  }
-}
 
-async function stopSession(id) {
-  await fetch(`/api/sessions/${id}/stop`, { method: 'POST' });
-}
+    async function runCode(id, code, timeout) {
+      if (!code || !code.trim()) return;
+      const s = sessions[id];
+      if (!s) return;
 
-async function killSession(id) {
-  await fetch(`/api/sessions/${id}/kill`, { method: 'POST' });
-}
+      const cell = { inNum: ++s.execCount, code, outputs: [], time: new Date() };
+      s.cells.push(cell);
+      s.currentCell = cell;
+      renderCells(id);
+      if (id === activeId) els.inputPromptNumber.textContent = `In [${s.execCount + 1}]:`;
+      if (id === activeId) els.btnExecute.disabled = true;
 
-function selectSession(id) {
-  activeId = id;
-  renderSessionList();
-  els.main.innerHTML = '';
-  els.emptyState.remove ? null : null;
-  const view = buildSessionView(id);
-  els.main.appendChild(view);
-  updateSessionHeader(id);
-  redrawConsole(id);
-}
+      try {
+        const res = await fetch(`/api/sessions/${id}/execute`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, timeout })
+        });
+        const result = await res.json();
+        if (!result.success) {
+          pushOutput(id, 'system', `Execution failed${result.error ? ': ' + result.error : ''}`);
+        }
+      } catch (err) {
+        pushOutput(id, 'error', `Request failed: ${err.message}`);
+      } finally {
+        s.currentCell = null;
+        if (id === activeId) updateActiveHeader();
+      }
+    }
 
-async function createSession() {
-  els.newSessionBtn.disabled = true;
-  try {
-    const res = await fetch('/api/sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        rHome: els.rhome.value,
-        rPath: els.rpath.value,
-        rLibs: els.rlibs.value
-      })
+    async function restartSession(id) {
+      const s = sessions[id];
+      if (!s) return;
+      s.status = 'starting';
+      renderSessionList();
+      if (id === activeId) updateActiveHeader();
+
+      try {
+        const res = await fetch(`/api/sessions/${id}/restart`, { method: 'POST' });
+        const body = await res.json();
+        if (!res.ok || !body.ok) {
+          pushOutput(id, 'error', `Restart failed: ${body.error ?? res.statusText}`);
+          s.status = 'crashed';
+          renderSessionList();
+          if (id === activeId) updateActiveHeader();
+        }
+        // On success the 'restarted' SSE event (not this response) is what
+        // flips status back to 'ready'.
+      } catch (err) {
+        pushOutput(id, 'error', `Restart request failed: ${err.message}`);
+        s.status = 'crashed';
+        renderSessionList();
+        if (id === activeId) updateActiveHeader();
+      }
+    }
+
+    async function stopSession(id) {
+      await fetch(`/api/sessions/${id}/stop`, { method: 'POST' });
+    }
+
+    async function killSession(id) {
+      await fetch(`/api/sessions/${id}/kill`, { method: 'POST' });
+    }
+
+    async function interruptSession(id) {
+      // No reply is ever routed back for this (interrupt_reply isn't
+      // pumped over the WebSocket -- see lib/session/session-manager.ts's
+      // Session.interrupt() comment) -- fire-and-forget.
+      try {
+        await fetch(`/api/sessions/${id}/interrupt`, { method: 'POST' });
+      } catch (err) {
+        pushOutput(id, 'error', `Interrupt request failed: ${err.message}`);
+      }
+    }
+
+    function openNewKernelModal() {
+      els.modalError.classList.remove('show');
+      els.newKernelName.value = '';
+      els.newKernelType.value = 'r';
+      updateModalHint();
+      els.newKernelModal.classList.add('show');
+    }
+
+    function closeNewKernelModal() {
+      els.newKernelModal.classList.remove('show');
+    }
+
+    function updateModalHint() {
+      const isPython = els.newKernelType.value === 'python';
+      els.modalInstallHint.textContent = isPython
+        ? (defaults.pythonHome || '(no Python found by the playground server)')
+        : (defaults.rHome || '(no R found by the playground server)');
+    }
+
+    async function confirmCreateKernel() {
+      els.btnModalCreate.disabled = true;
+      els.modalError.classList.remove('show');
+      const kernelType = els.newKernelType.value;
+      const name = els.newKernelName.value.trim() || (kernelType === 'python' ? 'Python session' : 'R session');
+      const config = kernelType === 'python'
+        ? { pythonHome: defaults.pythonHome }
+        : { rHome: defaults.rHome, rPath: defaults.rPath, rLibs: defaults.rLibs };
+
+      try {
+        const res = await fetch('/api/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kernelType, ...config })
+        });
+        const body = await res.json();
+        if (!res.ok) {
+          els.modalError.textContent = body.error ?? res.statusText;
+          els.modalError.classList.add('show');
+          return;
+        }
+        const id = body.id;
+        sessions[id] = { id, name, kernelType, status: 'ready', cells: [], execCount: 0, currentCell: null, config };
+        openStream(id);
+        renderSessionList();
+        closeNewKernelModal();
+        selectSession(id);
+      } catch (err) {
+        els.modalError.textContent = err.message;
+        els.modalError.classList.add('show');
+      } finally {
+        els.btnModalCreate.disabled = false;
+      }
+    }
+
+    function exportSessionLog() {
+      if (!activeId) return;
+      const s = sessions[activeId];
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify({
+        id: s.id, name: s.name, kernelType: s.kernelType, status: s.status, cells: s.cells
+      }, null, 2));
+      const a = document.createElement('a');
+      a.setAttribute('href', dataStr);
+      a.setAttribute('download', `${s.id}-export.json`);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    function runFromDock() {
+      if (!activeId) return;
+      const code = els.replInput.value;
+      runCode(activeId, code, undefined);
+    }
+
+    els.btnNewSession.addEventListener('click', openNewKernelModal);
+    els.btnModalClose.addEventListener('click', closeNewKernelModal);
+    els.btnModalCancel.addEventListener('click', closeNewKernelModal);
+    els.btnModalCreate.addEventListener('click', confirmCreateKernel);
+    els.newKernelType.addEventListener('change', updateModalHint);
+
+    els.tabPresetsBtn.addEventListener('click', () => switchInspectorTab('presets'));
+    els.tabEnvBtn.addEventListener('click', () => switchInspectorTab('env'));
+
+    els.btnClearConsole.addEventListener('click', () => {
+      if (!activeId) return;
+      sessions[activeId].cells = [];
+      renderCells(activeId);
     });
-    const body = await res.json();
-    if (!res.ok) {
-      alert('Failed to create session: ' + (body.error ?? res.statusText));
-      return;
-    }
-    const id = body.id;
-    sessions[id] = { id, status: 'ready', entries: [] };
-    openStream(id);
-    renderSessionList();
-    selectSession(id);
-  } catch (err) {
-    alert('Failed to create session: ' + err.message);
-  } finally {
-    els.newSessionBtn.disabled = false;
-  }
-}
+    els.btnExportLog.addEventListener('click', exportSessionLog);
 
-els.newSessionBtn.addEventListener('click', createSession);
+    els.btnExecute.addEventListener('click', runFromDock);
+    els.replInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        runFromDock();
+      }
+    });
 
-loadDefaults();
-</script>
+    els.btnRestartKernel.addEventListener('click', () => activeId && restartSession(activeId));
+    els.btnStopKernel.addEventListener('click', () => activeId && stopSession(activeId));
+    els.btnKillKernel.addEventListener('click', () => activeId && killSession(activeId));
+    els.btnInterrupt.addEventListener('click', () => activeId && interruptSession(activeId));
+
+    loadDefaults();
+    updateActiveHeader();
+  </script>
 </body>
 </html>

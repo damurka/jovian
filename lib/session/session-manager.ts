@@ -252,6 +252,20 @@ export class Session extends EventEmitter {
     }
 
     /**
+     * Sends interrupt_request over the control channel (ws_relay.cpp's
+     * `type === 'interrupt'` branch -> SessionRegistry::sendInterrupt()) --
+     * fire-and-forget, matching this control-channel path's current shape:
+     * nothing pumps interrupt_reply back over the WebSocket yet (pollLoop()
+     * in session_registry.cpp only reads iopub/shell, not control), so
+     * there's no reply to await here. Interrupting a kernel that isn't
+     * currently blocked in a long-running call is a harmless no-op from the
+     * caller's perspective either way.
+     */
+    interrupt(): void {
+        this.send({ type: 'interrupt', id: randomUUID() });
+    }
+
+    /**
      * Launches a Shiny app in this session's R process and resolves once
      * it's actually accepting connections. shiny::runApp() blocks the R
      * session for as long as the app runs, so -- unlike execute() --
