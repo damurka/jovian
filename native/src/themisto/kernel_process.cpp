@@ -470,9 +470,38 @@ namespace themisto
             // missing packages then fail or (confirmed: a real segfault on
             // macOS, from an unrelated bug this also happened to mask)
             // crash outright instead of failing cleanly.
+            // Python (carpo) sessions are exposed to the exact same class of
+            // bug, pre-emptively: py_dynlib.cpp dlopen()s libpythonX.Y.so by
+            // its full path directly too, but Python's own C-extension
+            // modules (including several of the standard library's own --
+            // _socket, _ssl, _json, ... -- not just third-party ones) are
+            // themselves shared objects with libpythonX.Y.so as a plain,
+            // unqualified NEEDED entry, loaded later via Python's own import
+            // machinery. Not yet confirmed to fail the same way R's base
+            // packages did (this hasn't been exercised on Linux/macOS CI as
+            // of this fix), but the mechanism is identical enough, and the
+            // cost of being wrong (found the hard way, again, on some future
+            // CI run or user's machine) high enough, to apply the same fix
+            // proactively rather than wait for a second reproduction.
+            std::vector<std::string> libDirs;
             if (!m_options.rHome.empty())
             {
-                std::string rLibDir = m_options.rHome + "/lib";
+                libDirs.push_back(m_options.rHome + "/lib");
+            }
+            if (!m_options.pythonHome.empty())
+            {
+                libDirs.push_back(m_options.pythonHome + "/lib");
+            }
+
+            if (!libDirs.empty())
+            {
+                std::string combined;
+                for (const auto& dir : libDirs)
+                {
+                    if (!combined.empty()) combined += ":";
+                    combined += dir;
+                }
+
 #ifdef __APPLE__
                 const char* ldPathVar = "DYLD_LIBRARY_PATH";
 #else
@@ -480,8 +509,8 @@ namespace themisto
 #endif
                 const char* existingLdPath = getenv(ldPathVar);
                 std::string newLdPath = existingLdPath && *existingLdPath
-                    ? rLibDir + ":" + existingLdPath
-                    : rLibDir;
+                    ? combined + ":" + existingLdPath
+                    : combined;
                 setenv(ldPathVar, newLdPath.c_str(), 1);
             }
 

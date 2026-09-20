@@ -38,6 +38,19 @@ jobs:
           windows-path-include-rtools: false
           windows-path-include-mingw: false
 
+      # carpo (native/src/carpo) dynamically loads Python at runtime the
+      # same way elara loads R (native/src/carpo/py/py_dynlib.hpp) -- not a
+      # build-time dependency for carpo.exe itself, but CarpoTest
+      # (native/test/carpo/carpo_test.cpp) needs a real interpreter to embed
+      # and exercise. native/test/CMakeLists.txt discovers it via CMake's
+      # own find_package(Python3), which needs one actually on PATH -- the
+      # runner images ship a Python already, but pinning it explicitly
+      # (matching r-version: 'release' above) keeps this from silently
+      # depending on whatever a given image happens to preinstall.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
       # hera is required for actually running code: SessionRegistryTest's
       # real-kernel tests (ExecuteRoundTripsThroughTheRealKernel and
       # friends) call hera:::hera_call("execute", ...) (native/src/r/
@@ -97,7 +110,7 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build native (elara + themisto)
+      - name: Build native (elara + themisto + carpo)
         run: cmake --build dist/native --config Release
 
       # Separate build directory from dist/native, same reasoning as

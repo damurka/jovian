@@ -196,10 +196,13 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/include PREFIX "Header Files" FILE
 
 option(JOVIAN_BUILD_ELARA "Build the standalone kernel executable (elara)" ON)
 option(JOVIAN_BUILD_THEMISTO "Build the kernel supervisor executable (themisto)" ON)
-# Default OFF, unlike elara/themisto: carpo is scaffolding only (see
-# native/include/carpo/interpreter_py.hpp) and shouldn't be part of a normal
-# `npm run build`/package until it's an actual working Python kernel.
-option(JOVIAN_BUILD_CARPO "Build the scaffolded Python kernel executable (carpo) -- not yet functional" OFF)
+# Same default as elara/themisto now that carpo is a real, working Python
+# kernel (native/include/carpo/interpreter_py.hpp) -- like elara's R
+# dependency, Python is a *runtime* requirement (dynamically loaded, see
+# native/src/carpo/py/py_dynlib.hpp), not a build-time one, so carpo.exe
+# compiles fine even on a machine with no Python installed; it just can't
+# actually run there without one, exactly like elara.exe and R_HOME.
+option(JOVIAN_BUILD_CARPO "Build the Python kernel executable (carpo)" ON)
 
 function(jovian_apply_platform_guid_define target_name)
     if (MSVC)

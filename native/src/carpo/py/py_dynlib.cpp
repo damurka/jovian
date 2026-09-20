@@ -143,20 +143,28 @@ namespace {
         return true;
     }
 
-    // Deliberately just the bare filename, not a reconstructed full path:
-    // matches r_dynlib.cpp's own "R.dll" approach -- carpo::Server::
-    // setupEnvironment() (engine.cpp) prepends pythonHome to this process's
-    // PATH before this runs, so ordinary Windows DLL search order finds it,
-    // and finds the DLL's own transitive dependencies (vcruntime, etc.) the
-    // same way.
+    // Full path, NOT the bare filename r_dynlib.cpp's "R.dll" uses --
+    // confirmed via a real failure this fixes: unlike R (whose bin directory
+    // is genuinely prepended onto PATH before elara.exe is spawned, by
+    // SessionRegistry's ensureRBinOnPath(), themisto/session_registry.cpp),
+    // nothing adds python_home to carpo's own PATH, so a bare "python312.dll"
+    // only ever resolved by accident, when some unrelated PATH entry (e.g. a
+    // Python installer's own "add to PATH" step) happened to already cover
+    // it -- a real per-user Python install under
+    // %LOCALAPPDATA%\Python\pythoncore-3.12-64 (not on PATH by default) hit
+    // exactly this and failed with "The specified module could not be
+    // found." LoadLibraryA with a full path sidesteps needing PATH at all,
+    // and (a second benefit, not just a workaround) Windows' safe DLL search
+    // order also adds *that* directory when resolving the DLL's own
+    // transitive dependencies -- the same thing PATH would have been for.
     LibHandle openPyLibrary(const std::string& pythonHome, std::string& outPath) {
         Candidate c;
         if (!findNewestCandidate(pythonHome, c)) {
             outPath.clear();
             return nullptr;
         }
-        outPath = c.fileName;
-        return ::LoadLibraryA(c.fileName.c_str());
+        outPath = pythonHome + "\\" + c.fileName;
+        return ::LoadLibraryA(outPath.c_str());
     }
 
     std::string describeOpenFailure(const std::string& pythonHome, const std::string& path) {
