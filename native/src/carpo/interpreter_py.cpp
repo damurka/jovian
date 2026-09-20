@@ -5,6 +5,11 @@
 #include <cstdlib>
 #include <stdexcept>
 
+#include <signal.h>
+#ifndef _WIN32
+#include <pthread.h>
+#endif
+
 #include "carpo/py/py_dynlib.hpp"
 
 // Real CPython embedding for Carpo, mirroring elara::RInterpreter's overall
@@ -81,6 +86,7 @@ import inspect as _carpo_inspect_mod
 import os
 import re
 import rlcompleter
+import signal
 import sys
 import traceback
 
@@ -134,6 +140,17 @@ def __carpo_input(prompt=""):
 
 
 _carpo_builtins.input = __carpo_input
+
+
+# Interrupts (PyErr_SetInterrupt, and a real SIGINT on POSIX) are ignored by
+# Python unless SIGINT has its Python-level handler -- which Py_Initialize()
+# only installs if the process did not start with SIGINT ignored (a child
+# of a supervisor without a console may). Make it unconditional. This runs
+# on the interpreter thread, the only thread signal.signal() allows.
+try:
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+except (ValueError, OSError):
+    pass
 
 
 def __carpo_run(code, g):
@@ -232,6 +249,15 @@ def __carpo_inspect(code, cursor_pos, g):
         except Exception:
             pass
     return (1, "\n".join(parts))
+
+
+def __carpo_eval_expr(expr, g):
+    # Backs execute_request's user_expressions: (status, text_or_ename, evalue).
+    try:
+        value = eval(expr, g)
+        return ("ok", repr(value), "")
+    except BaseException as e:
+        return ("error", type(e).__name__, str(e))
 
 
 __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, sys.version_info.micro)
@@ -363,9 +389,15 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
         , m_bootstrapIsCompleteFn(nullptr)
         , m_bootstrapCompleteFn(nullptr)
         , m_bootstrapInspectFn(nullptr)
+        , m_bootstrapEvalExprFn(nullptr)
         , m_ownsInterpreter(false)
+        , m_mainThread()
         , m_finalized(false)
     {
+#ifndef _WIN32
+        // See m_mainThread in the header: interrupts are delivered here.
+        m_mainThread = pthread_self();
+#endif
         // carpo::Server::setupEnvironment() (bridge/engine.cpp) has already
         // set PYTHONHOME from EnvironmentConfig by the time this runs, the
         // same ordering elara::Server::start() uses for R_HOME -- see that
@@ -423,8 +455,9 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
         PyObject* isCompleteFn = PyDict_GetItemString(bootstrapGlobals.get(), "__carpo_is_complete");
         PyObject* completeFn = PyDict_GetItemString(bootstrapGlobals.get(), "__carpo_complete");
         PyObject* inspectFn = PyDict_GetItemString(bootstrapGlobals.get(), "__carpo_inspect");
+        PyObject* evalExprFn = PyDict_GetItemString(bootstrapGlobals.get(), "__carpo_eval_expr");
         PyObject* versionObj = PyDict_GetItemString(bootstrapGlobals.get(), "__carpo_version");
-        if (!runFn || !isCompleteFn || !completeFn || !inspectFn || !versionObj)
+        if (!runFn || !isCompleteFn || !completeFn || !inspectFn || !evalExprFn || !versionObj)
         {
             throw std::runtime_error(
                 "Carpo's internal Python bootstrap runtime did not define the expected functions -- "
@@ -435,10 +468,12 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
         Py_IncRef(isCompleteFn);
         Py_IncRef(completeFn);
         Py_IncRef(inspectFn);
+        Py_IncRef(evalExprFn);
         m_bootstrapRunFn = runFn;
         m_bootstrapIsCompleteFn = isCompleteFn;
         m_bootstrapCompleteFn = completeFn;
         m_bootstrapInspectFn = inspectFn;
+        m_bootstrapEvalExprFn = evalExprFn;
         m_languageVersion = pyUnicodeToStdString(versionObj);
 
         adrastea::registerInterpreter(this);
@@ -478,6 +513,11 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
             Py_DecRef(static_cast<PyObject*>(m_bootstrapInspectFn));
             m_bootstrapInspectFn = nullptr;
         }
+        if (m_bootstrapEvalExprFn)
+        {
+            Py_DecRef(static_cast<PyObject*>(m_bootstrapEvalExprFn));
+            m_bootstrapEvalExprFn = nullptr;
+        }
 
         if (m_ownsInterpreter)
         {
@@ -497,8 +537,14 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
         int execution_count,
         const std::string& code,
         adrastea::ExecuteRequestConfig config,
-        adrastea::json /*user_expressions*/)
+        adrastea::json user_expressions)
     {
+        struct ExecutingScope {
+            std::atomic<bool>& flag;
+            explicit ExecutingScope(std::atomic<bool>& f) : flag(f) { flag = true; }
+            ~ExecutingScope() { flag = false; }
+        } executing(m_executing);
+
         py::Ref args(PyTuple_New(2));
         PyTuple_SetItem(args.get(), 0, PyUnicode_FromString(code.c_str())); // steals the new ref
         Py_IncRef(static_cast<PyObject*>(m_userGlobals)); // PyTuple_SetItem steals; m_userGlobals is only borrowed
@@ -545,7 +591,46 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
             adrastea::json data = { { "text/plain", resultRepr } };
             publishExecutionResult(execution_count, data, adrastea::json::object());
         }
-        cb(adrastea::createSuccessfulReply());
+        // Evaluated after the code itself, and only on success, per the
+        // spec. Each expression is independent: one failing is reported as
+        // that expression's own error, not the execution's.
+        adrastea::json userExpressionResults = adrastea::json::object();
+        if (user_expressions.is_object())
+        {
+            for (auto it = user_expressions.begin(); it != user_expressions.end(); ++it)
+            {
+                const std::string expr = it.value().is_string() ? it.value().get<std::string>() : std::string();
+
+                py::Ref evalArgs(PyTuple_New(2));
+                PyTuple_SetItem(evalArgs.get(), 0, PyUnicode_FromString(expr.c_str()));
+                Py_IncRef(static_cast<PyObject*>(m_userGlobals));
+                PyTuple_SetItem(evalArgs.get(), 1, static_cast<PyObject*>(m_userGlobals));
+
+                py::Ref evalResult(PyObject_CallObject(static_cast<PyObject*>(m_bootstrapEvalExprFn), evalArgs.get()));
+                if (!evalResult)
+                {
+                    PyErr_Clear();
+                    userExpressionResults[it.key()] = { { "status", "error" }, { "ename", "EvaluationError" },
+                        { "evalue", "could not evaluate expression" }, { "traceback", adrastea::json::array() } };
+                    continue;
+                }
+
+                std::string exprStatus = pyUnicodeToStdString(PyTuple_GetItem(evalResult.get(), 0));
+                std::string second = pyUnicodeToStdString(PyTuple_GetItem(evalResult.get(), 1));
+                if (exprStatus == "ok")
+                {
+                    userExpressionResults[it.key()] = { { "status", "ok" },
+                        { "data", { { "text/plain", second } } }, { "metadata", adrastea::json::object() } };
+                }
+                else
+                {
+                    userExpressionResults[it.key()] = { { "status", "error" }, { "ename", second },
+                        { "evalue", pyUnicodeToStdString(PyTuple_GetItem(evalResult.get(), 2)) },
+                        { "traceback", adrastea::json::array() } };
+                }
+            }
+        }
+        cb(adrastea::createSuccessfulReply(adrastea::json::array(), userExpressionResults));
     }
 
     adrastea::json PyInterpreter::completeRequestImpl(const std::string& code, int cursor_pos)
@@ -623,6 +708,32 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
 
     adrastea::json PyInterpreter::interruptRequestImpl()
     {
+        // Runs on the kernel's control-channel thread while the interpreter
+        // thread is busy (see adrastea::ServerZmqImpl's control watcher).
+        // Only while a cell is actually executing: an interrupt with
+        // nothing to interrupt would otherwise linger and abort the next
+        // one.
+        if (m_executing.load())
+        {
+            // A real SIGINT, not PyErr_SetInterrupt(): that only sets the
+            // pending-signal flag, which a blocked time.sleep() / I/O call
+            // never looks at (confirmed: it left time.sleep(60) running).
+            // Python's own SIGINT handler (installed by the bootstrap, see
+            // signal.signal() there) both sets the flag and wakes the
+            // blocked call, then raises KeyboardInterrupt on the interpreter
+            // thread. It never kills the process because that handler is
+            // installed.
+#ifdef _WIN32
+            // The CRT runs the registered handler synchronously on this
+            // thread; it sets the flag and signals the event time.sleep()
+            // waits on.
+            raise(SIGINT);
+#else
+            // POSIX: blocking calls only wake for a signal delivered to the
+            // thread that is blocked.
+            pthread_kill(m_mainThread, SIGINT);
+#endif
+        }
         return adrastea::createInterruptReply();
     }
 

@@ -38,12 +38,13 @@ export function buildSessionOptionsBody(options: Partial<EngineOptions>): Record
         heraSrcPath: options.heraSrcPath,
         pythonHome: options.pythonHome,
         pythonPath: options.pythonPath,
-        venvPath: options.venvPath
+        venvPath: options.venvPath,
+        workingDirectory: options.workingDirectory
     };
 }
 
-// themisto plays the role Positron's Kallichore plays for Ark:
-// it's the only process in this system that ever links a native ZMQ
+// themisto is the kernel supervisor: it's the only process in this system
+// that ever links a native ZMQ
 // binding. It spawns/owns `elara` kernel processes, speaks ZMQ to
 // each of them, and re-exposes sessions over plain HTTP (lifecycle) +
 // WebSocket (execute/interrupt/message streaming) -- so Electron/VS Code's
@@ -140,9 +141,8 @@ export class SupervisorClient {
      * `options`, if given, replaces the R installation this session's next
      * kernel process launches with (rHome/rPath/etc) instead of reusing
      * whatever it was created with -- e.g. switching from R 4.4 to R 4.6
-     * for an existing notebook connection, the same way Positron's Ark lets
-     * you switch R versions on the fly, without needing to close this
-     * session and create a new one just to pick a different R.
+     * for an existing notebook connection on the fly, without needing to
+     * close this session and create a new one just to pick a different R.
      */
     async restartSession(info: SessionConnectionInfo, options?: Partial<EngineOptions>): Promise<void> {
         const res = await fetch(`${info.httpBase}/sessions/${info.sessionId}/restart`, {
@@ -170,17 +170,15 @@ export class SupervisorClient {
 // Finds the supervisor binary (see native/CMakeLists.txt's
 // JOVIAN_BUILD_THEMISTO target and CMAKE_RUNTIME_OUTPUT_DIRECTORY =
 // dist/native/$<CONFIG>).
+//
+// JOVIAN_NATIVE_DIR overrides the directory the binaries (themisto, elara,
+// carpo) are taken from -- for running against a copy of them (e.g. while
+// the originals are being rebuilt, which Windows won't allow for an
+// executable that is running) or a packaged app that keeps them elsewhere.
 function resolveSupervisorExecutable(): string {
-    // const exeName = process.platform === 'win32' ? 'themisto.exe' : 'themisto';
-    // const candidate = join(__dirname, '../../native/Release', exeName);
-    // if (!existsSync(candidate)) {
-    //     throw new Error(
-    //         `jovian: supervisor executable not found at ${candidate}. ` +
-    //         `Run the native build (npm run build:native) before creating a session.`
-    //     );
-    // }
     const exeName = process.platform === 'win32' ? 'themisto.exe' : 'themisto';
-    const candidate = join(__dirname, '../../native/Release', exeName)
+    const override = process.env.JOVIAN_NATIVE_DIR;
+    const candidate = (override ? join(override, exeName) : join(__dirname, '../../native/Release', exeName))
         .replace(/\bnode_modules\.asar\b/, 'node_modules.asar.unpacked');
     if (!existsSync(candidate)) {
         throw new Error(`jovian: supervisor executable not found at ${candidate}. ` +

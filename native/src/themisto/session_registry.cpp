@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <iostream>
 #include <optional>
+#include <set>
 #include <thread>
 
 #include "adrastea/guid.hpp"
@@ -210,6 +211,7 @@ namespace themisto
         procOptions.pythonHome = options.pythonHome;
         procOptions.pythonPath = options.pythonPath;
         procOptions.venvPath = options.venvPath;
+        procOptions.workingDirectory = options.workingDirectory;
         procOptions.registrationIp = m_registrationIp;
         procOptions.registrationPort = m_registrationPort;
 
@@ -340,48 +342,31 @@ namespace themisto
     void SessionRegistry::pollLoop(Session* session)
     {
         auto* client = session->client.get();
-        while (session->polling)
-        {
-            // Fast, OS-level dead-kernel detection -- independent of, and
-            // far faster than, the ZMQ heartbeat's worst-case detection
-            // window (4 failed round trips x 20s timeout =~ 60-80s, see
-            // ClientHeartbeat/ClientZmqImpl's max_retry/heartbeat_timeout).
-            // An externally killed process (Task Manager, a segfault,
-            // os._exit()/quit()) is now visible within one poll interval
-            // (~5ms) instead of up to 80s -- confirmed via a real repro:
-            // without this, the browser saw nothing but its own client-side
-            // execute timeout (30s) firing first, with the session only
-            // flipping to "crashed" tens of seconds later once the
-            // heartbeat finally gave up.
-            //
-            // Safe against racing an intentional stop()/restart():
-            // stopSession() clears session->polling and joins this exact
-            // thread BEFORE it ever kills the process or sets
-            // SessionStatus::Stopped (see its own comment on that
-            // ordering), so this loop is never still running while a
-            // deliberate process kill is in flight -- if isAlive() is ever
-            // false here, the kernel died on its own, not because we
-            // stopped it.
-            if (session->process && !session->process->isAlive())
-            {
-                session->status = SessionStatus::Crashed;
-                session->emitKernelExit(
-                    "kernel process exited unexpectedly (" + session->process->describeStatus() + ")");
-                session->polling = false;
-                break;
-            }
 
+        // Field names are snake_case (msg_type/parent_msg_id), not the
+        // camelCase used elsewhere in this file, because this envelope
+        // shape is consumed as-is by the TS side's existing
+        // MessageParser.parse() (lib/messaging/message-parser.ts), which
+        // expects exactly these keys -- reusing it outright instead of
+        // writing a second parser.
+        auto relay = [session](const char* channel, const adrastea::Message& msg) {
+            json envelope = {
+                { "type", "message" },
+                { "channel", channel },
+                { "topic", msg.header().value("msg_type", "") },
+                { "msg_type", msg.header().value("msg_type", "") },
+                { "parent_msg_id", msg.parentHeader().value("msg_id", "") },
+                { "content", msg.content() }
+            };
+            session->emitMessage(envelope.dump());
+        };
+
+        auto drainIopub = [&]() {
             while (client->iopubQueueSize() > 0)
             {
                 if (auto pubOpt = client->popIopubMessage())
                 {
                     auto& msg = pubOpt.value();
-                    // Field names are snake_case (msg_type/parent_msg_id),
-                    // not the camelCase used elsewhere in this file, because
-                    // this specific envelope shape is consumed as-is by the
-                    // TS side's existing MessageParser.parse() (lib/messaging/
-                    // message-parser.ts), which expects exactly these keys --
-                    // reusing it outright instead of writing a second parser.
                     json envelope = {
                         { "type", "message" },
                         { "channel", "iopub" },
@@ -393,41 +378,68 @@ namespace themisto
                     session->emitMessage(envelope.dump());
                 }
             }
+        };
 
-            if (auto shellOpt = client->receiveOnShell(false))
+        // Everything currently waiting on the request/reply channels. Shell
+        // carries every *_reply (execute/complete/inspect/is_complete/
+        // kernel_info/history/comm_info); control carries interrupt_reply
+        // and shutdown_reply -- which used to be dropped on the floor,
+        // since nothing here ever read the control channel at all; stdin
+        // carries input_request (see below).
+        auto drainReplyChannels = [&]() {
+            while (auto shellOpt = client->receiveOnShell(false))
             {
-                auto& msg = shellOpt.value();
-                json envelope = {
-                    { "type", "message" },
-                    { "channel", "shell" },
-                    { "topic", msg.header().value("msg_type", "") },
-                    { "msg_type", msg.header().value("msg_type", "") },
-                    { "parent_msg_id", msg.parentHeader().value("msg_id", "") },
-                    { "content", msg.content() }
-                };
-                session->emitMessage(envelope.dump());
+                relay("shell", shellOpt.value());
             }
-
+            while (auto controlOpt = client->receiveOnControl(false))
+            {
+                relay("control", controlOpt.value());
+            }
             // input_request: the interpreter blocked on e.g. R's readline()
             // or Python's input() (adrastea::blockingInputRequest(), which
             // genuinely blocks the kernel's own single execution thread on
             // a ZMQ recv -- see ClientZmqImpl's stdin channel comment).
-            // Relayed the same way shell/iopub messages are; the WS client
-            // answers via a "type": "inputReply" frame (ws_relay.cpp),
-            // which reaches sendInputReply() below and is what actually
-            // unblocks the kernel.
-            if (auto stdinOpt = client->receiveOnStdin(false))
+            // The WS client answers via a "type": "inputReply" frame
+            // (ws_relay.cpp), which reaches sendInputReply() below and is
+            // what actually unblocks the kernel.
+            while (auto stdinOpt = client->receiveOnStdin(false))
             {
-                auto& msg = stdinOpt.value();
-                json envelope = {
-                    { "type", "message" },
-                    { "channel", "stdin" },
-                    { "topic", msg.header().value("msg_type", "") },
-                    { "msg_type", msg.header().value("msg_type", "") },
-                    { "parent_msg_id", msg.parentHeader().value("msg_id", "") },
-                    { "content", msg.content() }
-                };
-                session->emitMessage(envelope.dump());
+                relay("stdin", stdinOpt.value());
+            }
+        };
+
+        while (session->polling)
+        {
+            // Fast, OS-level dead-kernel detection -- independent of, and
+            // far faster than, the ZMQ heartbeat's worst-case detection
+            // window (4 failed round trips x 20s timeout =~ 60-80s). An
+            // externally killed process (Task Manager, a segfault,
+            // os._exit()/quit()) is visible within one poll interval
+            // (~5ms).
+            //
+            // Sampled BEFORE draining, and the drain runs either way: a
+            // kernel that exits right after publishing its final messages
+            // (shutdown_reply on control, iopub "shutdown", a last stream
+            // chunk) must have those relayed, not lost to the exit check
+            // winning the race.
+            const bool exited = session->process && !session->process->isAlive();
+
+            drainIopub();
+            drainReplyChannels();
+
+            if (exited)
+            {
+                // stopSession()/restartSession() flag expectingExit before
+                // sending the kernel its shutdown_request, so an orderly
+                // protocol-driven exit isn't misreported as a crash.
+                if (!session->expectingExit)
+                {
+                    session->status = SessionStatus::Crashed;
+                    session->emitKernelExit(
+                        "kernel process exited unexpectedly (" + session->process->describeStatus() + ")");
+                }
+                session->polling = false;
+                break;
             }
 
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -443,10 +455,23 @@ namespace themisto
 
     json sessionToJson(const Session& session)
     {
+        json heartbeat = nullptr;
+        if (session.client)
+        {
+            const adrastea::HeartbeatStatus hb = session.client->heartbeatStatus();
+            heartbeat = {
+                { "hasPong", hb.hasPong },
+                { "rttMs", hb.rttMs },
+                { "sinceLastPongMs", hb.sinceLastPongMs },
+                { "misses", hb.misses }
+            };
+        }
         json result = {
+            { "heartbeat", heartbeat },
             { "sessionId", session.id },
             { "status", toString(session.status.load()) },
             { "kernelType", session.options.kernelType },
+            { "workingDirectory", session.options.workingDirectory },
             { "pid", session.process ? session.process->pid() : 0 }
         };
         std::optional<std::uint64_t> mem = session.process ? session.process->memoryUsageBytes() : std::nullopt;
@@ -493,8 +518,10 @@ namespace themisto
             { "code", code },
             { "silent", options.value("silent", false) },
             { "store_history", options.value("storeHistory", true) },
-            { "user_expressions", json::object() },
-            { "allow_stdin", options.value("allowStdin", false) }
+            { "user_expressions", options.contains("userExpressions") && options["userExpressions"].is_object()
+                                      ? options["userExpressions"] : json::object() },
+            { "allow_stdin", options.value("allowStdin", false) },
+            { "stop_on_error", options.value("stopOnError", false) }
         };
 
         adrastea::Message req({ "client_id" }, header, json::object(), json::object(), content, adrastea::buffer_sequence());
@@ -502,64 +529,82 @@ namespace themisto
         return true;
     }
 
-    bool SessionRegistry::sendHistory(const std::string& sessionId, const std::string& msgId, const json& options)
+    bool SessionRegistry::sendRequest(const std::string& sessionId, const std::string& channel, const std::string& msgType,
+                                      const std::string& msgId, const json& content, std::string& error)
     {
-        // Same reasoning as sendExecute() above -- serialize against a
-        // concurrent stop/restart of this same session.
+        static const std::set<std::string> kShellRequests = {
+            "complete_request", "inspect_request", "is_complete_request", "kernel_info_request",
+            "history_request", "comm_info_request", "comm_open", "comm_msg", "comm_close"
+        };
+        static const std::set<std::string> kControlRequests = { "interrupt_request" };
+
+        const bool onShell = channel == "shell";
+        const bool onControl = channel == "control";
+        if ((!onShell && !onControl) ||
+            (onShell && kShellRequests.count(msgType) == 0) ||
+            (onControl && kControlRequests.count(msgType) == 0))
+        {
+            error = "'" + msgType + "' is not an allowed request on the '" + channel + "' channel";
+            return false;
+        }
+
+        // Same per-id lock stopSession()/restartSession() hold for their
+        // entire duration: without it this could call sendOnShell() on a
+        // ClientZmq another thread is tearing down for a stop/restart.
+        // Taken before getSession() so a call arriving mid-restart waits and
+        // then targets whichever session is live afterwards.
         std::lock_guard<std::recursive_mutex> opLock(*getSessionOperationLock(sessionId));
 
         auto session = getSession(sessionId);
         if (!session || !session->client)
         {
+            error = "session not found";
             return false;
         }
 
-        json header = adrastea::makeHeader("history_request", "client_user", sessionId);
+        json header = adrastea::makeHeader(msgType, "client_user", sessionId);
         header["msg_id"] = msgId;
 
+        adrastea::Message req({ "client_id" }, header, json::object(), json::object(),
+                              content.is_object() ? content : json::object(), adrastea::buffer_sequence());
+        if (onControl)
+        {
+            session->client->sendOnControl(std::move(req));
+        }
+        else
+        {
+            session->client->sendOnShell(std::move(req));
+        }
+        return true;
+    }
+
+    bool SessionRegistry::sendHistory(const std::string& sessionId, const std::string& msgId, const json& options)
+    {
         // Matches the real Jupyter history_request spec (KernelCore::
-        // historyRequest() -> HistoryManager::processRequest(), kernel_
-        // core.cpp/history_manager.cpp) -- "tail" (n most recent) by
-        // default, since that's what a client reconnecting to an
-        // already-running kernel actually wants ("what did this kernel
-        // already run"), not a full-range dump.
+        // historyRequest() -> HistoryManager::processRequest()) -- "tail"
+        // (n most recent) by default, since that's what a client
+        // reconnecting to an already-running kernel actually wants ("what
+        // did this kernel already run"), not a full-range dump.
         json content = {
             { "hist_access_type", options.value("histAccessType", std::string("tail")) },
             { "output", options.value("output", false) },
             { "raw", options.value("raw", true) },
             { "n", options.value("n", 100) }
         };
-        if (options.contains("session")) content["session"] = options["session"];
-        if (options.contains("start")) content["start"] = options["start"];
-        if (options.contains("stop")) content["stop"] = options["stop"];
-        if (options.contains("pattern")) content["pattern"] = options["pattern"];
-        if (options.contains("unique")) content["unique"] = options["unique"];
+        for (const char* key : { "session", "start", "stop", "pattern", "unique" })
+        {
+            if (options.contains(key)) content[key] = options[key];
+        }
 
-        adrastea::Message req({ "client_id" }, header, json::object(), json::object(), content, adrastea::buffer_sequence());
-        session->client->sendOnShell(std::move(req));
-        return true;
+        std::string error;
+        return sendRequest(sessionId, "shell", "history_request", msgId, content, error);
     }
 
     bool SessionRegistry::sendInterrupt(const std::string& sessionId, const std::string& msgId)
     {
-        // Same reasoning as sendExecute() above -- serialize against a
-        // concurrent stop/restart of this same session.
-        std::lock_guard<std::recursive_mutex> opLock(*getSessionOperationLock(sessionId));
-
-        auto session = getSession(sessionId);
-        if (!session || !session->client)
-        {
-            return false;
-        }
-
-        json header = adrastea::makeHeader("interrupt_request", "client_user", sessionId);
-        header["msg_id"] = msgId;
-
-        adrastea::Message req({ "client_id" }, header, json::object(), json::object(), json::object(), adrastea::buffer_sequence());
-        session->client->sendOnControl(std::move(req));
-        return true;
+        std::string error;
+        return sendRequest(sessionId, "control", "interrupt_request", msgId, json::object(), error);
     }
-
     bool SessionRegistry::sendInputReply(const std::string& sessionId, const std::string& value)
     {
         // Same reasoning as sendExecute()/sendInterrupt() above.
@@ -584,7 +629,7 @@ namespace themisto
         return true;
     }
 
-    bool SessionRegistry::stopSession(const std::string& id)
+    bool SessionRegistry::stopSession(const std::string& id, bool restart)
     {
         std::lock_guard<std::recursive_mutex> opLock(*getSessionOperationLock(id));
 
@@ -594,21 +639,45 @@ namespace themisto
             return false;
         }
 
-        if (session->client)
+        // Only ask a kernel that is actually there: a crashed one can never
+        // answer, and sending to it just queues a message against a dead
+        // peer.
+        const bool wasAlive = session->process && session->process->isAlive();
+
+        if (wasAlive && session->client)
         {
+            // From here the process exiting is expected -- pollLoop()'s
+            // OS-level watchdog must not report it as a crash.
+            session->expectingExit = true;
+
             json shutHeader = adrastea::makeHeader("shutdown_request", "client_user", id);
-            json shutContent = { { "restart", false } };
+            json shutContent = { { "restart", restart } };
             adrastea::Message shutReq({ "client_id" }, shutHeader, json::object(), json::object(), shutContent, adrastea::buffer_sequence());
             session->client->sendOnControl(std::move(shutReq));
         }
 
+        // The poll thread is deliberately left RUNNING for the grace window:
+        // it is what relays the kernel's shutdown_reply (control) and its
+        // iopub "shutdown" message to the client -- previously it was
+        // stopped first and both were silently lost, so a stop/restart
+        // never actually surfaced the protocol's own reply. It exits by
+        // itself once it observes the process gone (pollLoop()), after a
+        // final drain.
+        //
+        // Graceful-then-force: give the kernel up to 2s to exit cleanly
+        // after shutdown_request before force-killing it. A session blocked
+        // inside e.g. shiny::runApp() never gets to process the request
+        // (the interpreter thread is stuck), so force-kill after the grace
+        // window is the normal path for it, not a sign anything's wrong.
+        for (int i = 0; i < 20 && session->process && session->process->isAlive(); ++i)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
         // Stop and join the poll thread *before* tearing down the client:
-        // pollLoop() (below) calls client->iopubQueueSize()/popIopubMessage()/
-        // receiveOnShell() concurrently from its own thread, so calling
-        // client->stopChannels() first -- while that thread might still be
-        // mid-call on the same ClientZmq -- raced the two against each
-        // other and hung (found via test/session_registry_test.cpp; the
-        // symptom was stopSession() itself never returning).
+        // pollLoop() calls the client's receive functions concurrently from
+        // its own thread, so calling client->stopChannels() first raced the
+        // two and hung (found via test/session_registry_test.cpp).
         session->polling = false;
         if (session->pollThread.joinable())
         {
@@ -620,30 +689,12 @@ namespace themisto
             session->client->stopChannels();
         }
 
-        // Graceful-then-force, matching the addon's own shutdown handling
-        // (lib/session/session-manager.ts's stop()/kill() split): give the
-        // kernel a couple seconds to exit cleanly after shutdown_request
-        // before force-killing the process. In practice this always hits
-        // the force-kill path for a session running a Shiny app: the R
-        // interpreter thread is permanently blocked inside
-        // shiny::runApp() (see createShiny()'s "expected to block
-        // indefinitely" comment) and never gets a chance to process a
-        // control-channel shutdown_request -- verified via targeted
-        // tracing, not just inferred. Confirmed harmless (the process is
-        // reliably dead within ~2.3s either way), just worth knowing this
-        // is the *normal* path for a Shiny session, not a sign anything's
-        // stuck.
-        for (int i = 0; i < 20 && session->process && session->process->isAlive(); ++i)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
         if (session->process && session->process->isAlive())
         {
             session->process->kill();
         }
 
         session->status = SessionStatus::Stopped;
-
         // A stopped session is permanently terminal -- unlike Crashed, it
         // can never come back (Session.restart() on the TS side refuses
         // outright once a session has been stopped; this is that same rule
@@ -703,7 +754,7 @@ namespace themisto
         // stop this session and create a brand new one just to pick a
         // different R.
         SessionOptions options = newOptions.has_value() ? *newOptions : session->options;
-        stopSession(id);
+        stopSession(id, true);
 
         {
             std::lock_guard<std::mutex> lock(m_sessionsMutex);

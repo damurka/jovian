@@ -17,9 +17,9 @@
 
 # elara loads R's shared library dynamically at runtime on every platform
 # (Windows: LoadLibrary/GetProcAddress on R.dll; Linux/macOS: dlopen/dlsym
-# on libR.so/libR.dylib -- see native/src/r/r_dynlib.hpp/.cpp) instead of
-# linking against it at build time, the same architecture Positron's Ark
-# uses. This decouples elara from any specific R version at build time
+# on libR.so/libR.dylib -- see native/src/elara/r/r_dynlib.hpp/.cpp) instead of
+# linking against it at build time. This decouples elara from any specific
+# R version at build time
 # (switching R installations is a runtime R_HOME decision, no rebuild
 # needed) and means a missing/incompatible R installation surfaces as a
 # catchable error inside elara.exe rather than the OS process loader

@@ -16,7 +16,7 @@
 //
 // R_HOME/R_PATH/PYTHONHOME are baked into argv at generation time (same
 // process.env.R_HOME/PYTHONHOME fallback pattern as tools/playground/
-// server.js and test/integration/session-manager.test.ts) rather than
+// lib/env.mjs and test/integration/session-manager.test.ts) rather than
 // looked up at kernel-launch time, since kernel.json's argv is static --
 // re-run this after moving R/Python installs or rebuilding elara.exe/
 // carpo.exe somewhere new.

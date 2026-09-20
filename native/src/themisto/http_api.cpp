@@ -18,6 +18,7 @@ namespace themisto
             options.pythonHome = body.value("pythonHome", "");
             options.pythonPath = body.value("pythonPath", "");
             options.venvPath = body.value("venvPath", "");
+            options.workingDirectory = body.value("workingDirectory", "");
             return options;
         }
 

@@ -2,9 +2,11 @@
 
 #include <cctype>
 #include <cstdio>
+#include <filesystem>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
+#include <system_error>
 #include <vector>
 
 #ifdef _WIN32
@@ -24,6 +26,25 @@
 
 namespace themisto
 {
+    namespace
+    {
+        // Failing here, with the path in the message, beats the kernel
+        // silently starting somewhere else (POSIX chdir failure) or a
+        // generic "CreateProcess failed" (Windows) for a typo'd directory.
+        void validateWorkingDirectory(const std::string& dir)
+        {
+            if (dir.empty())
+            {
+                return;
+            }
+            std::error_code ec;
+            if (!std::filesystem::is_directory(dir, ec))
+            {
+                throw std::runtime_error("workingDirectory does not exist or is not a directory: " + dir);
+            }
+        }
+    }
+
     namespace
     {
         std::string quoteArg(const std::string& value)
@@ -128,7 +149,21 @@ namespace themisto
         }
     }
 
-    KernelProcess::KernelProcess(const KernelProcessOptions& options) : m_options(options) {}
+    KernelProcess::KernelProcess(const KernelProcessOptions& options) : m_options(options)
+    {
+        // Absolute, because a relative kernel path would stop resolving the
+        // moment the child changes into m_options.workingDirectory (POSIX
+        // chdir()s before execv()).
+        if (!m_options.kernelExePath.empty())
+        {
+            std::error_code ec;
+            auto absolute = std::filesystem::absolute(m_options.kernelExePath, ec);
+            if (!ec)
+            {
+                m_options.kernelExePath = absolute.string();
+            }
+        }
+    }
 
     KernelProcess::~KernelProcess()
     {
@@ -195,6 +230,7 @@ namespace themisto
 #ifdef _WIN32
     void KernelProcess::start()
     {
+        validateWorkingDirectory(m_options.workingDirectory);
         std::ostringstream cmd;
         cmd << quoteArg(m_options.kernelExePath);
         for (const auto& [flag, value] : toArgPairs(m_options))
@@ -279,7 +315,7 @@ namespace themisto
             TRUE,
             CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
             nullptr,
-            nullptr,
+            m_options.workingDirectory.empty() ? nullptr : m_options.workingDirectory.c_str(),
             &startupInfo.StartupInfo,
             &processInfo);
 
@@ -411,6 +447,7 @@ namespace themisto
 #else
     void KernelProcess::start()
     {
+        validateWorkingDirectory(m_options.workingDirectory);
         std::vector<std::string> argStorage = { m_options.kernelExePath };
         for (const auto& [flag, value] : toArgPairs(m_options))
         {
@@ -538,6 +575,17 @@ namespace themisto
                     ? combined + ":" + existingLdPath
                     : combined;
                 setenv(ldPathVar, newLdPath.c_str(), 1);
+            }
+
+            if (!m_options.workingDirectory.empty() && chdir(m_options.workingDirectory.c_str()) != 0)
+            {
+                // Reported through the same exec-status pipe as an execv
+                // failure (the parent already checked the directory exists,
+                // so this is e.g. a permissions problem).
+                int chdirErrno = errno;
+                ssize_t ignored = write(execStatusFds[1], &chdirErrno, sizeof(chdirErrno));
+                (void)ignored;
+                _exit(127);
             }
 
             execv(m_options.kernelExePath.c_str(), argv.data());

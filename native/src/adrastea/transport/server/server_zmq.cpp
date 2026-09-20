@@ -14,6 +14,10 @@ namespace adrastea
             eh,
             std::bind(&ServerZmq::notifyInternalListener, this, std::placeholders::_1)))
     {
+        // interrupt_request is answered by the control watcher thread while
+        // code is running (see ServerZmqImpl::beginExecution()); it goes
+        // through the same control listener as any other control message.
+        p_impl->setInterruptHandler([this](Message msg) { notifyControlListener(std::move(msg)); });
     }
 
     // Has to be in the cpp because incomplete
@@ -95,6 +99,16 @@ namespace adrastea
     void ServerZmq::publishImpl(PubMessage msg, channel c)
     {
         p_impl->publish(std::move(msg), c);
+    }
+
+    void ServerZmq::beginExecutionImpl()
+    {
+        p_impl->beginExecution();
+    }
+
+    void ServerZmq::endExecutionImpl()
+    {
+        p_impl->endExecution();
     }
 
     void ServerZmq::abortQueueImpl(const listener& l, long polling_interval)

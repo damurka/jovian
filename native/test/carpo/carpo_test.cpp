@@ -341,3 +341,44 @@ TEST(CarpoTest, ExecuteRequestStreamsStderrSeparatelyFromStdout)
     EXPECT_NE(stdoutCombined.find("to stdout"), std::string::npos);
     EXPECT_NE(stderrCombined.find("to stderr"), std::string::npos);
 }
+
+namespace
+{
+    json runCodeWithExpressions(carpo::PyInterpreter& interpreter, const std::string& code, const json& userExpressions)
+    {
+        json reply;
+        auto callback = [&](json r) { reply = std::move(r); };
+        ExecuteRequestConfig config{ /*silent=*/false, /*store_history=*/false, /*allow_stdin=*/false };
+        interpreter.executeRequest(RequestContext(), callback, code, config, userExpressions);
+        return reply;
+    }
+}
+
+TEST(CarpoTest, UserExpressionsAreEvaluatedAfterTheCodeAndEachReportsItsOwnResult)
+{
+    SKIP_IF_NO_PYTHON();
+    carpo::PyInterpreter interpreter(0, nullptr);
+
+    json reply = runCodeWithExpressions(interpreter, "x = 21",
+        { { "double", "x * 2" }, { "boom", "undefined_name" } });
+
+    ASSERT_EQ(reply.at("status").get<std::string>(), "ok");
+    const json& results = reply.at("user_expressions");
+
+    EXPECT_EQ(results.at("double").at("status").get<std::string>(), "ok");
+    EXPECT_EQ(results.at("double").at("data").at("text/plain").get<std::string>(), "42");
+
+    EXPECT_EQ(results.at("boom").at("status").get<std::string>(), "error");
+    EXPECT_EQ(results.at("boom").at("ename").get<std::string>(), "NameError");
+}
+
+TEST(CarpoTest, UserExpressionsAreNotEvaluatedWhenTheCodeFails)
+{
+    SKIP_IF_NO_PYTHON();
+    carpo::PyInterpreter interpreter(0, nullptr);
+
+    json reply = runCodeWithExpressions(interpreter, "1 / 0", { { "one", "1" } });
+
+    EXPECT_EQ(reply.at("status").get<std::string>(), "error");
+    EXPECT_FALSE(reply.contains("user_expressions"));
+}

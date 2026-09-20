@@ -43,6 +43,9 @@ namespace themisto
         std::string pythonHome;
         std::string pythonPath;
         std::string venvPath;
+
+        // Directory the kernel process starts in (empty = the supervisor's own).
+        std::string workingDirectory;
     };
 
     enum class SessionStatus
@@ -90,6 +93,14 @@ namespace themisto
         std::atomic<bool> polling{ false };
         std::thread pollThread;
 
+        // Set by stopSession()/restartSession() right before they send the
+        // kernel a shutdown_request: from then on the process exiting is
+        // exactly what's supposed to happen, so pollLoop()'s OS-level
+        // liveness watchdog must not report it as a crash (it would emit a
+        // spurious kernelExit and flip the status to Crashed for a perfectly
+        // orderly, protocol-driven shutdown).
+        std::atomic<bool> expectingExit{ false };
+
         ~Session();
 
         void emitMessage(const std::string& jsonText);
@@ -119,7 +130,12 @@ namespace themisto
         std::shared_ptr<Session> getSession(const std::string& id);
         json listSessions();
 
-        bool stopSession(const std::string& id);
+        // Sends the kernel a real shutdown_request (content.restart = the
+        // `restart` argument, so the shutdown_reply it sends back reports
+        // what was actually asked for), relays its reply, and force-kills
+        // only if it doesn't exit on its own within a short grace period.
+        // restartSession() calls this with restart=true.
+        bool stopSession(const std::string& id, bool restart = false);
 
         // Replaces the kernel process under the same session id, same as a
         // no-argument restart, but if `newOptions` is given (e.g. a
@@ -133,6 +149,26 @@ namespace themisto
                                     std::optional<SessionOptions> newOptions = std::nullopt);
 
         bool sendExecute(const std::string& sessionId, const std::string& msgId, const std::string& code, const json& options);
+
+        // Generic client -> kernel request over the shell or control channel,
+        // for every Jupyter request type that has a plain request/reply (or,
+        // for comms, fire-and-forget) shape: complete_request,
+        // inspect_request, is_complete_request, kernel_info_request,
+        // history_request, comm_info_request, comm_open, comm_msg,
+        // comm_close (shell) and interrupt_request (control). Replies come
+        // back through pollLoop()'s relay, correlated by `msgId`.
+        //
+        // Deliberately a whitelist, not a passthrough: execute_request has
+        // its own entry point (sendExecute: it owns store_history/
+        // allow_stdin/... semantics), input_reply has its own (the stdin
+        // channel), and shutdown_request is a lifecycle operation that
+        // belongs to stopSession()/restartSession() -- a client sending one
+        // raw would kill the kernel behind the supervisor's back. Returns
+        // false with `error` set for an unknown session, a type that isn't
+        // allowed on that channel, or a session with no live client.
+        bool sendRequest(const std::string& sessionId, const std::string& channel, const std::string& msgType,
+                         const std::string& msgId, const json& content, std::string& error);
+
         bool sendInterrupt(const std::string& sessionId, const std::string& msgId);
 
         // Sends a real Jupyter history_request on the shell channel --

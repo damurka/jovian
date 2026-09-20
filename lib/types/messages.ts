@@ -10,7 +10,7 @@ export type MessageTopic =
     | 'status'
     | string;
 
-export type MessageChannel = 'iopub' | 'shell' | 'stdin';
+export type MessageChannel = 'iopub' | 'shell' | 'stdin' | 'control';
 
 export interface JupyterMessage<T = any> {
     topic: MessageTopic;
@@ -57,4 +57,54 @@ export interface DisplayDataContent {
 export interface InputRequestContent {
     prompt: string;
     password: boolean;
+}
+
+// iopub 'status': the kernel's busy/idle bracket around every request it
+// handles (execute, complete, inspect, ... -- not just execute). Session
+// tracks the latest one as `session.executionState`.
+export type ExecutionState = 'busy' | 'idle' | 'starting';
+
+export interface StatusContent {
+    execution_state: ExecutionState;
+}
+
+// iopub 'execute_input': the kernel announcing the code it is about to run
+// (what Session.getHistory() buckets its per-execution entries by).
+export interface ExecuteInputContent {
+    code: string;
+    execution_count: number;
+}
+
+// iopub 'clear_output': `wait: true` means "clear when the next output
+// arrives", not right now (Jupyter's own semantics -- a client redraws
+// without a flicker).
+export interface ClearOutputContent {
+    wait: boolean;
+}
+
+// iopub 'update_display_data': replaces the display previously published
+// with the same `transient.display_id`.
+export interface UpdateDisplayDataContent extends DisplayDataContent {
+    transient?: { display_id?: string };
+}
+
+// Comms (iopub comm_open/comm_msg/comm_close, and the client -> kernel
+// versions of the same three over shell): a named, bidirectional message
+// stream between a frontend and a kernel-side target. Session.commOpen()/
+// commMsg()/commClose() send them; the same messages from the kernel
+// arrive as 'comm_open'/'comm_msg'/'comm_close' events.
+export interface CommOpenContent {
+    comm_id: string;
+    target_name: string;
+    data: Record<string, any>;
+}
+
+export interface CommMsgContent {
+    comm_id: string;
+    data: Record<string, any>;
+}
+
+export interface CommCloseContent {
+    comm_id: string;
+    data: Record<string, any>;
 }

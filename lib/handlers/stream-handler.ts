@@ -5,7 +5,7 @@ import { EventEmitter } from 'events';
 export class StreamHandler implements MessageHandler {
     handle(message: JupyterMessage<StreamContent>, emitter: EventEmitter): void {
         if (message.content && message.content.text) {
-            emitter.emit('stdout', message.content.text);
+            emitter.emit(message.content.name === 'stderr' ? 'stderr' : 'stdout', message.content.text);
         }
     }
 }

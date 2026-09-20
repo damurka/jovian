@@ -37,6 +37,13 @@ namespace adrastea
         void sendStdin(Message message);
         void publish(PubMessage message, channel c);
 
+        // Bracket every code execution (KernelCore::executeRequest). A server
+        // that can service control requests WHILE code runs -- interrupt is
+        // the reason -- uses these to start/stop doing so; the default does
+        // nothing (control messages then wait for the execution to finish).
+        void beginExecution();
+        void endExecution();
+
         void start(PubMessage message);
         void abortQueue(const listener& l, long polling_interval);
         void stop();
@@ -64,6 +71,9 @@ namespace adrastea
         virtual void sendControlImpl(Message message) = 0;
         virtual void sendStdinImpl(Message message) = 0;
         virtual void publishImpl(PubMessage message, channel c) = 0;
+
+        virtual void beginExecutionImpl() {}
+        virtual void endExecutionImpl() {}
 
         virtual void startImpl(PubMessage message) = 0;
         virtual void abortQueueImpl(const listener& l, long polling_interval) = 0;

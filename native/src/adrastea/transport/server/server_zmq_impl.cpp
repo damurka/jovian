@@ -54,6 +54,103 @@ namespace adrastea
         }
     }
 
+    ServerZmqImpl::~ServerZmqImpl()
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_watchMutex);
+            m_watchQuit = true;
+            m_watching = false;
+        }
+        m_watchCv.notify_all();
+        if (m_watchThread.joinable())
+        {
+            m_watchThread.join();
+        }
+    }
+
+    void ServerZmqImpl::setInterruptHandler(listener handler)
+    {
+        m_interruptHandler = std::move(handler);
+    }
+
+    void ServerZmqImpl::beginExecution()
+    {
+        std::lock_guard<std::mutex> lock(m_watchMutex);
+        if (!m_watchThread.joinable())
+        {
+            m_watchThread = std::thread(&ServerZmqImpl::watchControl, this);
+        }
+        m_watching = true;
+        m_watchCv.notify_all();
+    }
+
+    void ServerZmqImpl::endExecution()
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_watchMutex);
+            m_watching = false;
+        }
+        // The watcher holds m_controlMutex for the whole of one poll
+        // iteration and re-checks m_watching under it, so once this returns
+        // it can no longer touch the control socket -- the polling thread
+        // has it to itself again.
+        std::lock_guard<std::recursive_mutex> sync(m_controlMutex);
+    }
+
+    bool ServerZmqImpl::isWatching()
+    {
+        std::lock_guard<std::mutex> lock(m_watchMutex);
+        return m_watching && !m_watchQuit;
+    }
+
+    void ServerZmqImpl::watchControl()
+    {
+        for (;;)
+        {
+            {
+                std::unique_lock<std::mutex> lock(m_watchMutex);
+                m_watchCv.wait(lock, [this] { return m_watching || m_watchQuit; });
+                if (m_watchQuit)
+                {
+                    return;
+                }
+            }
+            {
+                std::lock_guard<std::recursive_mutex> control(m_controlMutex);
+                if (isWatching())
+                {
+                    pollControlOnce();
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+
+    void ServerZmqImpl::pollControlOnce()
+    {
+        try
+        {
+            zmq::multipart_t wire_msg;
+            if (!wire_msg.recv(m_controller, ZMQ_DONTWAIT))
+            {
+                return;
+            }
+            Message msg = ZmqSerializer::deserialize(wire_msg, *p_auth);
+            if (m_interruptHandler && msg.header().value("msg_type", "") == "interrupt_request")
+            {
+                m_interruptHandler(std::move(msg));
+            }
+            else
+            {
+                m_deferredControl.push_back(std::move(msg));
+            }
+        }
+        catch (std::exception& e)
+        {
+            std::cerr << e.what() << std::endl;
+        }
+    }
+
     void ServerZmqImpl::startPublisherThread()
     {
         m_iopubThread = Thread(&Publisher::run, &m_publisher);
@@ -90,6 +187,17 @@ namespace adrastea
 
     auto ServerZmqImpl::pollChannels(long timeout) -> std::optional<message_channel>
     {
+        {
+            // Control messages the watcher set aside during an execution.
+            std::lock_guard<std::recursive_mutex> control(m_controlMutex);
+            if (!m_deferredControl.empty())
+            {
+                Message msg = std::move(m_deferredControl.front());
+                m_deferredControl.pop_front();
+                return { std::make_pair(std::move(msg), channel::CONTROL) };
+            }
+        }
+
         zmq::pollitem_t items[]
             = { { m_controller, 0, ZMQ_POLLIN, 0 }, { m_shell, 0, ZMQ_POLLIN, 0 } };
 
@@ -135,6 +243,7 @@ namespace adrastea
     void ServerZmqImpl::sendControl(Message message)
     {
         zmq::multipart_t wire_msg = ZmqSerializer::serialize(std::move(message), *p_auth, m_errorHandler);
+        std::lock_guard<std::recursive_mutex> control(m_controlMutex);
         wire_msg.send(m_controller);
     }
 
@@ -159,6 +268,7 @@ namespace adrastea
     void ServerZmqImpl::publish(PubMessage message, channel)
     {
         zmq::multipart_t wire_msg = ZmqSerializer::serializeIopub(std::move(message), *p_auth, m_errorHandler);
+        std::lock_guard<std::mutex> lock(m_publishMutex);
         wire_msg.send(m_publisherPub);
     }
 

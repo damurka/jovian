@@ -1,17 +1,24 @@
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
 import type {
+    CommInfoReplyContent,
+    CompleteReplyContent,
     EngineOptions,
     ExecutionHistoryEntry,
     ExecutionOptions,
     ExecutionResult,
+    InspectReplyContent,
+    InterruptReplyContent,
+    IsCompleteReplyContent,
     KernelHistoryEntry,
     KernelHistoryOptions,
+    KernelInfoReplyContent,
     LogLevel,
+    SessionStatusInfo,
     ShinyAppHandle,
     ShinyAppOptions
 } from '../types/index.js';
-import type { JupyterMessage } from '../types/messages.js';
+import type { ExecutionState, JupyterMessage } from '../types/messages.js';
 import { Logger } from '../utils/logger.js';
 import { MessageRouter } from '../messaging/message-router.js';
 import { ExecutionQueue } from '../execution/execution-queue.js';
@@ -24,6 +31,7 @@ import { ErrorHandler } from '../handlers/error-handler.js';
 import { DisplayHandler } from '../handlers/display-handler.js';
 import { findFreePort, waitForPort } from '../utils/network.js';
 import { SupervisorClient, type SessionConnectionInfo } from './supervisor-client.js';
+import { Comm } from './comm.js';
 
 // Reuses lib/types/engine.ts's ShinyAppHandle instead of declaring a
 // second, structurally-identical interface here -- lib/index.ts used to
@@ -35,6 +43,30 @@ export type { ShinyAppHandle };
 interface WsFrame {
     type: string;
     [key: string]: unknown;
+}
+
+// A request() waiting for its reply: settled by the shell/control message
+// whose parent_msg_id is the request's id (see Session.settleRequest()).
+interface PendingRequest {
+    replyType: string;
+    resolve: (content: unknown) => void;
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+}
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
+
+// How long stop() waits for the kernel's shutdown_reply after the
+// supervisor reports the stop done (it is normally already here by then).
+const SHUTDOWN_REPLY_WAIT_MS = 250;
+
+function streamLength(message: JupyterMessage): number {
+    const text = (message.content as { text?: unknown } | undefined)?.text;
+    return typeof text === 'string' ? text.length : 0;
+}
+
+function replyTypeOf(requestType: string): string {
+    return requestType.replace(/_request$/, '_reply');
 }
 
 /**
@@ -56,6 +88,12 @@ interface WsFrame {
 // without needing every caller to remember to cap it themselves.
 const MAX_EXECUTION_HISTORY_ENTRIES = 200;
 
+// Per entry: an execution that prints millions of lines must not make
+// getHistory() (and anything that serializes it, e.g. a browser reloading its
+// transcript) hold and ship hundreds of megabytes. The newest stream text is
+// kept.
+const MAX_HISTORY_STREAM_CHARS = 500_000;
+
 export class Session extends EventEmitter {
     private ws: WebSocket | undefined;
     // Public (not just for this class's own use): callers that need to
@@ -70,28 +108,46 @@ export class Session extends EventEmitter {
     // without needing its own separate bookkeeping (a real gap: the
     // playground tool used to duplicate this into its own per-session
     // `entry.config` purely because nothing on Session itself exposed it).
-    readonly options: EngineOptions;
+    private currentOptions: EngineOptions;
     private readonly supervisor: SupervisorClient;
     private readonly logger: Logger;
     private readonly router: MessageRouter;
     private readonly middleware: MiddlewareChain;
     private readonly queue: ExecutionQueue;
+    /**
+     * The options this session is currently running with: what it was
+     * created with, updated by any `restart(options)` that changed them.
+     */
+    get options(): EngineOptions {
+        return this.currentOptions;
+    }
+
     private readyPromise: Promise<void>;
     private stopped = false;
+    private readonly comms = new Map<string, Comm>();
+    private readonly busyRequests = new Set<string>();
+    private readonly pendingRequests = new Map<string, PendingRequest>();
+    private kernelExecutionState: ExecutionState | undefined;
 
     // Every execute() call's code + the iopub messages it produced, bucketed
     // by the execute_request's own msg id (execute_input's parentMsgId) --
     // see getHistory()'s doc comment for what this is actually for.
     private readonly executionHistory: ExecutionHistoryEntry[] = [];
     private readonly executionHistoryByMsgId = new Map<string, ExecutionHistoryEntry>();
+    private readonly historyStreamChars = new WeakMap<ExecutionHistoryEntry, number>();
 
     constructor(info: SessionConnectionInfo, options: EngineOptions, supervisor: SupervisorClient) {
         super();
         this.info = info;
-        this.options = options;
+        this.currentOptions = options;
         this.supervisor = supervisor;
         this.logger = new Logger(options.logger);
-        this.on('message', (message: JupyterMessage) => this.recordExecutionHistory(message));
+        this.on('message', (message: JupyterMessage) => {
+            this.recordExecutionHistory(message);
+            this.settleRequest(message);
+            this.trackExecutionState(message);
+            this.routeComm(message);
+        });
 
         this.router = new MessageRouter(this);
         this.router.registerHandler('stream', new StreamHandler());
@@ -122,7 +178,9 @@ export class Session extends EventEmitter {
                 return id;
             }
         };
-        this.queue = new ExecutionQueue(wsAddon, this, options.queueSize, this.logger);
+        this.queue = new ExecutionQueue(wsAddon, this, options.queueSize, this.logger, () => {
+            void this.interrupt();
+        });
 
         this.readyPromise = this.connect();
     }
@@ -184,6 +242,8 @@ export class Session extends EventEmitter {
                 this.logger.error(`Session ${this.info.sessionId} connection closed unexpectedly`);
                 this.emit('exit', { reason: 'WebSocket connection to the supervisor closed unexpectedly' });
                 this.queue.clear();
+                this.closeAllComms('connection lost');
+                this.rejectPendingRequests(new Error('WebSocket connection to the supervisor closed unexpectedly'));
             });
         });
     }
@@ -199,10 +259,9 @@ export class Session extends EventEmitter {
      *
      * `options`, if given, switches this session's R installation on the
      * restart (rHome/rPath/etc) instead of reusing whatever it was created
-     * with -- e.g. flip from R 4.4 to R 4.6, the same way Positron's Ark
-     * lets you switch R versions on the fly, without closing this session
-     * and opening a new one (a different session id/WS URL) just to pick a
-     * different R.
+     * with -- e.g. flip from R 4.4 to R 4.6 on the fly, without closing
+     * this session and opening a new one (a different session id/WS URL)
+     * just to pick a different R.
      */
     async restart(options?: Partial<EngineOptions>): Promise<void> {
         if (this.stopped) {
@@ -211,13 +270,33 @@ export class Session extends EventEmitter {
 
         this.logger.info(`Restarting session ${this.info.sessionId}`);
         this.queue.clear();
+        this.closeAllComms('kernel restarted');
+        // The supervisor replaces a session's options wholesale, so send the
+        // merge -- a restart that only switches rHome must keep the
+        // workingDirectory, rLibs, ... the session was created with.
+        const mergedOptions = options ? { ...this.currentOptions, ...options } : undefined;
 
         // Reassigned synchronously, before awaiting anything below, so a
         // concurrent execute()/createShiny() call that reads this.readyPromise
         // while the restart is still in flight waits for the new connection
         // instead of racing the old (already-dead-or-dying) one.
+        this.rejectPendingRequests(new Error('Session is restarting'));
+        const shutdownReply = this.watchFor('shutdown_reply');
         this.readyPromise = (async () => {
-            await this.supervisor.restartSession(this.info, options);
+            try {
+                await this.supervisor.restartSession(this.info, mergedOptions);
+                if (mergedOptions) {
+                    this.currentOptions = mergedOptions;
+                }
+            } finally {
+                // The supervisor sent the old kernel a real shutdown_request
+                // (restart: true); its shutdown_reply arrives on this (old)
+                // socket as a normal 'shutdown_reply' event -- give it a
+                // moment to land before that socket is replaced. (A kernel
+                // that had already crashed never sends one, hence the short
+                // cap.) In a finally so the watcher is always cleaned up.
+                await shutdownReply(200);
+            }
             await this.connect();
         })();
 
@@ -271,7 +350,25 @@ export class Session extends EventEmitter {
         const entry = this.executionHistoryByMsgId.get(message.parentMsgId);
         if (entry) {
             entry.messages.push(message);
+            if (message.msgType === 'stream') {
+                this.boundStreamHistory(entry, streamLength(message));
+            }
         }
+    }
+
+    // Drops the oldest stream messages of `entry` until it holds at most
+    // MAX_HISTORY_STREAM_CHARS of stream text.
+    private boundStreamHistory(entry: ExecutionHistoryEntry, added: number): void {
+        let total = (this.historyStreamChars.get(entry) ?? 0) + added;
+        while (total > MAX_HISTORY_STREAM_CHARS) {
+            const index = entry.messages.findIndex((m) => m.msgType === 'stream');
+            // Keep at least the message that was just added.
+            if (index < 0 || index === entry.messages.length - 1) break;
+            total -= streamLength(entry.messages[index]);
+            entry.messages.splice(index, 1);
+            entry.truncated = true;
+        }
+        this.historyStreamChars.set(entry, total);
     }
 
     private async handleFrame(text: string, onReady: () => void): Promise<void> {
@@ -314,8 +411,27 @@ export class Session extends EventEmitter {
                     this.logger.error(`R session process for ${this.info.sessionId} exited unexpectedly: ${reason}`);
                     this.emit('exit', { reason });
                     this.queue.clear();
+                    this.closeAllComms('kernel exited');
+                    this.rejectPendingRequests(new Error(`Session process exited: ${reason}`));
                 }
                 break;
+
+            case 'requestError': {
+                // The supervisor refused a request outright (unknown type
+                // for that channel, session gone) -- no reply will ever come.
+                const id = typeof frame.id === 'string' ? frame.id : '';
+                const error = new Error(typeof frame.error === 'string' ? frame.error : 'request rejected by the supervisor');
+                const pending = this.pendingRequests.get(id);
+                if (pending) {
+                    clearTimeout(pending.timer);
+                    this.pendingRequests.delete(id);
+                    pending.reject(error);
+                } else {
+                    // Fire-and-forget (comm_*): nothing awaiting it.
+                    this.emit('requestError', { id, error });
+                }
+                break;
+            }
 
             default:
                 break;
@@ -381,47 +497,306 @@ export class Session extends EventEmitter {
      * and getHistory()'s doc comment for how this differs from that.
      */
     async queryKernelHistory(options: KernelHistoryOptions = {}): Promise<KernelHistoryEntry[]> {
-        await this.readyPromise;
-        const id = randomUUID();
-        const timeoutMs = 10000;
+        // Wire field names are snake_case (Jupyter's history_request).
+        const content: Record<string, unknown> = {
+            hist_access_type: options.histAccessType ?? 'tail',
+            output: options.output ?? false,
+            raw: options.raw ?? true,
+            n: options.n ?? 100
+        };
+        for (const key of ['session', 'start', 'stop', 'pattern', 'unique'] as const) {
+            if (options[key] !== undefined) content[key] = options[key];
+        }
+        const reply = await this.request<{ history?: KernelHistoryEntry[] }>('history_request', content);
+        return reply.history ?? [];
+    }
 
-        return new Promise((resolve, reject) => {
+    /**
+     * Sends interrupt_request over the control channel and resolves true if
+     * the kernel acknowledged it (interrupt_reply, status ok), false if it
+     * didn't within `options.timeout` (default 5s) or the session is gone --
+     * never rejects, since a caller typically fires this from a "stop"
+     * button and has nothing useful to do with an error.
+     *
+     * A real interrupt: the kernel services its control channel on a
+     * separate thread while code runs, so this is answered immediately even
+     * mid-execution, and the running code is broken out of exactly as Ctrl-C
+     * would (R: an interrupt condition; Python: KeyboardInterrupt). The
+     * interrupted execute() resolves with success: false. Interrupting an
+     * idle kernel does nothing. Limits: code blocked inside a native call
+     * that never returns to the interpreter (a long C extension call, a
+     * blocking socket read) is only interrupted once it does, and a kernel
+     * waiting on an input() / readline() reply must be answered (or its
+     * execute() timed out) first.
+     */
+    async interrupt(options: { timeout?: number } = {}): Promise<boolean> {
+        try {
+            const reply = await this.request<InterruptReplyContent>('interrupt_request', {}, { timeout: options.timeout ?? 5000 });
+            return reply.status === 'ok';
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * The latest iopub `status` the kernel reported ('busy' while it is
+     * handling a request, 'idle' between them) -- undefined until the first
+     * one arrives. Also available as the 'status' event.
+     */
+    get executionState(): ExecutionState | undefined {
+        return this.kernelExecutionState;
+    }
+
+    /**
+     * Sends any of the Jupyter requests that have a plain request/reply
+     * shape and resolves with the kernel's reply content: complete_request,
+     * inspect_request, is_complete_request, kernel_info_request,
+     * history_request, comm_info_request (shell) and interrupt_request
+     * (control) -- the typed methods below (complete(), inspect(), ...) are
+     * this with the right message type and content filled in. Rejects on a
+     * reply whose status is 'error'/'aborted', when the supervisor refuses
+     * the request, on timeout, or if the session goes away first.
+     *
+     * Deliberately not for execute_request (use execute(): it owns the
+     * queue/timeout/stdin semantics), input_reply (sendInputReply()) or
+     * shutdown_request (stop()/restart()) -- the supervisor rejects those.
+     */
+    async request<T = any>(msgType: string, content: Record<string, unknown> = {}, options: { timeout?: number } = {}): Promise<T> {
+        await this.readyPromise;
+
+        const id = randomUUID();
+        const timeoutMs = options.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS;
+        const channel = msgType === 'interrupt_request' ? 'control' : 'shell';
+        const replyType = replyTypeOf(msgType);
+
+        return new Promise<T>((resolve, reject) => {
             const timer = setTimeout(() => {
-                this.off('message', onMessage);
-                reject(new Error(`Timed out waiting for a history_reply after ${timeoutMs}ms`));
+                this.pendingRequests.delete(id);
+                reject(new Error(`Timed out waiting for a ${replyType} after ${timeoutMs}ms`));
             }, timeoutMs);
 
-            const onMessage = (message: JupyterMessage) => {
-                if (message.msgType !== 'history_reply' || message.parentMsgId !== id) {
-                    return;
-                }
-                clearTimeout(timer);
-                this.off('message', onMessage);
-                const content = message.content as { status?: string; ename?: string; evalue?: string; history?: KernelHistoryEntry[] };
-                if (content.status === 'error') {
-                    reject(new Error(content.evalue ?? content.ename ?? 'history_request failed'));
-                    return;
-                }
-                resolve(content.history ?? []);
-            };
-            this.on('message', onMessage);
+            this.pendingRequests.set(id, {
+                replyType,
+                resolve: resolve as (content: unknown) => void,
+                reject,
+                timer
+            });
 
-            this.send({ type: 'history', id, options });
+            this.send({ type: 'request', id, channel, msgType, content });
+        });
+    }
+
+    // busy/idle come in pairs per request the kernel handles -- and an
+    // interrupt is handled WHILE an execution is running, so its idle must
+    // not flip the state to idle under a still-running execution. Busy while
+    // any request is outstanding.
+    private trackExecutionState(message: JupyterMessage): void {
+        if (message.msgType !== 'status') {
+            return;
+        }
+        const state = (message.content as { execution_state?: ExecutionState })?.execution_state;
+        if (state === 'busy') {
+            this.busyRequests.add(message.parentMsgId);
+            this.kernelExecutionState = 'busy';
+        } else if (state === 'idle') {
+            this.busyRequests.delete(message.parentMsgId);
+            this.kernelExecutionState = this.busyRequests.size > 0 ? 'busy' : 'idle';
+        } else {
+            this.kernelExecutionState = state;
+        }
+    }
+
+    // Routes the kernel's comm traffic to the Comm objects.
+    private routeComm(message: JupyterMessage): void {
+        const content = message.content as { comm_id?: string; target_name?: string; data?: Record<string, unknown> } | undefined;
+        const commId = content?.comm_id;
+        if (!commId) {
+            return;
+        }
+        switch (message.msgType) {
+            case 'comm_open': {
+                if (this.comms.has(commId)) {
+                    return;
+                }
+                const comm = new Comm(commId, content?.target_name ?? '', this);
+                this.comms.set(commId, comm);
+                this.emit('comm', comm, content?.data ?? {});
+                break;
+            }
+            case 'comm_msg':
+                this.comms.get(commId)?.receiveMessage(content?.data ?? {});
+                break;
+            case 'comm_close': {
+                const comm = this.comms.get(commId);
+                this.comms.delete(commId);
+                comm?.receiveClose(content?.data ?? {});
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    private closeAllComms(reason: string): void {
+        for (const comm of this.comms.values()) {
+            comm.receiveClose({ reason });
+        }
+        this.comms.clear();
+        this.busyRequests.clear();
+    }
+
+    private settleRequest(message: JupyterMessage): void {
+        const pending = this.pendingRequests.get(message.parentMsgId);
+        if (!pending || message.msgType !== pending.replyType) {
+            return;
+        }
+        clearTimeout(pending.timer);
+        this.pendingRequests.delete(message.parentMsgId);
+
+        const content = message.content as { status?: string; ename?: string; evalue?: string } | undefined;
+        if (content?.status === 'error') {
+            pending.reject(new Error(content.evalue ?? content.ename ?? `${pending.replyType} reported an error`));
+        } else if (content?.status === 'aborted') {
+            pending.reject(new Error(`${pending.replyType} was aborted: an earlier request failed with stopOnError`));
+        } else {
+            pending.resolve(message.content);
+        }
+    }
+
+    private rejectPendingRequests(error: Error): void {
+        for (const [id, pending] of this.pendingRequests) {
+            clearTimeout(pending.timer);
+            pending.reject(error);
+            this.pendingRequests.delete(id);
+        }
+    }
+
+    // Starts listening for `msgType` NOW and returns a function that waits
+    // (up to its timeout) for it -- so a message that arrives before the
+    // caller gets around to waiting (e.g. a shutdown_reply that lands while
+    // the HTTP stop call is still in flight) is not missed. Never rejects:
+    // resolves undefined on timeout.
+    private watchFor(msgType: string): (timeoutMs: number) => Promise<JupyterMessage | undefined> {
+        let received: JupyterMessage | undefined;
+        let notify: (() => void) | undefined;
+        const listener = (message: JupyterMessage) => {
+            if (message.msgType !== msgType) return;
+            received = message;
+            this.off('message', listener);
+            notify?.();
+        };
+        this.on('message', listener);
+
+        return (timeoutMs: number) => new Promise((resolve) => {
+            if (received) {
+                resolve(received);
+                return;
+            }
+            const timer = setTimeout(() => {
+                this.off('message', listener);
+                resolve(undefined);
+            }, timeoutMs);
+            notify = () => {
+                clearTimeout(timer);
+                resolve(received);
+            };
         });
     }
 
     /**
-     * Sends interrupt_request over the control channel (ws_relay.cpp's
-     * `type === 'interrupt'` branch -> SessionRegistry::sendInterrupt()) --
-     * fire-and-forget, matching this control-channel path's current shape:
-     * nothing pumps interrupt_reply back over the WebSocket yet (pollLoop()
-     * in session_registry.cpp only reads iopub/shell, not control), so
-     * there's no reply to await here. Interrupting a kernel that isn't
-     * currently blocked in a long-running call is a harmless no-op from the
-     * caller's perspective either way.
+     * What the supervisor knows about this session's kernel process right
+     * now: lifecycle status, pid, memory, working directory and the
+     * heartbeat (round-trip time of the last ping, missed pings). The
+     * heartbeat is answered by a kernel thread separate from the one that
+     * runs code, so it stays live while the kernel is busy -- unlike
+     * kernelInfo(), which would wait for the running code to finish.
      */
-    interrupt(): void {
-        this.send({ type: 'interrupt', id: randomUUID() });
+    async status(): Promise<SessionStatusInfo> {
+        const res = await fetch(`${this.info.httpBase}/sessions/${this.info.sessionId}`);
+        if (!res.ok) {
+            throw new Error(`Could not read the status of session ${this.info.sessionId} (HTTP ${res.status})`);
+        }
+        return await res.json() as SessionStatusInfo;
+    }
+
+    /** complete_request: completions for the code at `cursorPos` (default: the end of `code`). */
+    complete(code: string, cursorPos: number = code.length): Promise<CompleteReplyContent> {
+        return this.request<CompleteReplyContent>('complete_request', { code, cursor_pos: cursorPos });
+    }
+
+    /** inspect_request: documentation/details for the symbol at `cursorPos` (default: the end of `code`). */
+    inspect(code: string, cursorPos: number = code.length, detailLevel: 0 | 1 = 0): Promise<InspectReplyContent> {
+        return this.request<InspectReplyContent>('inspect_request', { code, cursor_pos: cursorPos, detail_level: detailLevel });
+    }
+
+    /**
+     * is_complete_request: whether `code` is a complete statement, needs more
+     * lines ('incomplete', with an `indent` hint when the kernel has one),
+     * or can never parse ('invalid') -- what a console needs to decide
+     * between "run it" and "keep prompting".
+     */
+    isComplete(code: string): Promise<IsCompleteReplyContent> {
+        return this.request<IsCompleteReplyContent>('is_complete_request', { code });
+    }
+
+    /** kernel_info_request: what the kernel is -- implementation, language and its version, protocol version, banner. */
+    kernelInfo(): Promise<KernelInfoReplyContent> {
+        return this.request<KernelInfoReplyContent>('kernel_info_request');
+    }
+
+    /** comm_info_request: the comms currently open in the kernel, optionally only those for one target. */
+    commInfo(targetName?: string): Promise<CommInfoReplyContent> {
+        return this.request<CommInfoReplyContent>('comm_info_request', targetName === undefined ? {} : { target_name: targetName });
+    }
+
+    // comm_open/comm_msg/comm_close have no reply -- the kernel's side of a
+    // comm arrives as 'comm_open'/'comm_msg'/'comm_close' events (and a
+    // comm_open for a target the kernel doesn't know is answered with a
+    // comm_close whose parentMsgId is the msgId returned here). Each returns
+    // the msg id it was sent under for that correlation.
+    private async sendComm(msgType: string, content: Record<string, unknown>): Promise<string> {
+        await this.readyPromise;
+        const id = randomUUID();
+        this.send({ type: 'request', id, channel: 'shell', msgType, content });
+        return id;
+    }
+
+    /** Opens a comm to a kernel-side `targetName`; resolves with its comm id and the msg id it was sent under. */
+    async commOpen(targetName: string, data: Record<string, unknown> = {}, commId: string = randomUUID()): Promise<{ commId: string; msgId: string }> {
+        const msgId = await this.sendComm('comm_open', { comm_id: commId, target_name: targetName, data });
+        return { commId, msgId };
+    }
+
+    /**
+     * Opens a comm to a kernel-side `targetName` and returns it as a Comm
+     * object (send()/close(), 'message'/'close' events). If the kernel has
+     * no such target it answers with a comm_close, so the returned comm
+     * emits 'close' shortly after. Kernel-initiated comms arrive as this
+     * session's 'comm' event instead: `session.on('comm', (comm, data) => ...)`.
+     */
+    async openComm(targetName: string, data: Record<string, unknown> = {}): Promise<Comm> {
+        const commId = randomUUID();
+        const comm = new Comm(commId, targetName, this);
+        // Registered before the request goes out so nothing the kernel
+        // sends in reply can arrive for a comm we haven't heard of yet.
+        this.comms.set(commId, comm);
+        try {
+            await this.commOpen(targetName, data, commId);
+        } catch (error) {
+            this.comms.delete(commId);
+            throw error;
+        }
+        return comm;
+    }
+
+    /** Sends `data` over an open comm. */
+    commMsg(commId: string, data: Record<string, unknown> = {}): Promise<string> {
+        return this.sendComm('comm_msg', { comm_id: commId, data });
+    }
+
+    /** Closes a comm. */
+    commClose(commId: string, data: Record<string, unknown> = {}): Promise<string> {
+        return this.sendComm('comm_close', { comm_id: commId, data });
     }
 
     /**
@@ -478,7 +853,14 @@ export class Session extends EventEmitter {
         this.stopped = true;
         this.logger.info(`Stopping session ${this.info.sessionId}`);
         this.queue.clear();
-        await this.supervisor.stopSession(this.info);
+        this.closeAllComms('session stopped');
+        this.rejectPendingRequests(new Error('Session stopped'));
+        const shutdownReply = this.watchFor('shutdown_reply');
+        try {
+            await this.supervisor.stopSession(this.info);
+        } finally {
+            await shutdownReply(SHUTDOWN_REPLY_WAIT_MS);
+        }
         this.ws?.close();
         this.emit('stopped');
     }
@@ -492,6 +874,7 @@ export class Session extends EventEmitter {
             // runs (e.g. one blocked waiting on a crashed kernel) never
             // settles -- closing the socket alone doesn't reject it.
             this.queue.clear();
+            this.rejectPendingRequests(new Error('Session was killed'));
             this.ws?.close();
         }
     }

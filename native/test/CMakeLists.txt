@@ -86,12 +86,14 @@ if (R_HOME)
 endif ()
 
 add_test(NAME SessionRegistryTest COMMAND session_registry_test)
-# In practice this suite runs in ~2s; 60s is a wide margin over that,
-# not a tuned expectation -- this only needs to catch the case where
-# something is genuinely hung (see the no-timeout limitation on
+# Each test that needs a kernel starts a real R process (~0.7s locally,
+# several times that on a cold CI runner) and there are ~20 of them, so
+# the suite takes ~20s locally; 180s is a wide margin over that, not a
+# tuned expectation -- this only needs to catch the case where something
+# is genuinely hung (see the no-timeout limitation on
 # ClientHandshakeZmqImpl::waitForConfiguration() noted in
 # session_registry.cpp) rather than the happy path's normal latency.
-set_tests_properties(SessionRegistryTest PROPERTIES TIMEOUT 60)
+set_tests_properties(SessionRegistryTest PROPERTIES TIMEOUT 180)
 
 # ==========================================
 # ELARA TESTS

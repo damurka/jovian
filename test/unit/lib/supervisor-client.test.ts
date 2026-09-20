@@ -55,4 +55,9 @@ test('buildSessionOptionsBody', async (t) => {
 
         assert.strictEqual('kernelType' in serialized, false);
     });
+
+    await t.test('passes workingDirectory through to the supervisor', () => {
+        const body = buildSessionOptionsBody({ rHome: '/opt/R', workingDirectory: '/projects/a' });
+        assert.strictEqual(body.workingDirectory, '/projects/a');
+    });
 });

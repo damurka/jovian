@@ -12,8 +12,10 @@ namespace themisto
     // One WebSocket connection per session, at /sessions/<id>/messages.
     // Outbound: iopub/shell traffic relayed from Session::onMessage
     // (populated by SessionRegistry's poll thread) plus a kernelExit event
-    // on heartbeat-detected crash. Inbound: {type:"execute"|"interrupt", ...}
-    // frames forwarded into SessionRegistry::sendExecute/sendInterrupt.
+    // on heartbeat-detected crash. Inbound: {type:"execute"|"inputReply"|"request", ...}
+    // frames forwarded into SessionRegistry::sendExecute/sendInputReply/
+    // sendRequest. A "request" frame ({id, channel, msgType, content}) that
+    // can't be sent is answered with {type:"requestError", id, error}.
     class WsRelay
     {
     public:

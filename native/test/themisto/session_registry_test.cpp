@@ -21,6 +21,9 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -255,6 +258,64 @@ namespace
     // waitForConfiguration() no-timeout limitation noted in
     // session_registry.cpp), not the happy path's normal latency.
     constexpr int kTimeoutMs = 90000;
+
+    // Captures everything a session relays (the same JSON envelopes ws_relay
+    // forwards to a client) plus any kernelExit, so tests can wait on and
+    // inspect specific replies by msg_type + parent_msg_id.
+    class Collector
+    {
+    public:
+        explicit Collector(const std::shared_ptr<Session>& session)
+        {
+            std::lock_guard<std::mutex> lock(session->callbackMutex);
+            session->onMessage = [this](const std::string& text) {
+                std::lock_guard<std::mutex> lock2(m_mutex);
+                m_messages.push_back(json::parse(text));
+            };
+            session->onKernelExit = [this](const std::string& reason) {
+                std::lock_guard<std::mutex> lock2(m_mutex);
+                m_kernelExits.push_back(reason);
+            };
+        }
+
+        std::optional<json> find(const std::string& msgType, const std::string& parentMsgId)
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            for (const auto& msg : m_messages)
+            {
+                if (msg.value("msg_type", "") == msgType && msg.value("parent_msg_id", "") == parentMsgId)
+                {
+                    std::optional<json> found;
+                    found.emplace(msg);
+                    return found;
+                }
+            }
+            return std::nullopt;
+        }
+
+        std::optional<json> waitForMessage(const std::string& msgType, const std::string& parentMsgId)
+        {
+            waitFor([&]() { return find(msgType, parentMsgId).has_value(); }, kTimeoutMs);
+            return find(msgType, parentMsgId);
+        }
+
+        std::vector<json> messages()
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            return m_messages;
+        }
+
+        std::vector<std::string> kernelExits()
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            return m_kernelExits;
+        }
+
+    private:
+        std::mutex m_mutex;
+        std::vector<json> m_messages;
+        std::vector<std::string> m_kernelExits;
+    };
 }
 
 // Doesn't need R or a real kernel process at all -- getSession()/
@@ -608,21 +669,26 @@ TEST_F(SessionRegistryTest, SendHistoryReturnsAGenuineHistoryReplyForRealExecuti
     }, kTimeoutMs);
     ASSERT_TRUE(gotHistoryReply) << "never received a history_reply for " << histMsgId;
 
-    std::lock_guard<std::mutex> lock(receivedMutex);
-    auto it = std::find_if(received.begin(), received.end(), [&](const json& msg) {
-        return msg.value("msg_type", "") == "history_reply" && msg.value("parent_msg_id", "") == histMsgId;
-    });
-    ASSERT_NE(it, received.end());
-    EXPECT_EQ(it->at("content").value("status", ""), "ok");
-    const auto& history = it->at("content").at("history");
-    ASSERT_FALSE(history.empty()) << "expected at least the '42' execution to show up in history";
-    // Each short entry is [session, line_num, input] -- confirm the actual
-    // code we ran is really in there, not just that *something* came back.
-    bool foundOurExecution = std::any_of(history.begin(), history.end(), [](const json& entry) {
-        return entry.at(2).get<std::string>() == "42";
-    });
-    EXPECT_TRUE(foundOurExecution) << "history_reply did not contain the '42' execution: " << it->at("content").dump();
+    {
+        std::lock_guard<std::mutex> lock(receivedMutex);
+        auto it = std::find_if(received.begin(), received.end(), [&](const json& msg) {
+                return msg.value("msg_type", "") == "history_reply" && msg.value("parent_msg_id", "") == histMsgId;
+        });
+        ASSERT_NE(it, received.end());
+        EXPECT_EQ(it->at("content").value("status", ""), "ok");
+        const auto& history = it->at("content").at("history");
+        ASSERT_FALSE(history.empty()) << "expected at least the '42' execution to show up in history";
+        // Each short entry is [session, line_num, input] -- confirm the actual
+        // code we ran is really in there, not just that *something* came back.
+        bool foundOurExecution = std::any_of(history.begin(), history.end(), [](const json& entry) {
+            return entry.at(2).get<std::string>() == "42";
+        });
+        EXPECT_TRUE(foundOurExecution) << "history_reply did not contain the '42' execution: " << it->at("content").dump();
+    }
 
+    // Not while holding receivedMutex: stopSession() keeps the poll thread
+    // running to relay the kernel's shutdown_reply, and that thread's
+    // onMessage callback needs this same mutex.
     m_registry->stopSession(id);
 }
 
@@ -910,6 +976,440 @@ TEST_F(SessionRegistryTest, ConcurrentExecuteDuringARestartDoesNotCrashOrLeak)
         return false;
     }, kTimeoutMs);
     EXPECT_TRUE(gotReply) << "session never replied to an execute_request after the race";
+
+    m_registry->stopSession(id);
+}
+
+TEST(SessionRegistryEmptyStateTest, SendRequestOnlyAllowsTheDocumentedRequestTypesOnTheirOwnChannels)
+{
+    auto* registry = new SessionRegistry({ { "r", "unused-kernel-exe-path" } }, "127.0.0.1");
+    registry->startRegistrationListener();
+
+    // Rejected on the whitelist alone, before any session lookup.
+    struct Case { const char* channel; const char* msgType; };
+    for (const Case& c : { Case{ "shell", "execute_request" },       // has its own entry point (stdin/history semantics)
+                           Case{ "shell", "shutdown_request" },      // lifecycle: stopSession()/restartSession() only
+                           Case{ "control", "shutdown_request" },
+                           Case{ "shell", "interrupt_request" },     // control-channel request
+                           Case{ "control", "complete_request" },    // shell-channel request
+                           Case{ "stdin", "input_reply" },
+                           Case{ "iopub", "status" },
+                           Case{ "shell", "no_such_request" } })
+    {
+        std::string error;
+        EXPECT_FALSE(registry->sendRequest("does-not-exist", c.channel, c.msgType, "m", json::object(), error))
+            << c.channel << "/" << c.msgType;
+        EXPECT_NE(error.find("not an allowed request"), std::string::npos) << c.channel << "/" << c.msgType << ": " << error;
+    }
+
+    // An allowed type for an unknown session fails for the right reason.
+    std::string error;
+    EXPECT_FALSE(registry->sendRequest("does-not-exist", "shell", "kernel_info_request", "m", json::object(), error));
+    EXPECT_EQ(error, "session not found");
+}
+
+TEST_F(SessionRegistryTest, SendRequestRoundTripsKernelInfoCompleteInspectIsCompleteAndCommInfo)
+{
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+    auto session = m_registry->getSession(id);
+    ASSERT_TRUE(session != nullptr);
+    Collector collector(session);
+
+    auto request = [&](const std::string& msgType, const std::string& msgId, const json& content) {
+        std::string requestError;
+        EXPECT_TRUE(m_registry->sendRequest(id, "shell", msgType, msgId, content, requestError)) << requestError;
+    };
+
+    request("kernel_info_request", "ki", json::object());
+    request("complete_request", "co", { { "code", "pri" }, { "cursor_pos", 3 } });
+    request("inspect_request", "in", { { "code", "mean" }, { "cursor_pos", 4 }, { "detail_level", 0 } });
+    request("is_complete_request", "ic-open", { { "code", "1 +" } });
+    request("is_complete_request", "ic-done", { { "code", "1 + 1" } });
+    request("comm_info_request", "ci", { { "target_name", "no_such_target" } });
+
+    auto info = collector.waitForMessage("kernel_info_reply", "ki");
+    ASSERT_TRUE(info.has_value()) << "no kernel_info_reply";
+    EXPECT_EQ(info->at("channel"), "shell");
+    EXPECT_EQ(info->at("content").at("status"), "ok");
+    EXPECT_EQ(info->at("content").at("language_info").at("name"), "R");
+    EXPECT_TRUE(info->at("content").contains("protocol_version"));
+
+    auto complete = collector.waitForMessage("complete_reply", "co");
+    ASSERT_TRUE(complete.has_value()) << "no complete_reply";
+    EXPECT_EQ(complete->at("content").at("status"), "ok");
+    const auto& matches = complete->at("content").at("matches");
+    EXPECT_TRUE(std::find(matches.begin(), matches.end(), "print") != matches.end())
+        << "completing 'pri' should offer print: " << matches.dump();
+
+    auto inspect = collector.waitForMessage("inspect_reply", "in");
+    ASSERT_TRUE(inspect.has_value()) << "no inspect_reply";
+    EXPECT_EQ(inspect->at("content").at("status"), "ok");
+
+    auto incomplete = collector.waitForMessage("is_complete_reply", "ic-open");
+    ASSERT_TRUE(incomplete.has_value()) << "no is_complete_reply";
+    EXPECT_EQ(incomplete->at("content").at("status"), "incomplete");
+    auto complete2 = collector.waitForMessage("is_complete_reply", "ic-done");
+    ASSERT_TRUE(complete2.has_value());
+    EXPECT_EQ(complete2->at("content").at("status"), "complete");
+
+    auto commInfo = collector.waitForMessage("comm_info_reply", "ci");
+    ASSERT_TRUE(commInfo.has_value()) << "no comm_info_reply";
+    EXPECT_EQ(commInfo->at("content").at("status"), "ok");
+    EXPECT_TRUE(commInfo->at("content").at("comms").empty());
+
+    m_registry->stopSession(id);
+}
+
+TEST_F(SessionRegistryTest, CommOpenForAnUnknownTargetIsAnsweredWithACommCloseOnIopub)
+{
+    // Spec: a kernel that has no handler for comm_open's target_name replies
+    // with a comm_close (on iopub) carrying the same comm_id.
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+    auto session = m_registry->getSession(id);
+    ASSERT_TRUE(session != nullptr);
+    Collector collector(session);
+
+    ASSERT_TRUE(m_registry->sendRequest(id, "shell", "comm_open", "co-1",
+        { { "comm_id", "comm-abc" }, { "target_name", "no_such_target" }, { "data", json::object() } }, error)) << error;
+
+    auto closed = collector.waitForMessage("comm_close", "co-1");
+    ASSERT_TRUE(closed.has_value()) << "no comm_close for an unknown comm target";
+    EXPECT_EQ(closed->at("channel"), "iopub");
+    EXPECT_EQ(closed->at("content").at("comm_id"), "comm-abc");
+
+    m_registry->stopSession(id);
+}
+
+TEST_F(SessionRegistryTest, InterruptRequestIsAnsweredWithAnInterruptReplyOnTheControlChannel)
+{
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+    auto session = m_registry->getSession(id);
+    ASSERT_TRUE(session != nullptr);
+    Collector collector(session);
+
+    ASSERT_TRUE(m_registry->sendInterrupt(id, "int-1"));
+
+    // Used to be silently dropped: nothing ever read the control channel.
+    auto reply = collector.waitForMessage("interrupt_reply", "int-1");
+    ASSERT_TRUE(reply.has_value()) << "no interrupt_reply relayed";
+    EXPECT_EQ(reply->at("channel"), "control");
+    EXPECT_EQ(reply->at("content").at("status"), "ok");
+
+    m_registry->stopSession(id);
+}
+
+TEST_F(SessionRegistryTest, ExecuteForwardsUserExpressionsAndReportsEachOnesOwnFailure)
+{
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+    auto session = m_registry->getSession(id);
+    ASSERT_TRUE(session != nullptr);
+    Collector collector(session);
+
+    ASSERT_TRUE(m_registry->sendExecute(id, "ue-1", "x <- 21",
+        { { "userExpressions", { { "double", "x * 2" }, { "boom", "stop('kaboom')" } } } }));
+
+    auto reply = collector.waitForMessage("execute_reply", "ue-1");
+    ASSERT_TRUE(reply.has_value()) << "no execute_reply";
+    ASSERT_EQ(reply->at("content").at("status"), "ok") << reply->dump();
+
+    const auto& results = reply->at("content").at("user_expressions");
+    ASSERT_TRUE(results.contains("double")) << results.dump();
+    EXPECT_EQ(results.at("double").at("status"), "ok");
+    EXPECT_NE(results.at("double").at("data").at("text/plain").get<std::string>().find("42"), std::string::npos)
+        << results.dump();
+
+    ASSERT_TRUE(results.contains("boom")) << results.dump();
+    EXPECT_EQ(results.at("boom").at("status"), "error");
+    EXPECT_NE(results.at("boom").at("evalue").get<std::string>().find("kaboom"), std::string::npos) << results.dump();
+
+    m_registry->stopSession(id);
+}
+
+TEST_F(SessionRegistryTest, StopOnErrorAbortsRequestsAlreadyQueuedBehindTheFailure)
+{
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+    auto session = m_registry->getSession(id);
+    ASSERT_TRUE(session != nullptr);
+    Collector collector(session);
+
+    // The first execution takes long enough (Sys.sleep) that the second and
+    // third requests are certainly already queued when it fails.
+    ASSERT_TRUE(m_registry->sendExecute(id, "soe-1", "Sys.sleep(1); stop('first fails')", { { "stopOnError", true } }));
+    ASSERT_TRUE(m_registry->sendExecute(id, "soe-2", "1 + 1", { { "stopOnError", true } }));
+    ASSERT_TRUE(m_registry->sendExecute(id, "soe-3", "2 + 2", { { "stopOnError", true } }));
+
+    auto first = collector.waitForMessage("execute_reply", "soe-1");
+    ASSERT_TRUE(first.has_value());
+    EXPECT_EQ(first->at("content").at("status"), "error");
+
+    auto second = collector.waitForMessage("execute_reply", "soe-2");
+    auto third = collector.waitForMessage("execute_reply", "soe-3");
+    ASSERT_TRUE(second.has_value() && third.has_value());
+    EXPECT_EQ(second->at("content").at("status"), "aborted");
+    EXPECT_EQ(third->at("content").at("status"), "aborted");
+
+    m_registry->stopSession(id);
+}
+
+TEST_F(SessionRegistryTest, WithoutStopOnErrorAFailureDoesNotAbortTheQueue)
+{
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+    auto session = m_registry->getSession(id);
+    ASSERT_TRUE(session != nullptr);
+    Collector collector(session);
+
+    ASSERT_TRUE(m_registry->sendExecute(id, "nsoe-1", "Sys.sleep(1); stop('first fails')", json::object()));
+    ASSERT_TRUE(m_registry->sendExecute(id, "nsoe-2", "1 + 1", json::object()));
+
+    auto second = collector.waitForMessage("execute_reply", "nsoe-2");
+    ASSERT_TRUE(second.has_value());
+    EXPECT_EQ(second->at("content").at("status"), "ok");
+
+    m_registry->stopSession(id);
+}
+
+TEST_F(SessionRegistryTest, StopSessionSendsARealShutdownRequestAndRelaysItsReplyWithoutReportingACrash)
+{
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+    auto session = m_registry->getSession(id);
+    ASSERT_TRUE(session != nullptr);
+    Collector collector(session);
+
+    ASSERT_TRUE(m_registry->stopSession(id));
+
+    // The orderly, protocol-driven exit must not be reported as a crash...
+    EXPECT_TRUE(collector.kernelExits().empty()) << "stop reported a spurious kernelExit: " << collector.kernelExits()[0];
+    EXPECT_EQ(session->status.load(), SessionStatus::Stopped);
+
+    // ...and the kernel's own shutdown_reply is relayed, restart=false.
+    bool sawReply = false;
+    for (const auto& msg : collector.messages())
+    {
+        if (msg.value("msg_type", "") == "shutdown_reply")
+        {
+            sawReply = true;
+            EXPECT_EQ(msg.at("channel"), "control");
+            EXPECT_EQ(msg.at("content").at("status"), "ok");
+            EXPECT_EQ(msg.at("content").at("restart"), false);
+        }
+    }
+    EXPECT_TRUE(sawReply) << "shutdown_reply was never relayed";
+}
+
+TEST_F(SessionRegistryTest, RestartSessionSendsShutdownRequestWithRestartTrue)
+{
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+    auto oldSession = m_registry->getSession(id);
+    ASSERT_TRUE(oldSession != nullptr);
+    Collector collector(oldSession);
+
+    std::string restartError;
+    ASSERT_EQ(m_registry->restartSession(id, restartError), id) << restartError;
+
+    EXPECT_TRUE(collector.kernelExits().empty()) << "restart reported a spurious kernelExit";
+
+    bool sawRestartReply = false;
+    for (const auto& msg : collector.messages())
+    {
+        if (msg.value("msg_type", "") == "shutdown_reply")
+        {
+            sawRestartReply = true;
+            EXPECT_EQ(msg.at("content").at("restart"), true);
+        }
+    }
+    EXPECT_TRUE(sawRestartReply) << "restart never relayed the kernel's shutdown_reply";
+
+    m_registry->stopSession(id);
+}
+
+TEST_F(SessionRegistryTest, InterruptStopsARunningSleepAndTheKernelStaysUsable)
+{
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+    auto session = m_registry->getSession(id);
+    ASSERT_TRUE(session != nullptr);
+    Collector collector(session);
+
+    const auto started = std::chrono::steady_clock::now();
+    ASSERT_TRUE(m_registry->sendExecute(id, "sleep-1", "Sys.sleep(60)", json::object()));
+    // Let the execution actually start (execute_input is published first).
+    ASSERT_TRUE(collector.waitForMessage("execute_input", "sleep-1").has_value());
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    ASSERT_TRUE(m_registry->sendInterrupt(id, "int-sleep"));
+
+    // The interrupt is answered while the sleep is still running (it used to
+    // sit unread until the execution ended)...
+    auto interruptReply = collector.waitForMessage("interrupt_reply", "int-sleep");
+    ASSERT_TRUE(interruptReply.has_value()) << "no interrupt_reply while the execution was running";
+    EXPECT_EQ(interruptReply->at("channel"), "control");
+
+    // ...and the sleep itself ends promptly, not after its 60 seconds.
+    auto executeReply = collector.waitForMessage("execute_reply", "sleep-1");
+    ASSERT_TRUE(executeReply.has_value()) << "the interrupted execution never replied";
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    EXPECT_LT(std::chrono::duration_cast<std::chrono::seconds>(elapsed).count(), 30)
+        << "the sleep was not interrupted: " << executeReply->dump();
+    EXPECT_NE(executeReply->at("content").at("status"), "ok") << executeReply->dump();
+
+    // The kernel survived and still runs code.
+    ASSERT_TRUE(m_registry->sendExecute(id, "after-1", "1 + 1", json::object()));
+    auto after = collector.waitForMessage("execute_reply", "after-1");
+    ASSERT_TRUE(after.has_value());
+    EXPECT_EQ(after->at("content").at("status"), "ok");
+
+    m_registry->stopSession(id);
+}
+
+TEST_F(SessionRegistryTest, InterruptStopsABusyLoop)
+{
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+    auto session = m_registry->getSession(id);
+    ASSERT_TRUE(session != nullptr);
+    Collector collector(session);
+
+    ASSERT_TRUE(m_registry->sendExecute(id, "loop-1", "x <- 0; while (TRUE) x <- x + 1", json::object()));
+    ASSERT_TRUE(collector.waitForMessage("execute_input", "loop-1").has_value());
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    ASSERT_TRUE(m_registry->sendInterrupt(id, "int-loop"));
+    ASSERT_TRUE(collector.waitForMessage("interrupt_reply", "int-loop").has_value());
+
+    auto executeReply = collector.waitForMessage("execute_reply", "loop-1");
+    ASSERT_TRUE(executeReply.has_value()) << "the busy loop was not interrupted";
+    EXPECT_NE(executeReply->at("content").at("status"), "ok");
+
+    m_registry->stopSession(id);
+}
+
+TEST_F(SessionRegistryTest, InterruptWhileIdleDoesNothingAndDoesNotAbortTheNextExecution)
+{
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+    auto session = m_registry->getSession(id);
+    ASSERT_TRUE(session != nullptr);
+    Collector collector(session);
+
+    ASSERT_TRUE(m_registry->sendInterrupt(id, "int-idle"));
+    ASSERT_TRUE(collector.waitForMessage("interrupt_reply", "int-idle").has_value());
+
+    // A stale break flag would abort this.
+    ASSERT_TRUE(m_registry->sendExecute(id, "idle-then-run", "sum(1:10)", json::object()));
+    auto reply = collector.waitForMessage("execute_reply", "idle-then-run");
+    ASSERT_TRUE(reply.has_value());
+    EXPECT_EQ(reply->at("content").at("status"), "ok") << reply->dump();
+
+    m_registry->stopSession(id);
+}
+
+TEST_F(SessionRegistryTest, ShutdownRequestSentDuringAnExecutionIsHandledAfterItFinishes)
+{
+    // The control watcher only services interrupt_request while code runs;
+    // anything else must be queued, not dropped or run mid-execution.
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+    auto session = m_registry->getSession(id);
+    ASSERT_TRUE(session != nullptr);
+    Collector collector(session);
+
+    ASSERT_TRUE(m_registry->sendExecute(id, "slow-1", "Sys.sleep(2); 'finished'", json::object()));
+    ASSERT_TRUE(collector.waitForMessage("execute_input", "slow-1").has_value());
+
+    // stopSession() sends shutdown_request while the sleep is still running.
+    ASSERT_TRUE(m_registry->stopSession(id));
+
+    auto executeReply = collector.find("execute_reply", "slow-1");
+    ASSERT_TRUE(executeReply.has_value()) << "the running execution should have completed before shutdown";
+    EXPECT_EQ(executeReply->at("content").at("status"), "ok");
+}
+
+TEST_F(SessionRegistryTest, SessionJsonReportsALiveHeartbeatEvenWhileTheKernelIsBusy)
+{
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+    auto session = m_registry->getSession(id);
+    ASSERT_TRUE(session != nullptr);
+    Collector collector(session);
+
+    ASSERT_TRUE(waitFor([&]() { return sessionToJson(*session).at("heartbeat").value("hasPong", false); }, 20000))
+        << "no heartbeat answer was ever recorded";
+
+    json idle = sessionToJson(*session).at("heartbeat");
+    EXPECT_GE(idle.at("rttMs").get<double>(), 0.0);
+    EXPECT_LT(idle.at("rttMs").get<double>(), 1000.0);
+    EXPECT_EQ(idle.at("misses").get<int>(), 0);
+
+    // The kernel answers pings from its own thread, so a busy interpreter
+    // (a 3 second sleep here) must not make the heartbeat go stale.
+    ASSERT_TRUE(m_registry->sendExecute(id, "hb-busy", "Sys.sleep(3)", json::object()));
+    ASSERT_TRUE(collector.waitForMessage("execute_input", "hb-busy").has_value());
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+
+    json busy = sessionToJson(*session).at("heartbeat");
+    EXPECT_LT(busy.at("sinceLastPongMs").get<long long>(), 1500) << busy.dump();
+    EXPECT_EQ(busy.at("misses").get<int>(), 0) << busy.dump();
+    EXPECT_FALSE(collector.find("execute_reply", "hb-busy").has_value()) << "the kernel should still have been busy";
 
     m_registry->stopSession(id);
 }

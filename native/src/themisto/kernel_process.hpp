@@ -28,6 +28,9 @@ namespace themisto
         std::string pythonHome;
         std::string pythonPath;
         std::string venvPath;
+        // Directory the kernel process starts in (empty = inherit the
+        // supervisor's). Validated before spawning -- see KernelProcess::start().
+        std::string workingDirectory;
         std::string registrationIp;
         std::string registrationPort;
         std::string key;

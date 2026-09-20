@@ -1,3 +1,42 @@
+# evaluate captures stdout into a temporary file and only hands it over when a
+# top-level expression finishes (or a message/warning/plot happens), so one
+# long expression -- for (i in 1:1e6) print(i), purrr::walk(x, print) -- shows
+# nothing until it is over. Making evaluate's sink a *split* sink
+# (sink(con, split = TRUE)) tees the same output to R's console too, and the
+# console (Elara's WriteConsoleEx hook) publishes it to the client at once.
+# evaluate only does that through its debug flag, which also echoes every
+# expression's source, so the one internal function that creates the sink is
+# wrapped instead. try()'s output is redirected to the same place (evaluate
+# points it at the sink's file, which the tee does not cover).
+#
+# Returns whether the wrapper is in place; when it is not (a different
+# evaluate), output simply keeps arriving per expression, as before.
+patch_evaluate_sink <- function() {
+  ns <- asNamespace("evaluate")
+  name <- "local_persistent_sink_connection"
+  original <- get0(name, envir = ns, inherits = FALSE)
+  if (!is.function(original) || !identical(names(formals(original)), c("debug", "frame"))) {
+    return(FALSE)
+  }
+
+  patched <- function(debug = FALSE, frame = parent.frame()) {
+    tee <- isTRUE(the$tee_stdout)
+    reader <- original(debug = debug || tee, frame = frame)
+    if (tee) {
+      # evaluate saved the previous value and restores it when it finishes.
+      options(try.outFile = stdout())
+    }
+    reader
+  }
+
+  tryCatch({
+    unlockBinding(name, ns)
+    assign(name, patched, envir = ns)
+    lockBinding(name, ns)
+    TRUE
+  }, error = function(e) FALSE)
+}
+
 handle_message <- function(msg) {
   publish_stream("stderr", conditionMessage(msg))
 }
@@ -101,11 +140,18 @@ execute <- function(code, execution_counter, silent = FALSE, eval_env = rlang::g
   )
   if (!is.null(the$last_error)) return(the$last_error)
 
+  if (is.null(the$evaluate_sink_patched)) {
+    the$evaluate_sink_patched <- patch_evaluate_sink()
+  }
+  # A silent execution must not show anything, so it is not tee'd.
+  the$tee_stdout <- !silent && isTRUE(the$evaluate_sink_patched)
+
   output_handler <- if (silent) {
     evaluate::new_output_handler()
   } else {
     evaluate::new_output_handler(
-      text = function(txt) publish_stream("stdout", txt),
+      # With the tee on, stdout was already published live from the console.
+      text = if (the$tee_stdout) function(txt) NULL else function(txt) publish_stream("stdout", txt),
       graphics = handle_graphics,
       message = handle_message,
       warning = handle_warning,

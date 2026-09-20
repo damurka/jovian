@@ -20,6 +20,7 @@
 
 #include "elara/r/rtools.hpp"
 
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <stdexcept>
@@ -371,6 +372,52 @@ namespace elara
         return result;
     }
 
+    // Evaluates an execute_request's `user_expressions` ({name: "expr"}) in
+    // the global environment and returns the reply-shaped result: per name,
+    // {status:"ok", data:{"text/plain": ...}, metadata:{}} or
+    // {status:"error", ename, evalue, traceback:[]}. One bad expression must
+    // not sink the others (or the execution itself), so each is evaluated
+    // separately and R-level failures come back as that expression's error.
+    static adrastea::json evalUserExpressions(const adrastea::json& user_expressions)
+    {
+        adrastea::json out = adrastea::json::object();
+        if (!user_expressions.is_object() || user_expressions.empty()) {
+            return out;
+        }
+
+        SEXP fn = PROTECT(evalRString(
+            "function(expr) tryCatch({"
+            "  v <- eval(parse(text = expr, keep.source = FALSE), envir = globalenv());"
+            "  c('ok', paste(utils::capture.output(print(v)), collapse = '\\n'), '')"
+            "}, error = function(e) c('error', class(e)[1], conditionMessage(e)))"));
+
+        for (auto it = user_expressions.begin(); it != user_expressions.end(); ++it) {
+            const std::string expr = it.value().is_string() ? it.value().get<std::string>() : std::string();
+
+            SEXP expr_ = PROTECT(Rf_mkString(expr.c_str()));
+            SEXP call = PROTECT(r::rCall(fn, expr_));
+            int error_occurred = 0;
+            SEXP res = PROTECT(R_tryEval(call, R_GlobalEnv, &error_occurred));
+
+            if (error_occurred || !Rf_isString(res) || Rf_length(res) < 3) {
+                out[it.key()] = { { "status", "error" }, { "ename", "EvaluationError" },
+                                  { "evalue", "could not evaluate expression" }, { "traceback", adrastea::json::array() } };
+            } else if (std::string(CHAR(STRING_ELT(res, 0))) == "ok") {
+                out[it.key()] = { { "status", "ok" },
+                                  { "data", { { "text/plain", std::string(CHAR(STRING_ELT(res, 1))) } } },
+                                  { "metadata", adrastea::json::object() } };
+            } else {
+                out[it.key()] = { { "status", "error" }, { "ename", std::string(CHAR(STRING_ELT(res, 1))) },
+                                  { "evalue", std::string(CHAR(STRING_ELT(res, 2))) },
+                                  { "traceback", adrastea::json::array() } };
+            }
+            UNPROTECT(3);
+        }
+
+        UNPROTECT(1);
+        return out;
+    }
+
     void RInterpreter::configureImpl()
     {
         // Debug: Print R environment variables
@@ -500,9 +547,15 @@ namespace elara
         int execution_count,
         const std::string& code,
         adrastea::ExecuteRequestConfig config,
-        adrastea::json /*user_expressions*/
+        adrastea::json user_expressions
     )
     {
+        struct ExecutingScope {
+            std::atomic<bool>& flag;
+            explicit ExecutingScope(std::atomic<bool>& f) : flag(f) { flag = true; }
+            ~ExecutingScope() { flag = false; }
+        } executing(m_executing);
+
         SEXP code_ = PROTECT(Rf_mkString(code.c_str()));
         SEXP execution_counter_ = PROTECT(Rf_ScalarInteger(execution_count));
         SEXP silent_ = PROTECT(Rf_ScalarLogical(config.silent));
@@ -540,7 +593,9 @@ namespace elara
                 publishExecutionResult(execution_count, data, metadata);
             }
 
-            cb(adrastea::createSuccessfulReply(/*payload, user_expressions*/));
+            // Evaluated after the code itself, and only on success, per the
+            // spec (a failed execution's reply carries no user_expressions).
+            cb(adrastea::createSuccessfulReply(adrastea::json::array(), evalUserExpressions(user_expressions)));
         }
 
         UNPROTECT(4);
@@ -627,14 +682,23 @@ namespace elara
         return adrastea::createInspectReply(found, data);
     }
 
-    adrastea::json RInterpreter::shutdownRequestImpl(bool /*restart*/)
+    adrastea::json RInterpreter::shutdownRequestImpl(bool restart)
     {
         Rf_endEmbeddedR(0);
-        return adrastea::createShutdownReply(false);
+        return adrastea::createShutdownReply(restart);
     }
 
     adrastea::json RInterpreter::interruptRequestImpl()
     {
+        // Runs on the kernel's control-channel thread while the R thread is
+        // busy executing (see adrastea::ServerZmqImpl's control watcher), so
+        // it may only do thread-safe things: flag the interrupt and let R
+        // itself unwind at its next check. Nothing to break when idle -- the
+        // flag would then linger and abort the NEXT execution, so only set
+        // it while one is actually running.
+        if (m_executing.load()) {
+            r::requestRInterrupt();
+        }
         return adrastea::createInterruptReply();
     }
 

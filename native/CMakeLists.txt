@@ -135,8 +135,8 @@ set(ELARA_EXE_SOURCES
     ${JOVIAN_SOURCE_DIR}/elara/bridge/engine.cpp
 )
 
-# A real Python kernel ("Carpo"), modeled on Positron's Ark/xeus-python --
-# see native/include/carpo/interpreter_py.hpp's file comment. Mirrors
+# A real Python kernel ("Carpo") -- see
+# native/include/carpo/interpreter_py.hpp's file comment. Mirrors
 # ELARA_R_SOURCES/ELARA_EXE_SOURCES in shape deliberately, proving Adrastea's
 # extension point (adrastea::Interpreter) genuinely generalizes beyond
 # Elara/R: py/py_dynlib.cpp is Carpo's equivalent of elara/r/r_dynlib.cpp

@@ -32,20 +32,13 @@ async function run(cmd, args) {
     });
 }
 
-// The native addon's background ZMQ/R threads leave something running that
-// `node --test`'s per-file child process never notices as "done", even
-// after a clean engine.stop() -- neither --test-force-exit nor an explicit
-// process.exit() from an after() hook in the test file itself reliably
-// fixes it, and the hang's timing relative to node:test's own TAP output
-// is non-deterministic (sometimes the "ok"/summary lines print first,
-// sometimes the hang lands before them), so output can't be trusted as a
-// pass/fail signal once the timeout fires. Root cause not fully identified
-// (needs OS-level process inspection beyond what's practical from here).
-// Until then: hard-kill after a generous timeout so this can't hang forever,
-// but always treat a timeout as a failure -- if the real assertions had
-// already printed "ok" above, that's visible in the output even though the
-// overall step is reported as failed.
-async function runNodeTest(args, timeoutMs = 20000) {
+// A backstop, not an expectation: --test-force-exit already ends the run,
+// but if node --test ever hangs (a kernel process that never exits, a
+// stuck socket) this hard-kills it after a generous timeout so CI cannot
+// hang forever -- and always treats that as a failure. The integration suite
+// starts dozens of real kernels and takes a couple of minutes, so the
+// default is far above that.
+async function runNodeTest(args, timeoutMs = 20 * 60 * 1000) {
     return new Promise((resolve, reject) => {
         const proc = spawn('node', args, {
             cwd: ROOT,

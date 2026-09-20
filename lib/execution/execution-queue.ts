@@ -12,6 +12,7 @@ interface QueuedExecution {
 }
 
 interface PendingExecution {
+    stopOnError: boolean;
     output: JupyterMessage[];
     timer: ReturnType<typeof setTimeout> | undefined;
     finish: (result: ExecutionResult) => void;
@@ -19,6 +20,7 @@ interface PendingExecution {
 }
 
 const DEFAULT_TIMEOUT_MS = 30000;
+const ABORTED_MESSAGE = 'Execution aborted: an earlier execution failed with stopOnError';
 
 export class ExecutionQueue {
     private queue: QueuedExecution[] = [];
@@ -27,9 +29,16 @@ export class ExecutionQueue {
     private maxSize: number;
     private pending: Map<string, PendingExecution> = new Map();
     private logger?: Logger;
+    private onTimeout?: (msgId: string) => void;
 
-    constructor(addon: any, emitter: EventEmitter, maxSize: number = 100, logger?: Logger) {
+    // `onTimeout` is called when an execution times out (unless that
+    // execution opted out with interruptOnTimeout: false), so the owner can
+    // interrupt the kernel -- otherwise the kernel keeps running code nobody
+    // is waiting for, and everything queued behind it (and every complete/
+    // inspect request) is stuck behind it.
+    constructor(addon: any, emitter: EventEmitter, maxSize: number = 100, logger?: Logger, onTimeout?: (msgId: string) => void) {
         this.addon = addon;
+        this.onTimeout = onTimeout;
         this.maxSize = maxSize;
         this.logger = logger;
         emitter.on('message', (message: JupyterMessage) => this.handleMessage(message));
@@ -101,12 +110,21 @@ export class ExecutionQueue {
             ? setTimeout(() => {
                 this.logger?.error(`Execution ${msgId} timed out after ${timeoutMs}ms`, { code: previewCode(item.code) });
                 this.pending.delete(msgId);
-                item.reject(new Error(`Execution timed out after ${timeoutMs}ms`));
+                const interrupting = item.options.interruptOnTimeout !== false && this.onTimeout !== undefined;
+                if (interrupting) {
+                    try {
+                        this.onTimeout!(msgId);
+                    } catch (error) {
+                        this.logger?.error('Interrupting after a timeout failed', { error });
+                    }
+                }
+                item.reject(new Error(`Execution timed out after ${timeoutMs}ms` + (interrupting ? ' (the kernel was interrupted)' : '')));
                 this.processNext();
             }, timeoutMs)
             : undefined;
 
         this.pending.set(msgId, {
+            stopOnError: item.options.stopOnError === true,
             output: [],
             timer,
             finish: (result) => {
@@ -152,14 +170,20 @@ export class ExecutionQueue {
             case 'stream':
             case 'execute_result':
             case 'display_data':
+            case 'update_display_data':
+            case 'clear_output':
                 pending.output.push(message);
                 break;
 
             case 'error':
                 pending.output.push(message);
                 this.logger?.error(`Execution ${message.parentMsgId} reported an R error`, { evalue: message.content?.evalue });
+                if (pending.stopOnError) {
+                    this.abortQueued();
+                }
                 pending.finish({
                     success: false,
+                    status: 'error',
                     output: pending.output,
                     error: new Error(message.content?.evalue ?? 'R execution error')
                 });
@@ -167,11 +191,27 @@ export class ExecutionQueue {
 
             case 'execute_reply': {
                 const executionCount = message.content?.execution_count;
-                const finishNow = () => pending.finish({
-                    success: message.content?.status === 'ok',
-                    output: pending.output,
-                    executionCount
-                });
+                const replyStatus = message.content?.status as 'ok' | 'error' | 'aborted' | undefined;
+                const finishNow = () => {
+                    if (replyStatus !== 'ok' && pending.stopOnError) {
+                        this.abortQueued();
+                    }
+                    const result: ExecutionResult = {
+                        success: replyStatus === 'ok',
+                        output: pending.output,
+                        executionCount
+                    };
+                    if (replyStatus) result.status = replyStatus;
+                    if (replyStatus === 'aborted') {
+                        result.aborted = true;
+                        result.error = new Error(ABORTED_MESSAGE);
+                    }
+                    const userExpressions = message.content?.user_expressions;
+                    if (userExpressions && Object.keys(userExpressions).length > 0) {
+                        result.userExpressions = userExpressions;
+                    }
+                    pending.finish(result);
+                };
 
                 // iopub (stream/execute_result/display_data) and shell
                 // (execute_reply) are separate ZMQ channels/sockets with no
@@ -204,6 +244,29 @@ export class ExecutionQueue {
 
             default:
                 break;
+        }
+    }
+
+    // stopOnError: an execution that failed takes everything still waiting
+    // behind it down with it, unrun -- the client-side half of Jupyter's
+    // stop_on_error (the kernel does the same to requests already queued on
+    // ITS side, but this queue is single-flight, so anything behind the
+    // failure is still here, never sent).
+    private abortQueued(): void {
+        if (this.queue.length === 0) {
+            return;
+        }
+        this.logger?.warn(`Aborting ${this.queue.length} queued execution(s) after a failure (stopOnError)`);
+        const aborted = this.queue;
+        this.queue = [];
+        for (const item of aborted) {
+            item.resolve({
+                success: false,
+                status: 'aborted',
+                aborted: true,
+                output: [],
+                error: new Error(ABORTED_MESSAGE)
+            });
         }
     }
 

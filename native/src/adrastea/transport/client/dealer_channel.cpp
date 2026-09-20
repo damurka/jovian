@@ -1,3 +1,6 @@
+#include <chrono>
+#include <thread>
+
 #include "adrastea/middleware.hpp"
 
 #include "dealer_channel.hpp"
@@ -46,26 +49,33 @@ namespace adrastea
 
     void DealerChannel::sendMessage(zmq::multipart_t& message)
     {
+        std::lock_guard<std::mutex> lock(m_mutex);
         message.send(m_socket);
     }
 
     std::optional<zmq::multipart_t> DealerChannel::receiveMessage(bool blocking)
     {
-        zmq::multipart_t wire_msg;
-        zmq::recv_flags flags = zmq::recv_flags::none;
-
-        if (!blocking)
+        // A ZMQ socket must never be used from two threads at once, and
+        // Themisto does exactly that: the poll thread receives on each
+        // channel while HTTP/WS threads send on it (execute/request/
+        // shutdown). A blocking recv can't simply hold the mutex for its
+        // whole wait (it would starve every send), so it is a short
+        // non-blocking attempt in a loop instead.
+        for (;;)
         {
-            flags = zmq::recv_flags::dontwait;
-        }
-
-        if (wire_msg.recv(m_socket, static_cast<int>(flags)))
-        {
-            return wire_msg;
-        }
-        else
-        {
-            return std::nullopt;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                zmq::multipart_t wire_msg;
+                if (wire_msg.recv(m_socket, static_cast<int>(zmq::recv_flags::dontwait)))
+                {
+                    return wire_msg;
+                }
+            }
+            if (!blocking)
+            {
+                return std::nullopt;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
 

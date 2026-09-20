@@ -92,6 +92,11 @@ namespace adrastea
         p_clientImpl->registerKernelStatusListener(l);
     }
 
+    HeartbeatStatus ClientZmq::heartbeatStatus() const
+    {
+        return p_clientImpl->heartbeatStatus();
+    }
+
     void ClientZmq::waitForMessage()
     {
         p_clientImpl->waitForMessage();

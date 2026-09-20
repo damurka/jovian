@@ -66,6 +66,19 @@ namespace adrastea
     {
     }
 
+    Interpreter::~Interpreter()
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_streamMutex);
+            m_streamQuit = true;
+        }
+        m_streamCv.notify_all();
+        if (m_streamFlusher.joinable())
+        {
+            m_streamFlusher.join();
+        }
+    }
+
     void Interpreter::configure()
     {
         configureImpl();
@@ -87,8 +100,9 @@ namespace adrastea
         // copy m_executionCount in a local variable to capture it in the lambda
         auto execution_count = m_executionCount;
 
-        auto callback_impl = [execution_count, callback = std::move(callback)](json reply)
+        auto callback_impl = [this, execution_count, callback = std::move(callback)](json reply)
             {
+                flushStreams();
                 reply["execution_count"] = execution_count;
                 callback(std::move(reply));
             };
@@ -142,25 +156,106 @@ namespace adrastea
         m_publisher = publisher;
     }
 
+    namespace
+    {
+        constexpr auto kStreamFlushInterval = std::chrono::milliseconds(50);
+        constexpr std::size_t kStreamFlushBytes = 16 * 1024;
+    }
+
     void Interpreter::publishStream(const std::string& name, const std::string& text)
     {
-        if (m_publisher)
+        if (!m_publisher || text.empty())
         {
-            json content;
-            content["name"] = name;
-            content["text"] = text;
-            m_publisher(
-                getRequestContext(),
-                "stream",
-                json::object(),
-                std::move(content),
-                buffer_sequence()
-            );
+            return;
+        }
+
+        std::unique_lock<std::mutex> lock(m_streamMutex);
+        if (!m_streamFlusher.joinable())
+        {
+            m_streamFlusher = std::thread(&Interpreter::streamFlusherLoop, this);
+        }
+
+        // A different stream (stdout -> stderr) is a different message.
+        if (!m_streamBuffer.empty() && name != m_streamName)
+        {
+            flushStreamsLocked();
+        }
+        if (m_streamBuffer.empty())
+        {
+            // The text belongs to the request that is running NOW; a later
+            // flush (possibly from the flusher thread) must not re-read it.
+            m_streamContext = getRequestContext();
+            m_streamName = name;
+            if (m_streamLastFlush == std::chrono::steady_clock::time_point{})
+            {
+                m_streamLastFlush = std::chrono::steady_clock::now() - kStreamFlushInterval;
+            }
+        }
+        m_streamBuffer += text;
+
+        if (m_streamBuffer.size() >= kStreamFlushBytes ||
+            std::chrono::steady_clock::now() - m_streamLastFlush >= kStreamFlushInterval)
+        {
+            flushStreamsLocked();
+        }
+        else
+        {
+            m_streamCv.notify_one();
+        }
+    }
+
+    void Interpreter::flushStreams()
+    {
+        std::lock_guard<std::mutex> lock(m_streamMutex);
+        flushStreamsLocked();
+    }
+
+    void Interpreter::flushStreamsLocked()
+    {
+        if (m_streamBuffer.empty() || !m_publisher)
+        {
+            m_streamBuffer.clear();
+            return;
+        }
+        json content;
+        content["name"] = m_streamName;
+        content["text"] = std::move(m_streamBuffer);
+        m_streamBuffer.clear();
+        m_streamLastFlush = std::chrono::steady_clock::now();
+        m_publisher(
+            m_streamContext,
+            "stream",
+            json::object(),
+            std::move(content),
+            buffer_sequence()
+        );
+    }
+
+    void Interpreter::streamFlusherLoop()
+    {
+        std::unique_lock<std::mutex> lock(m_streamMutex);
+        while (!m_streamQuit)
+        {
+            if (m_streamBuffer.empty())
+            {
+                m_streamCv.wait(lock, [this] { return m_streamQuit || !m_streamBuffer.empty(); });
+                continue;
+            }
+            const auto due = m_streamLastFlush + kStreamFlushInterval;
+            if (std::chrono::steady_clock::now() >= due)
+            {
+                flushStreamsLocked();
+            }
+            else
+            {
+                m_streamCv.wait_until(lock, due);
+            }
         }
     }
 
     void Interpreter::displayData(json data, json metadata, json transient)
     {
+        flushStreams();
         if (m_publisher)
         {
             m_publisher(
@@ -175,6 +270,7 @@ namespace adrastea
 
     void Interpreter::updateDisplayData(json data, json metadata, json transient)
     {
+        flushStreams();
         if (m_publisher)
         {
             m_publisher(
@@ -206,6 +302,7 @@ namespace adrastea
 
     void Interpreter::publishExecutionResult(int execution_count, json data, json metadata)
     {
+        flushStreams();
         if (m_publisher)
         {
             json content;
@@ -226,6 +323,7 @@ namespace adrastea
         const std::string& evalue,
         const std::vector<std::string>& trace_back)
     {
+        flushStreams();
         if (m_publisher)
         {
             json content;
@@ -244,6 +342,7 @@ namespace adrastea
 
     void Interpreter::clearOutput(bool wait)
     {
+        flushStreams();
         if (m_publisher)
         {
             json content;
@@ -301,6 +400,8 @@ namespace adrastea
 
     void Interpreter::inputRequest(const std::string& prompt, bool pwd)
     {
+        // The prompt text ("name? ") was written to stdout just before this.
+        flushStreams();
         if (m_stdin)
         {
             json content;

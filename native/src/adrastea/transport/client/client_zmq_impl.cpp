@@ -136,6 +136,11 @@ namespace adrastea
         m_iopubListener = l;
     }
 
+    HeartbeatStatus ClientZmqImpl::heartbeatStatus() const
+    {
+        return m_heartbeatClient.status();
+    }
+
     void ClientZmqImpl::registerKernelStatusListener(const kernel_status_listener& l)
     {
         m_heartbeatClient.registerKernelStatusListener(l);

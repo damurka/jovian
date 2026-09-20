@@ -1,4 +1,4 @@
-// themisto: the Kallichore/kcserver-equivalent for elara.
+// themisto: the kernel supervisor.
 //
 // Spawns and supervises `elara` kernel processes, speaking ZMQ to
 // each (reusing the existing client transport code, see session_registry.*)
@@ -68,7 +68,7 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    // Unlike elara, carpo is optional (JOVIAN_BUILD_CARPO defaults OFF, see
+    // Unlike elara, carpo is optional (JOVIAN_BUILD_CARPO can be turned OFF, see
     // native/CMakeLists.txt) -- its absence doesn't stop this supervisor
     // from starting, it just means createSession() for kernelType "python"
     // fails with a clear error (SessionRegistry::createSessionWithId())

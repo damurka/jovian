@@ -8,6 +8,7 @@
 #include "adrastea/context.hpp"
 #include "adrastea/kernel_configuration.hpp"
 #include "adrastea/message.hpp"
+#include "heartbeat_status.hpp"
 
 namespace adrastea
 {
@@ -46,6 +47,9 @@ namespace adrastea
         void registerStdinListener(const listener& l);
         void registerIopubListener(const iopub_listener& l);
         void registerKernelStatusListener(const kernel_status_listener& l);
+
+        // Latest heartbeat round trip and how many pings in a row were missed.
+        HeartbeatStatus heartbeatStatus() const;
 
         void waitForMessage();
 

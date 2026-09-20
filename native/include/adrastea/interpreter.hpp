@@ -1,8 +1,12 @@
 #ifndef ADRASTEA_INTERPRETER_HPP
 #define ADRASTEA_INTERPRETER_HPP
 
+#include <chrono>
+#include <condition_variable>
 #include <functional>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "comm.hpp"
@@ -30,7 +34,7 @@ namespace adrastea
     public:
 
         Interpreter();
-        virtual ~Interpreter() = default;
+        virtual ~Interpreter();
 
         Interpreter(const Interpreter&) = delete;
         Interpreter& operator=(const Interpreter&) = delete;
@@ -63,7 +67,17 @@ namespace adrastea
         using publisher_type = std::function<void(RequestContext, const std::string&, json, json, buffer_sequence)>;
         void registerPublisher(const publisher_type& publisher);
 
+        // stdout/stderr text is coalesced: small writes (a print() in a loop
+        // is one or two writes per line) are buffered and published as one
+        // stream message at most every ~50ms, or sooner once 16KB pile up.
+        // Publishing each write on its own floods the whole pipeline (ZMQ,
+        // relay, client) far faster than it can drain. Anything that must
+        // come after the text -- the next kind of output, an input prompt,
+        // the execute_reply -- flushes first (flushStreams()), so ordering
+        // is unchanged; a background thread flushes stale text while the
+        // interpreter is busy computing and not writing.
         void publishStream(const std::string& name, const std::string& text);
+        void flushStreams();
         void displayData(json data, json metadata, json transient);
         void updateDisplayData(json data, json metadata, json transient);
         void publishExecutionInput(const std::string& code, int execution_count);
@@ -150,6 +164,20 @@ namespace adrastea
         const HistoryManager* p_history;
         RequestContext m_requestContext;
         bool m_allowStdin = false;
+
+    private:
+
+        void flushStreamsLocked();
+        void streamFlusherLoop();
+
+        std::mutex m_streamMutex;
+        std::condition_variable m_streamCv;
+        std::string m_streamName;
+        std::string m_streamBuffer;
+        RequestContext m_streamContext;
+        std::chrono::steady_clock::time_point m_streamLastFlush{};
+        std::thread m_streamFlusher;
+        bool m_streamQuit = false;
     };
 
     // --- FIXED INLINE DEFINITIONS HERE ---

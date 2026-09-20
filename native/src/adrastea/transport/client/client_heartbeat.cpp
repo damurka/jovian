@@ -89,6 +89,23 @@ namespace adrastea
         return false;
     }
 
+    HeartbeatStatus ClientHeartbeat::status() const
+    {
+        HeartbeatStatus s;
+        const long long rtt = m_lastRttMicros.load();
+        const long long pong = m_lastPongMs.load();
+        s.hasPong = rtt >= 0 && pong >= 0;
+        if (s.hasPong)
+        {
+            const long long nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            s.rttMs = static_cast<double>(rtt) / 1000.0;
+            s.sinceLastPongMs = nowMs - pong;
+        }
+        s.misses = m_misses.load();
+        return s;
+    }
+
     void ClientHeartbeat::registerKernelStatusListener(const kernel_status_listener& l)
     {
         m_kernelStatusListener = l;
@@ -107,8 +124,20 @@ namespace adrastea
         {
             try
             {
+                const auto sent = std::chrono::steady_clock::now();
                 sendHeartbeatMessage();
-                if (!waitForAnswer(m_heartbeatTimeout))
+                if (waitForAnswer(m_heartbeatTimeout))
+                {
+                    const auto now = std::chrono::steady_clock::now();
+                    m_lastRttMicros = std::chrono::duration_cast<std::chrono::microseconds>(now - sent).count();
+                    m_lastPongMs = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+                    m_misses = 0;
+                }
+                else
+                {
+                    ++m_misses;
+                }
+                if (m_misses.load() != 0)
                 {
                     if (retry_count < m_maxRetry)
                     {

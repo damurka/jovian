@@ -29,6 +29,16 @@ namespace adrastea
         publishImpl(std::move(message), c);
     }
 
+    void Server::beginExecution()
+    {
+        beginExecutionImpl();
+    }
+
+    void Server::endExecution()
+    {
+        endExecutionImpl();
+    }
+
     void Server::start(PubMessage message)
     {
         startImpl(std::move(message));

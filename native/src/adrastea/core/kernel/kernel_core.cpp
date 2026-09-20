@@ -286,6 +286,16 @@ namespace adrastea
                 publishStatus(RequestContext.header(), "idle", channel::SHELL);
             };
 
+        // From here until the code finishes, the server also reads the control
+        // channel (interrupt_request) on a watcher thread -- see
+        // ServerZmqImpl::beginExecution().
+        struct ExecutionScope
+        {
+            Server* server;
+            explicit ExecutionScope(Server* s) : server(s) { server->beginExecution(); }
+            ~ExecutionScope() { server->endExecution(); }
+        } executionScope(p_server);
+
         try
         {
             p_interpreter->executeRequest(
@@ -447,8 +457,11 @@ namespace adrastea
         std::string msg_type = header.value("msg_type", "");
         // replace "_request" part of message type by "_reply"
         msg_type.replace(msg_type.find_last_of('_'), 8, "_reply");
+        // "aborted" (what ipykernel sends), not "error": a client has to be
+        // able to tell "your request never ran because an earlier one failed
+        // with stop_on_error" apart from "your request ran and failed".
         json content;
-        content["status"] = "error";
+        content["status"] = "aborted";
         sendReply(msg.identities(),
             msg_type,
             json(header),

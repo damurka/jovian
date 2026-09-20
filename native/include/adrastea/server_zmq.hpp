@@ -51,6 +51,9 @@ namespace adrastea
         void sendStdinImpl(Message msg) override;
         void publishImpl(PubMessage msg, channel c) override;
 
+        void beginExecutionImpl() override;
+        void endExecutionImpl() override;
+
         void abortQueueImpl(const listener& l, long polling_interval) override;
         void updateConfigImpl(KernelConfiguration& config) const override;
 

@@ -66,6 +66,7 @@ namespace adrastea
 
         // heartbeat channel
         void registerKernelStatusListener(const kernel_status_listener& l);
+        HeartbeatStatus heartbeatStatus() const;
 
         // client messenger
         void connect();

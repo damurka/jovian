@@ -54,6 +54,7 @@ namespace api {
 
     SEXP* p_R_GlobalEnv = nullptr;
     SEXP* p_R_NilValue = nullptr;
+    int* p_interruptFlag = nullptr;
 
 #ifndef _WIN32
     ptr_R_WriteConsole_t* p_ptr_R_WriteConsole = nullptr;
@@ -130,9 +131,8 @@ namespace {
     // (macOS) and the system default library directories, neither of which
     // elara::Server::setupEnvironment() sets (it only prepends to PATH).
     // So unlike Windows' bare "R.dll", the full path has to be constructed
-    // explicitly from R_HOME here -- this matches Positron's Ark (its libr
-    // crate resolves R_HOME first, then dlopen()s libR.so/libR.dylib
-    // directly under it), and is also just the standard, documented
+    // explicitly from R_HOME here: resolve R_HOME first, then dlopen()
+    // libR.so/libR.dylib directly under it -- the standard, documented
     // location `R CMD config --ldflags` itself reports (-L$R_HOME/lib -lR).
     LibHandle openRLibrary(std::string& outPath) {
         const char* r_home = std::getenv("R_HOME");
@@ -176,8 +176,7 @@ namespace {
 #ifndef __APPLE__
             message += " If this R was built from source, it needs to have been configured "
                        "with --enable-R-shlib, or no libR.so exists at all (only a static libR.a "
-                       "baked into the R executable) -- the same requirement Positron's Ark documents "
-                       "for this exact situation.";
+                       "baked into the R executable).";
 #endif
         }
         return message;
@@ -225,6 +224,14 @@ namespace {
 } // namespace
 
 bool isRApiLoaded() { return g_loaded; }
+
+bool requestRInterrupt() {
+    if (!api::p_interruptFlag) {
+        return false;
+    }
+    *api::p_interruptFlag = 1;
+    return true;
+}
 
 #ifdef _WIN32
 bool hasWindowsEmbeddingApi() { return g_hasWindowsEmbeddingApi; }
@@ -293,7 +300,9 @@ void loadRApi() {
     // doesn't export it, readline() just keeps its old behavior rather than
     // R failing to start over a setting that only matters for stdin.
     p_R_Interactive = static_cast<int*>(getSym(handle, "R_Interactive"));
+    p_interruptFlag = static_cast<int*>(getSym(handle, "R_interrupts_pending"));
 #else
+    p_interruptFlag = static_cast<int*>(getSym(handle, "UserBreak"));
     // Optional, not resolve(): R_DefParamsEx (the versioned-Rstart entry
     // point) only exists from R 4.2.0. All-or-nothing -- a partial set is no
     // better than none, since the whole documented sequence is needed

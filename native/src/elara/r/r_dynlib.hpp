@@ -5,9 +5,8 @@
 //
 // elara loads R's shared library (R.dll / libR.so / libR.dylib) at RUNTIME
 // via LoadLibrary+GetProcAddress (Windows) or dlopen+dlsym (Linux/macOS)
-// instead of linking against it at build time -- the same architecture
-// Positron's Ark uses for its libr crate (Windows: LoadLibrary(R.dll);
-// Linux/macOS: dlopen(libR.so/libR.dylib)), and for the same two reasons:
+// instead of linking against it at build time (Windows: LoadLibrary(R.dll);
+// Linux/macOS: dlopen(libR.so/libR.dylib)), for two reasons:
 //
 //   1. Implicit/static linking means the OS process loader resolves R's
 //      shared library *before* elara.exe's own main() ever runs. If it
@@ -22,14 +21,12 @@
 //      time: which R gets loaded is entirely a runtime decision (R_HOME),
 //      so switching R installations (e.g. R 4.4 -> R 4.6, via rig/conda/
 //      a different rHome on session create/restart -- see
-//      SessionRegistry::restartSession()) needs no rebuild/relink, the
-//      same "switch R versions instantly" behavior Positron documents for
-//      Ark.
+//      SessionRegistry::restartSession()) needs no rebuild/relink.
 //
 // On Linux, a source-built R needs `--enable-R-shlib` at configure time or
 // no libR.so exists at all (only a static libR.a baked into the R
 // executable) -- loadRApi() fails with an actionable message pointing at
-// that, matching Ark's own documented gotcha for the same situation.
+// that.
 
 #define R_NO_REMAP
 #ifdef _MSC_VER
@@ -86,6 +83,16 @@ namespace elara { namespace r {
     void loadRApi();
 
     bool isRApiLoaded();
+
+    // Asks R to break out of whatever it is evaluating, exactly as Ctrl-C
+    // would: sets the flag R's evaluator polls (R_interrupts_pending on
+    // Unix, UserBreak on Windows) -- R notices at its next
+    // R_CheckUserInterrupt() and unwinds to top level with an "interrupt"
+    // condition. A plain int store, so it is safe to call from any thread
+    // (that is the whole point: the kernel's control-channel thread calls it
+    // while the R thread is busy). Returns false if this R doesn't export
+    // the flag.
+    bool requestRInterrupt();
 
 #ifdef _WIN32
     // Whether R.dll exports everything RInterpreter's Windows startup needs
@@ -240,6 +247,9 @@ namespace elara { namespace r { namespace api {
 
     extern SEXP* p_R_GlobalEnv;
     extern SEXP* p_R_NilValue;
+    // R_interrupts_pending (Unix) / UserBreak (Windows); resolved
+    // leniently, may be null. Use requestRInterrupt() rather than this.
+    extern int* p_interruptFlag;
 
 #ifndef _WIN32
     extern ptr_R_WriteConsole_t* p_ptr_R_WriteConsole;

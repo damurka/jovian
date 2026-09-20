@@ -1,11 +1,15 @@
 #ifndef ADRASTEA_HEARTBEAT_CLIENT_HPP
 #define ADRASTEA_HEARTBEAT_CLIENT_HPP
 
+#include <atomic>
+#include <chrono>
+#include <cstddef>
 #include <functional>
 
 #include "zmq.hpp"
 
 #include "adrastea/kernel_configuration.hpp"
+#include "heartbeat_status.hpp"
 
 namespace adrastea
 {
@@ -27,6 +31,9 @@ namespace adrastea
         void registerKernelStatusListener(const kernel_status_listener& l);
         void notifyKernelDead(bool status);
 
+        // Safe to call from any thread.
+        HeartbeatStatus status() const;
+
     private:
         void sendHeartbeatMessage();
         bool waitForAnswer(long timeout);
@@ -40,6 +47,10 @@ namespace adrastea
 
         std::string m_heartbeatEndPoint;
         bool m_requestStop;
+
+        std::atomic<long long> m_lastRttMicros{ -1 };
+        std::atomic<long long> m_lastPongMs{ -1 }; // steady_clock, ms since its epoch
+        std::atomic<std::size_t> m_misses{ 0 };
     };
 }
 

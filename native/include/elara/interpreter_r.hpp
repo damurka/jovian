@@ -1,6 +1,7 @@
 #ifndef ELARA_R_INTERPRETER_HPP
 #define ELARA_R_INTERPRETER_HPP
 
+#include <atomic>
 #include <sstream>
 #include <string>
 #include <memory>
@@ -47,6 +48,12 @@ namespace elara
         adrastea::json shutdownRequestImpl(bool restart) override;
 
         adrastea::json interruptRequestImpl() override;
+
+    private:
+
+        // True while executeRequestImpl() is running; read from the control
+        // thread by interruptRequestImpl().
+        std::atomic<bool> m_executing{ false };
     };
 
     RInterpreter* getRInterpreter();

@@ -1,7 +1,9 @@
 #ifndef CARPO_INTERPRETER_PY_HPP
 #define CARPO_INTERPRETER_PY_HPP
 
+#include <atomic>
 #include <string>
+#include <thread>
 
 #include "adrastea/interpreter.hpp"
 #include "adrastea/adrastea.hpp"
@@ -78,8 +80,18 @@ namespace carpo
         void* m_bootstrapIsCompleteFn; // owned (one strong ref), null after finalizeIfOwned()
         void* m_bootstrapCompleteFn;   // owned (one strong ref), null after finalizeIfOwned()
         void* m_bootstrapInspectFn;    // owned (one strong ref), null after finalizeIfOwned()
+        void* m_bootstrapEvalExprFn;   // owned (one strong ref), null after finalizeIfOwned()
         std::string m_languageVersion;
         bool m_ownsInterpreter;
+
+        // The thread Python was initialized on (the kernel's main thread,
+        // where all code runs): KeyboardInterrupt is only ever raised
+        // there, and on POSIX interrupting a blocking call like time.sleep()
+        // needs a real SIGINT delivered to exactly that thread.
+        std::thread::native_handle_type m_mainThread;
+        // True while executeRequestImpl() runs; read from the control
+        // thread by interruptRequestImpl().
+        std::atomic<bool> m_executing{ false };
         bool m_finalized;
     };
 

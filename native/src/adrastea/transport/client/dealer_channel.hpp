@@ -1,6 +1,10 @@
 #ifndef ADRASTEA_DEALER_CHANNEL_HPP
 #define ADRASTEA_DEALER_CHANNEL_HPP
 
+#include <mutex>
+#include <optional>
+#include <string>
+
 #include "zmq.hpp"
 #include "zmq_addon.hpp"
 
@@ -37,6 +41,7 @@ namespace adrastea
 
         zmq::socket_t m_socket;
         std::string m_dealerEndPoint;
+        std::mutex m_mutex;
     };
 }
 

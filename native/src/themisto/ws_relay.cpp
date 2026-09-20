@@ -113,17 +113,33 @@ namespace themisto
                                     m_registry.sendExecute(
                                         state->sessionId, id, frame.value("code", ""), frame.value("options", json::object()));
                                 }
-                                else if (type == "interrupt")
-                                {
-                                    m_registry.sendInterrupt(state->sessionId, id);
-                                }
                                 else if (type == "inputReply")
                                 {
                                     m_registry.sendInputReply(state->sessionId, frame.value("value", ""));
                                 }
-                                else if (type == "history")
+                                else if (type == "request")
                                 {
-                                    m_registry.sendHistory(state->sessionId, id, frame.value("options", json::object()));
+                                    // Any Jupyter request that has a plain
+                                    // request/reply (or comm) shape:
+                                    // complete/inspect/is_complete/
+                                    // kernel_info/history/comm_* on shell,
+                                    // interrupt on control. The reply comes
+                                    // back as an ordinary "message" frame
+                                    // whose parent_msg_id is `id`; a request
+                                    // that can't even be sent is reported
+                                    // straight away instead of leaving the
+                                    // caller waiting for a reply that will
+                                    // never exist.
+                                    std::string error;
+                                    if (!m_registry.sendRequest(state->sessionId, frame.value("channel", "shell"),
+                                                                frame.value("msgType", ""), id,
+                                                                frame.value("content", json::object()), error))
+                                    {
+                                        if (auto ws = weakWebSocket.lock())
+                                        {
+                                            ws->send(json{ { "type", "requestError" }, { "id", id }, { "error", error } }.dump());
+                                        }
+                                    }
                                 }
                             }
                             catch (const std::exception&)
