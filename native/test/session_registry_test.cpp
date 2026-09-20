@@ -12,14 +12,18 @@
 // Needs a working R installation to actually start a kernel -- skips itself
 // (GTEST_SKIP) rather than failing when one isn't found, matching the
 // skip-if-native-binary-missing pattern already used by the TS test suite.
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -30,6 +34,11 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <tlhelp32.h>
+#elif defined(__APPLE__)
+#include <libproc.h>
+#include <sys/sysctl.h>
+#else
+#include <dirent.h>
 #endif
 
 using namespace adrastea;
@@ -74,22 +83,26 @@ namespace
         return predicate();
     }
 
-    // Counts currently-running processes with the given (bare, no path)
-    // executable name -- used to verify a concurrency fix directly at the
-    // OS-process level, since a leaked shared_ptr<Session> whose kernel
-    // process never gets a matching KernelProcess::kill() call wouldn't
-    // otherwise show up as a C++-level assertion failure of any kind.
-    // Explicitly the *W (wide) API regardless of this target's own
-    // UNICODE setting, so szExeFile's element type isn't ambiguous.
-    //
-    // Windows-only (Toolhelp32Snapshot): the two tests that call this
-    // (below) skip themselves on other platforms rather than getting a
-    // /proc or libproc reimplementation here -- first-time Linux/macOS CI
-    // is what surfaced this gap, and porting the OS-level process count is
-    // follow-up work, not something to improvise while standing up CI.
+    // Counts currently-running processes with the given (bare, no path,
+    // no extension) executable name -- used to verify a concurrency fix
+    // directly at the OS-process level, since a leaked shared_ptr<Session>
+    // whose kernel process never gets a matching KernelProcess::kill() call
+    // wouldn't otherwise show up as a C++-level assertion failure of any
+    // kind. `exeName` is platform-bare ("elara", never "elara.exe") --
+    // callers add the .exe suffix themselves on Windows (see
+    // kElaraProcessName below), matching how each platform actually spells
+    // the name in its own process listing.
 #ifdef _WIN32
-    int countProcessesNamed(const std::wstring& exeName)
+    // Explicitly the *W (wide) API regardless of this target's own UNICODE
+    // setting, so szExeFile's element type isn't ambiguous -- PROCESSENTRY32/
+    // Process32First(Next) unqualified are UNICODE-conditional macros that
+    // could just as easily resolve back to these same *W versions anyway,
+    // silently mismatching a std::string comparison. exeName is converted
+    // to wide here instead, keeping the public signature portable.
+    int countProcessesNamed(const std::string& exeName)
     {
+        std::wstring wideExeName(exeName.begin(), exeName.end()); // ASCII-only process names, so this widening is exact
+
         HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if (snapshot == INVALID_HANDLE_VALUE)
         {
@@ -102,7 +115,7 @@ namespace
         {
             do
             {
-                if (exeName == entry.szExeFile)
+                if (wideExeName == entry.szExeFile)
                 {
                     ++count;
                 }
@@ -111,6 +124,87 @@ namespace
         CloseHandle(snapshot);
         return count;
     }
+#elif defined(__APPLE__)
+    int countProcessesNamed(const std::string& exeName)
+    {
+        int bufferSize = proc_listpids(PROC_ALL_PIDS, 0, nullptr, 0);
+        if (bufferSize <= 0)
+        {
+            return -1;
+        }
+        std::vector<pid_t> pids(bufferSize / sizeof(pid_t) + 1);
+        int actualSize = proc_listpids(PROC_ALL_PIDS, 0, pids.data(), static_cast<int>(pids.size() * sizeof(pid_t)));
+        if (actualSize <= 0)
+        {
+            return -1;
+        }
+        int numPids = actualSize / sizeof(pid_t);
+
+        int count = 0;
+        char pathBuffer[PROC_PIDPATHINFO_MAXSIZE];
+        for (int i = 0; i < numPids; ++i)
+        {
+            if (pids[i] <= 0)
+            {
+                continue;
+            }
+            int pathLen = proc_pidpath(pids[i], pathBuffer, sizeof(pathBuffer));
+            if (pathLen <= 0)
+            {
+                continue; // e.g. a process that exited between listing and querying, or one we can't see
+            }
+            std::string path(pathBuffer, pathLen);
+            std::size_t slash = path.find_last_of('/');
+            std::string baseName = (slash == std::string::npos) ? path : path.substr(slash + 1);
+            if (baseName == exeName)
+            {
+                ++count;
+            }
+        }
+        return count;
+    }
+#else
+    // Linux: /proc/<pid>/comm holds just the base executable name (no path,
+    // trailing newline) -- reliable here since "elara"/"themisto" are well
+    // under its historical 15-character truncation limit.
+    int countProcessesNamed(const std::string& exeName)
+    {
+        DIR* procDir = opendir("/proc");
+        if (!procDir)
+        {
+            return -1;
+        }
+        int count = 0;
+        struct dirent* entry;
+        while ((entry = readdir(procDir)) != nullptr)
+        {
+            const std::string pid = entry->d_name;
+            if (pid.empty() || !std::all_of(pid.begin(), pid.end(), [](unsigned char c) { return std::isdigit(c); }))
+            {
+                continue;
+            }
+            std::ifstream commFile("/proc/" + pid + "/comm");
+            if (!commFile)
+            {
+                continue; // process exited between the readdir() and this open, most likely
+            }
+            std::string name;
+            std::getline(commFile, name);
+            if (name == exeName)
+            {
+                ++count;
+            }
+        }
+        closedir(procDir);
+        return count;
+    }
+#endif
+
+    const std::string kElaraProcessName =
+#ifdef _WIN32
+        "elara.exe";
+#else
+        "elara";
 #endif
 
     class SessionRegistryTest : public ::testing::Test
@@ -468,14 +562,6 @@ TEST_F(SessionRegistryTest, RestartSessionReplacesTheKernelButKeepsTheSameId)
 
 TEST_F(SessionRegistryTest, ConcurrentRestartsForTheSameSessionDontLeakAnExtraKernelProcess)
 {
-#ifndef _WIN32
-    // GTEST_SKIP() alone doesn't help here: it only skips at runtime, but
-    // the whole body below still has to compile, and countProcessesNamed()
-    // doesn't exist on this platform (see its own comment) -- so the body
-    // is only compiled on Windows at all.
-    GTEST_SKIP() << "countProcessesNamed() is Windows-only (Toolhelp32Snapshot); "
-                    "a /proc or libproc equivalent hasn't been written yet.";
-#else
     // Regression test for a real, reproduced bug: two overlapping
     // restartSession() calls for the same id used to race -- each
     // independently stopped the old kernel and spawned its own new one
@@ -494,8 +580,8 @@ TEST_F(SessionRegistryTest, ConcurrentRestartsForTheSameSessionDontLeakAnExtraKe
     std::string error;
     std::string id = m_registry->createSession(options, error);
     ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
-    ASSERT_TRUE(waitFor([&]() { return countProcessesNamed(L"elara.exe") == 1; }, kTimeoutMs))
-        << "expected exactly one elara.exe after the initial createSession";
+    ASSERT_TRUE(waitFor([&]() { return countProcessesNamed(kElaraProcessName) == 1; }, kTimeoutMs))
+        << "expected exactly one " << kElaraProcessName << " after the initial createSession";
 
     bool ok1 = false;
     bool ok2 = false;
@@ -519,23 +605,15 @@ TEST_F(SessionRegistryTest, ConcurrentRestartsForTheSameSessionDontLeakAnExtraKe
 
     // The only assertion that actually matters here: exactly one live
     // kernel process backs this one session, never two.
-    EXPECT_TRUE(waitFor([&]() { return countProcessesNamed(L"elara.exe") == 1; }, kTimeoutMs))
-        << "expected exactly one elara.exe after two concurrent restarts, found "
-        << countProcessesNamed(L"elara.exe");
+    EXPECT_TRUE(waitFor([&]() { return countProcessesNamed(kElaraProcessName) == 1; }, kTimeoutMs))
+        << "expected exactly one " << kElaraProcessName << " after two concurrent restarts, found "
+        << countProcessesNamed(kElaraProcessName);
 
     m_registry->stopSession(id);
-#endif
 }
 
 TEST_F(SessionRegistryTest, ConcurrentExecuteDuringARestartDoesNotCrashOrLeak)
 {
-#ifndef _WIN32
-    // See the matching comment on ConcurrentRestartsForTheSameSession...
-    // above: GTEST_SKIP() alone doesn't stop the body below from having to
-    // compile, so the body is only compiled on Windows at all.
-    GTEST_SKIP() << "countProcessesNamed() is Windows-only (Toolhelp32Snapshot); "
-                    "a /proc or libproc equivalent hasn't been written yet.";
-#else
     // sendExecute()/sendInterrupt() used to look up a session and call
     // straight into its ClientZmq with no serialization against a
     // concurrent stopSession()/restartSession() for that same id -- a
@@ -576,9 +654,9 @@ TEST_F(SessionRegistryTest, ConcurrentExecuteDuringARestartDoesNotCrashOrLeak)
     ASSERT_TRUE(session != nullptr);
     EXPECT_EQ(session->status.load(), SessionStatus::Ready);
 
-    EXPECT_TRUE(waitFor([&]() { return countProcessesNamed(L"elara.exe") == 1; }, kTimeoutMs))
-        << "expected exactly one elara.exe after a restart racing concurrent execute() calls, found "
-        << countProcessesNamed(L"elara.exe");
+    EXPECT_TRUE(waitFor([&]() { return countProcessesNamed(kElaraProcessName) == 1; }, kTimeoutMs))
+        << "expected exactly one " << kElaraProcessName << " after a restart racing concurrent execute() calls, found "
+        << countProcessesNamed(kElaraProcessName);
 
     // Prove the post-restart kernel is genuinely usable, not just "still
     // has a process" -- a real execute/reply round trip.
@@ -607,7 +685,6 @@ TEST_F(SessionRegistryTest, ConcurrentExecuteDuringARestartDoesNotCrashOrLeak)
     EXPECT_TRUE(gotReply) << "session never replied to an execute_request after the race";
 
     m_registry->stopSession(id);
-#endif
 }
 
 // Own main() instead of linking GTest::gtest_main, as a second line of
