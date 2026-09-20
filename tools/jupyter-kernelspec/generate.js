@@ -13,14 +13,30 @@
 // after moving R installs or rebuilding elara.exe somewhere new.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
 
+// R_HOME isn't set as an inherited env var by every R install (confirmed
+// via a real CI failure once this fell through to a hardcoded Windows-only
+// path on Linux/macOS). `R RHOME` is R's own portable way of answering
+// this on every platform, matching cmake/FindR.cmake's own technique; the
+// hardcoded path remains only as a last resort for a Windows machine with
+// R installed but not on PATH at all.
+function discoverRHome() {
+    if (process.env.R_HOME) return process.env.R_HOME;
+    try {
+        return execSync('R RHOME', { encoding: 'utf8' }).trim();
+    } catch {
+        return 'C:/Program Files/R/R-4.6.0';
+    }
+}
+
 function defaultREnv() {
-    const rHome = process.env.R_HOME || 'C:/Program Files/R/R-4.6.0';
+    const rHome = discoverRHome();
     return {
         rHome,
         rPath: process.env.R_PATH || `${rHome}/bin/x64`,

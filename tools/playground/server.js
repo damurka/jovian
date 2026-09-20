@@ -11,6 +11,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { execSync } from 'node:child_process';
 
 import { SessionManager } from '../../dist/lib/index.js';
 
@@ -22,11 +23,26 @@ const manager = new SessionManager();
 /** @type {Map<string, { session: import('../../dist/lib/index.js').Session, clients: Set<import('node:http').ServerResponse>, status: string }>} */
 const sessions = new Map();
 
+// R_HOME isn't set as an inherited env var by every R install (confirmed
+// via a real CI failure once this fell through to a hardcoded Windows-only
+// path on Linux/macOS). `R RHOME` is R's own portable way of answering
+// this on every platform, matching cmake/FindR.cmake's own technique; the
+// hardcoded path remains only as a last resort for a Windows machine with
+// R installed but not on PATH at all.
+function discoverRHome() {
+    if (process.env.R_HOME) return process.env.R_HOME;
+    try {
+        return execSync('R RHOME', { encoding: 'utf8' }).trim();
+    } catch {
+        return 'C:/Program Files/R/R-4.6.0';
+    }
+}
+
 function defaultREnv() {
     // Same fallback pattern test/integration/session-manager.test.ts uses --
     // this machine's R install, overridable via R_HOME/R_PATH/R_LIBS so the
     // tool isn't hardcoded to one developer's filesystem.
-    const rHome = process.env.R_HOME || 'C:/Program Files/R/R-4.6.0';
+    const rHome = discoverRHome();
     return {
         rHome,
         rPath: process.env.R_PATH || `${rHome}/bin/x64`,
