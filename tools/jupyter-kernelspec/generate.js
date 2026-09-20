@@ -1,16 +1,25 @@
 #!/usr/bin/env node
-// Writes a Jupyter kernelspec (kernel.json) for elara.exe's
-// -f/--connection-file launch mode (native/src/elara.cpp) -- the
-// standard "a frontend picks ports, writes a connection file, launches
-// this argv with {connection_file} substituted in" protocol, as opposed
-// to the themisto-specific --registration-port/--key mode
-// used by lib/session/supervisor-client.ts.
+// Writes Jupyter kernelspecs (kernel.json) for elara.exe's and carpo.exe's
+// -f/--connection-file launch mode (native/src/elara/elara.cpp,
+// native/src/carpo/carpo.cpp) -- the standard "a frontend picks ports,
+// writes a connection file, launches this argv with {connection_file}
+// substituted in" protocol, as opposed to the themisto-specific
+// --registration-port/--key mode used by lib/session/supervisor-client.ts.
 //
-// R_HOME/R_PATH are baked into argv at generation time (same
-// process.env.R_HOME fallback pattern as tools/playground/server.js and
-// test/integration/session-manager.test.ts) rather than looked up at
-// kernel-launch time, since kernel.json's argv is static -- re-run this
-// after moving R installs or rebuilding elara.exe somewhere new.
+// Writes BOTH kernelspecs by default (elara/kernel.json and
+// carpo/kernel.json under the output directory) -- pass --only=r or
+// --only=python to write just one, e.g. on a machine that only built one
+// of the two (JOVIAN_BUILD_CARPO defaults ON now, but a stale build
+// directory from before that change might still be missing carpo.exe). A
+// missing executable for the *other* kernel only skips that one kernel's
+// spec (with a warning), it doesn't abort the whole run.
+//
+// R_HOME/R_PATH/PYTHONHOME are baked into argv at generation time (same
+// process.env.R_HOME/PYTHONHOME fallback pattern as tools/playground/
+// server.js and test/integration/session-manager.test.ts) rather than
+// looked up at kernel-launch time, since kernel.json's argv is static --
+// re-run this after moving R/Python installs or rebuilding elara.exe/
+// carpo.exe somewhere new.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
@@ -44,48 +53,69 @@ function defaultREnv() {
     };
 }
 
-function resolveKernelExecutable() {
-    const exeName = process.platform === 'win32' ? 'elara.exe' : 'elara';
-    const candidate = path.join(REPO_ROOT, 'dist', 'native', 'Release', exeName);
-    if (!existsSync(candidate)) {
-        throw new Error(`elara executable not found at ${candidate} -- build it first (npm run build:native).`);
+// Same "ask the runtime itself" pattern as discoverRHome() above (and
+// native/test/CMakeLists.txt's CARPO_TEST_PYTHON_HOME, which asks a
+// CMake-discovered Python the same question) -- Python's own sys.prefix
+// is the portable, correct answer to "what should PYTHONHOME be for this
+// exact interpreter" on every platform. Tries `python3` before `python`
+// since that's the more specific/unambiguous name where both exist.
+function discoverPythonHome() {
+    if (process.env.PYTHONHOME) return process.env.PYTHONHOME;
+    for (const cmd of ['python3', 'python']) {
+        try {
+            return execSync(`${cmd} -c "import sys; print(sys.prefix)"`, { encoding: 'utf8' }).trim();
+        } catch {
+            // Try the next candidate command name.
+        }
     }
-    return candidate;
+    return process.platform === 'win32' ? 'C:/Python312' : '/usr';
 }
 
-async function main() {
-    const outDir = process.argv[2] || path.join(REPO_ROOT, 'kernelspec', 'elara');
-    const { rHome, rPath, rLibs } = defaultREnv();
-    const exePath = resolveKernelExecutable();
+function resolveExecutable(name) {
+    const exeName = process.platform === 'win32' ? `${name}.exe` : name;
+    return path.join(REPO_ROOT, 'dist', 'native', 'Release', exeName);
+}
 
+// Both elara and carpo's own base packages/extension modules need their
+// interpreter's shared library findable via the dynamic linker's normal
+// search path when *it* loads them later (R's utils.so/methods.so/... via
+// dyn.load(); Python's own _socket/_ssl/... via its import machinery) --
+// the same reason KernelProcess::start() sets this between fork() and
+// exec() for the themisto-managed launch path (kernel_process.cpp). This
+// is the equivalent for Jupyter's own connection-file launch mode, which
+// bypasses KernelProcess entirely -- Jupyter itself spawns argv reading
+// this file, so the env has to be set here, in what it spawns from.
+function libDirEnv(installHome) {
+    if (process.platform === 'win32') return {};
+    return {
+        env: {
+            [process.platform === 'darwin' ? 'DYLD_LIBRARY_PATH' : 'LD_LIBRARY_PATH']: `${installHome}/lib`
+        }
+    };
+}
+
+async function writeElaraKernelSpec(baseDir) {
+    const exePath = resolveExecutable('elara');
+    if (!existsSync(exePath)) {
+        console.warn(`Skipping R (Elara) kernelspec -- executable not found at ${exePath} (build it first: npm run build:native).`);
+        return;
+    }
+
+    const { rHome, rPath, rLibs } = defaultREnv();
     const argv = [exePath, '-f', '{connection_file}', '--r-home', rHome, '--r-path', rPath];
     if (rLibs) {
         argv.push('--r-libs', rLibs);
     }
 
-    // Jupyter's kernelspec format lets kernel.json set env vars for the
-    // frontend to apply before spawning argv above -- needed here on
-    // non-Windows for the same reason KernelProcess::start() sets
-    // LD_LIBRARY_PATH/DYLD_LIBRARY_PATH between fork() and exec()
-    // (native/src/themisto/kernel_process.cpp): R's own base packages
-    // (utils.so, methods.so, ...) need libR.so findable via the dynamic
-    // linker's normal search path when R loads them, and that has to be
-    // present in the new process's environment from the start (a plain
-    // process.env change from Node here, after this script has already
-    // started, wouldn't reach a process this script doesn't even spawn
-    // itself -- Jupyter does, later, reading this file).
     const kernelSpec = {
         argv,
         display_name: 'R (Elara)',
         language: 'R',
         interrupt_mode: 'message',
-        ...(process.platform !== 'win32' ? {
-            env: {
-                [process.platform === 'darwin' ? 'DYLD_LIBRARY_PATH' : 'LD_LIBRARY_PATH']: `${rHome}/lib`
-            }
-        } : {})
+        ...libDirEnv(rHome)
     };
 
+    const outDir = path.join(baseDir, 'elara');
     await mkdir(outDir, { recursive: true });
     const kernelJsonPath = path.join(outDir, 'kernel.json');
     await writeFile(kernelJsonPath, JSON.stringify(kernelSpec, null, 2) + '\n');
@@ -93,6 +123,49 @@ async function main() {
     console.log(`Wrote ${kernelJsonPath}`);
     console.log(JSON.stringify(kernelSpec, null, 2));
     console.log(`\nInstall it for the current user with:\n  jupyter kernelspec install "${outDir}" --user --name elara`);
+}
+
+async function writeCarpoKernelSpec(baseDir) {
+    const exePath = resolveExecutable('carpo');
+    if (!existsSync(exePath)) {
+        console.warn(`Skipping Python (Carpo) kernelspec -- executable not found at ${exePath} (build it first: npm run build:native).`);
+        return;
+    }
+
+    const pythonHome = discoverPythonHome();
+    const argv = [exePath, '-f', '{connection_file}', '--python-home', pythonHome];
+
+    const kernelSpec = {
+        argv,
+        display_name: 'Python (Carpo)',
+        language: 'python',
+        interrupt_mode: 'message',
+        ...libDirEnv(pythonHome)
+    };
+
+    const outDir = path.join(baseDir, 'carpo');
+    await mkdir(outDir, { recursive: true });
+    const kernelJsonPath = path.join(outDir, 'kernel.json');
+    await writeFile(kernelJsonPath, JSON.stringify(kernelSpec, null, 2) + '\n');
+
+    console.log(`Wrote ${kernelJsonPath}`);
+    console.log(JSON.stringify(kernelSpec, null, 2));
+    console.log(`\nInstall it for the current user with:\n  jupyter kernelspec install "${outDir}" --user --name carpo`);
+}
+
+async function main() {
+    const positional = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
+    const onlyArg = process.argv.find((arg) => arg.startsWith('--only='));
+    const only = onlyArg ? onlyArg.slice('--only='.length) : 'both';
+
+    const baseDir = positional[0] || path.join(REPO_ROOT, 'kernelspec');
+
+    if (only !== 'python') {
+        await writeElaraKernelSpec(baseDir);
+    }
+    if (only !== 'r') {
+        await writeCarpoKernelSpec(baseDir);
+    }
 }
 
 main().catch((err) => {
