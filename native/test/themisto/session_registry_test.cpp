@@ -343,6 +343,51 @@ TEST(SessionRegistryEmptyStateTest, CreateSessionSurfacesAKernelSpawnFailureAsAn
 // anything SessionRegistry does, so it belongs with elara's own tests now
 // that native/test/ is split per feature (adrastea/elara/themisto).
 
+TEST(SessionRegistryEmptyStateTest, CreateSessionFailsFastWhenTheKernelProcessDiesBeforeRegistering)
+{
+#ifndef ELARA_TEST_KERNEL_EXE
+    GTEST_SKIP() << "ELARA_TEST_KERNEL_EXE not defined by CMake -- elara target not built alongside tests.";
+#else
+    if (!std::filesystem::exists(ELARA_TEST_KERNEL_EXE))
+    {
+        GTEST_SKIP() << "elara executable not found at " ELARA_TEST_KERNEL_EXE;
+    }
+
+    // Regression test for a real, reproduced bug: ClientHandshakeZmqImpl::
+    // waitForConfiguration() (client_handshake_zmq.cpp) used to block on a
+    // single long-timeout recv with no awareness of the kernel process it
+    // was waiting on -- a real createSession() with no R_HOME configured
+    // never returned (elara.exe itself exits in well under 100ms, but the
+    // registration wait didn't know that and sat for the full, then-only,
+    // 60s timeout regardless), leaving a live but permanently-stuck
+    // themisto.exe behind. Fixed by polling the spawned KernelProcess's own
+    // isAlive() between short-interval recv attempts instead of one long
+    // blocking one -- this asserts the *fast* path specifically (a bounded
+    // time well under the 60s ceiling), not just "eventually fails".
+    //
+    // No R installation needed here (unlike SessionRegistryTest's fixture):
+    // this doesn't need R to be present, it needs it to be absent/
+    // misconfigured -- an empty rHome is enough to reproduce elara's own
+    // fast-exit path regardless of what's actually installed on the machine
+    // running this test.
+    auto* registry = new SessionRegistry(ELARA_TEST_KERNEL_EXE, "127.0.0.1");
+    registry->startRegistrationListener();
+
+    SessionOptions options; // rHome left empty deliberately
+    std::string error;
+
+    auto start = std::chrono::steady_clock::now();
+    std::string id = registry->createSession(options, error);
+    auto elapsed = std::chrono::steady_clock::now() - start;
+
+    EXPECT_TRUE(id.empty());
+    EXPECT_FALSE(error.empty());
+    EXPECT_LT(elapsed, std::chrono::seconds(10))
+        << "createSession() took " << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count()
+        << "ms -- expected the dead-process fast path to fire well under the 60s registration timeout";
+#endif
+}
+
 TEST(SessionStructTest, ToStringCoversEveryStatusIncludingUnknown)
 {
     EXPECT_EQ(toString(SessionStatus::Starting), "starting");

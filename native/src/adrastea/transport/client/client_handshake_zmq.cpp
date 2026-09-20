@@ -1,3 +1,8 @@
+#include <chrono>
+#include <functional>
+#include <stdexcept>
+#include <string>
+
 #include "zmq.hpp"
 #include "zmq_addon.hpp"
 
@@ -15,6 +20,26 @@ namespace adrastea
      * ClientHandshakeZmqImpl *
      ******************************/
 
+    namespace
+    {
+        // Short, so waitForConfiguration() can check its shouldAbort
+        // predicate (e.g. "has the kernel process already died?") frequently
+        // rather than committing to one long blocking recv.
+        constexpr int kPollIntervalMs = 250;
+
+        // Generous on purpose, not tuned: this bounds the *overall* wait for
+        // a newly spawned kernel process to finish its own startup (for
+        // elara: process launch, Rf_initEmbeddedR, loading hera) and then
+        // dial back in -- unlike sendConnectionInfo()'s 5s ack-wait
+        // (handshaking.cpp), the kernel hasn't even connected yet when this
+        // clock starts, so it has to cover real interpreter startup time, not
+        // just network round-trip. Only matters when no shouldAbort predicate
+        // is given, or the process is alive but never registers for some
+        // other reason -- a dead process is caught almost immediately via
+        // the poll loop below instead of waiting this out.
+        constexpr int kRegistrationTimeoutMs = 60000;
+    }
+
     class ClientHandshakeZmqImpl
     {
     public:
@@ -23,7 +48,7 @@ namespace adrastea
 
         std::string getRegistrationPort() const;
 
-        KernelConfiguration waitForConfiguration();
+        KernelConfiguration waitForConfiguration(const std::function<bool()>& shouldAbort);
 
     private:
 
@@ -46,6 +71,18 @@ namespace adrastea
         , p_auth(makeAuthentication(config.m_signatureScheme, config.m_key))
     {
         initSocket(m_handshake, config.m_transport, config.m_registrationIp, config.m_registrationPort);
+        // Without this, a kernel process that fails to start or crashes
+        // before registering (e.g. elara.exe exiting immediately because R
+        // couldn't be loaded -- see native/src/elara/r/r_dynlib.cpp) hangs
+        // waitForConfiguration() below forever: confirmed directly, a real
+        // createSession() call with no R_HOME configured never returned,
+        // leaving a live but permanently-stuck themisto.exe behind. A plain
+        // zmq recv (this socket's default) blocks indefinitely with no
+        // timeout at all -- this was a documented, flagged-but-unfixed
+        // limitation (see session_registry.cpp's createSessionWithId())
+        // until now. Short (kPollIntervalMs), not the full timeout: see
+        // waitForConfiguration()'s poll loop below for why.
+        m_handshake.set(zmq::sockopt::rcvtimeo, kPollIntervalMs);
     }
 
     std::string ClientHandshakeZmqImpl::getRegistrationPort() const
@@ -53,14 +90,34 @@ namespace adrastea
         return getSocketPort(m_handshake);
     }
 
-    KernelConfiguration waitForConfiguration();
-
-    KernelConfiguration ClientHandshakeZmqImpl::waitForConfiguration()
+    KernelConfiguration ClientHandshakeZmqImpl::waitForConfiguration(const std::function<bool()>& shouldAbort)
     {
         zmq::multipart_t wire_msg;
-        if (!wire_msg.recv(m_handshake))
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kRegistrationTimeoutMs);
+        while (!wire_msg.recv(m_handshake))
         {
-            throw std::runtime_error("Did not receive kernel configuration");
+            // A dead kernel process can never register -- confirmed
+            // directly, e.g. elara.exe exits in well under 100ms when R
+            // can't be loaded, but a single long-timeout recv used to make
+            // callers wait out the *entire* timeout regardless (a real,
+            // observed 60s wait for what was actually an instant failure).
+            // Checked every kPollIntervalMs rather than assumed dead the
+            // first time this loop runs, so a process that's simply slow to
+            // connect isn't penalized.
+            if (shouldAbort && shouldAbort())
+            {
+                throw std::runtime_error(
+                    "Kernel process exited before it could register -- check its stderr output "
+                    "for the actual error.");
+            }
+            if (std::chrono::steady_clock::now() >= deadline)
+            {
+                throw std::runtime_error(
+                    "Did not receive kernel configuration within " +
+                    std::to_string(kRegistrationTimeoutMs / 1000) +
+                    "s -- the kernel process is still running but never registered. Check its "
+                    "stderr output for what it's doing.");
+            }
         }
         auto routing_ids = ZmqSerializer::deserializeZmqId(wire_msg);
         // TODO: check signature
@@ -111,8 +168,8 @@ namespace adrastea
         return p_clientImpl->getRegistrationPort();
     }
 
-    KernelConfiguration ClientHandshakeZmq::waitForConfiguration()
+    KernelConfiguration ClientHandshakeZmq::waitForConfiguration(const std::function<bool()>& shouldAbort)
     {
-        return p_clientImpl->waitForConfiguration();
+        return p_clientImpl->waitForConfiguration(shouldAbort);
     }
 }

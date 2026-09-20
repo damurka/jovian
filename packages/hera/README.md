@@ -6,15 +6,18 @@
 <!-- badges: start -->
 <!-- badges: end -->
 
-The goal of hera is to handle the R counter part of the
-[xeus-r](https://github.com/jupyter-xeus/xeus-r) Jupyter kernel.
+The goal of hera is to handle the R counter part of the Elara Jupyter kernel
+(part of [Jovian](https://github.com/damurka/jovian) -- originally adapted
+from [xeus-r](https://github.com/jupyter-xeus/xeus-r)'s own R companion
+package).
 
 ## Installation
 
-You can install the development version of hera from
-[GitHub](https://github.com/) with:
+hera is bundled with Jovian at `packages/hera`, not published as its own
+package. Install it from a local checkout of
+[Jovian](https://github.com/damurka/jovian) with:
 
 ``` r
-# install.packages("devtools")
-devtools::install_github("jupyter-xeus/xeus-r")
+# install.packages("remotes")
+remotes::install_local("path/to/jovian/packages/hera")
 ```

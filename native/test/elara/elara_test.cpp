@@ -34,14 +34,15 @@ TEST(ElaraTest, ExitsCleanlyWithAnActionableMessageWhenRCannotBeLoaded)
     // ambiguously, or (before dynamic loading existed) the OS refusing to
     // start the process at all with no message from our own code at all.
     //
-    // Deliberately bypasses SessionRegistry/KernelProcess: SessionRegistry::
-    // createSessionWithId()'s waitForConfiguration() call has no timeout
-    // (a separate, documented limitation -- see its comment in
-    // session_registry.cpp) and would hang this test forever waiting for a
-    // registration handshake that a kernel failing before R even loads will
-    // never send. Spawning elara.exe directly via the same argv shape
-    // KernelProcess::start() builds, and just waiting for it to exit on its
-    // own, sidesteps that limitation entirely rather than tripping over it.
+    // Deliberately bypasses SessionRegistry/KernelProcess: this is testing
+    // elara.exe's own behavior specifically, in isolation, not anything
+    // SessionRegistry does with it (that's ClientHandshakeZmqImpl::
+    // waitForConfiguration()'s shouldAbort predicate now correctly failing
+    // fast on a dead process -- see client_handshake_zmq.cpp -- covered by
+    // SessionRegistryTest's own real-elara.exe-based tests instead).
+    // Spawning elara.exe directly via the same argv shape KernelProcess::
+    // start() builds keeps this test focused on just elara's exit code and
+    // message.
     std::string exePath = ELARA_TEST_KERNEL_EXE; // macro expands to a quoted string literal
     std::string bogusRHome = (std::filesystem::temp_directory_path() / "elara_test_no_such_r_here").string();
     std::filesystem::path outputFile = std::filesystem::temp_directory_path() / "elara_missing_r_test_output.txt";

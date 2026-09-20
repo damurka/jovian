@@ -39,8 +39,9 @@ NAMESPACE <- environment()
 the <- NULL
 
 .onLoad <- function(libname, pkgname) {
-    # - verify this is running within xeus-r
-    # - handshake
+    # Elara verification/handshake now happens via is_elara()/hera_dot_call()
+    # below, not here -- this used to be a bare TODO for that, predating
+    # those functions.
     NAMESPACE$the <- new.env()
     the$frame_cell_execute <- NULL
     the$last_plot <- NULL

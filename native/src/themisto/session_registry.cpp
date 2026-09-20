@@ -209,13 +209,15 @@ namespace themisto
             // per-caller correlation, so two concurrent createSession() calls
             // could otherwise each receive the *other's* kernel's handshake.
             //
-            // Known limitation: waitForConfiguration() blocks on a plain
-            // (non-timeout) zmq recv -- a kernel process that fails to start
-            // or crashes before registering will hang this call indefinitely
-            // rather than surfacing an error. Not fixed in this pass since it
-            // requires changing already-shared handshake code; flagged here
-            // for follow-up (e.g. adding an rcvtimeo to the underlying
-            // router socket).
+            // waitForConfiguration() used to block on a plain (non-timeout)
+            // zmq recv -- a kernel process that failed to start or crashed
+            // before registering hung this call indefinitely rather than
+            // surfacing an error (confirmed directly: a real createSession()
+            // with no R_HOME configured never returned, leaving a live but
+            // permanently-stuck themisto.exe behind). Fixed via an rcvtimeo
+            // on the underlying router socket (see
+            // ClientHandshakeZmqImpl's constructor, client_handshake_zmq.cpp)
+            // -- this now throws a clear, actionable error instead.
             std::lock_guard<std::mutex> regLock(m_registrationMutex);
 
             // Reuse the supervisor's single registration key so the kernel
@@ -228,7 +230,15 @@ namespace themisto
             session->process = std::make_unique<KernelProcess>(procOptions);
             session->process->start();
 
-            kernelConfig = m_registrationListener->waitForConfiguration();
+            // Lets waitForConfiguration() fail fast (a poll interval, not
+            // the full timeout) the moment this specific process dies,
+            // instead of always waiting out the timeout even when the
+            // process itself already exited near-instantly (confirmed
+            // directly: elara.exe exits in well under 100ms when R can't be
+            // loaded, but this used to still take the full 60s to surface).
+            KernelProcess* spawnedProcess = session->process.get();
+            kernelConfig = m_registrationListener->waitForConfiguration(
+                [spawnedProcess]() { return !spawnedProcess->isAlive(); });
         }
         catch (const std::exception& e)
         {
