@@ -227,6 +227,26 @@ const server = createServer(async (req, res) => {
             const id = parts[2];
             const entry = sessions.get(id);
 
+            // GET /api/sessions/:id/info -- proxies the supervisor's own
+            // GET {httpBase}/sessions/{sessionId}, which is the only place
+            // pid/memoryBytes (native/src/themisto/session_registry.cpp's
+            // sessionToJson()) actually live; this server's own in-memory
+            // `sessions` map only tracks what it needs for SSE routing.
+            if (req.method === 'GET' && parts[3] === 'info') {
+                if (!entry) {
+                    sendJson(res, 404, { error: 'unknown session' });
+                    return;
+                }
+                try {
+                    const upstream = await fetch(`${entry.session.info.httpBase}/sessions/${entry.session.info.sessionId}`);
+                    const data = await upstream.json();
+                    sendJson(res, upstream.status, data);
+                } catch (error) {
+                    sendJson(res, 502, { error: String(error?.message ?? error) });
+                }
+                return;
+            }
+
             // GET /api/sessions/:id/stream  (SSE)
             if (req.method === 'GET' && parts[3] === 'stream') {
                 if (!entry) {

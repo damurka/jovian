@@ -1,7 +1,9 @@
 #include "session_registry.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <iostream>
+#include <optional>
 #include <thread>
 
 #include "adrastea/guid.hpp"
@@ -376,17 +378,26 @@ namespace themisto
         return it == m_sessions.end() ? nullptr : it->second;
     }
 
+    json sessionToJson(const Session& session)
+    {
+        json result = {
+            { "sessionId", session.id },
+            { "status", toString(session.status.load()) },
+            { "kernelType", session.options.kernelType },
+            { "pid", session.process ? session.process->pid() : 0 }
+        };
+        std::optional<std::uint64_t> mem = session.process ? session.process->memoryUsageBytes() : std::nullopt;
+        result["memoryBytes"] = mem.has_value() ? json(mem.value()) : json(nullptr);
+        return result;
+    }
+
     json SessionRegistry::listSessions()
     {
         std::lock_guard<std::mutex> lock(m_sessionsMutex);
         json result = json::array();
         for (auto& [id, session] : m_sessions)
         {
-            result.push_back({
-                { "sessionId", id },
-                { "status", toString(session->status.load()) },
-                { "kernelType", session->options.kernelType }
-            });
+            result.push_back(sessionToJson(*session));
         }
         return result;
     }

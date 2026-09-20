@@ -41,7 +41,12 @@ interface WsFrame {
  */
 export class Session extends EventEmitter {
     private ws: WebSocket | undefined;
-    private readonly info: SessionConnectionInfo;
+    // Public (not just for this class's own use): callers that need to
+    // talk to the supervisor's HTTP API directly for something this class
+    // doesn't itself expose (e.g. the playground's PID/memory-usage
+    // display, via GET {httpBase}/sessions/{sessionId}) can, instead of
+    // needing a new method here for every such diagnostic.
+    readonly info: SessionConnectionInfo;
     private readonly supervisor: SupervisorClient;
     private readonly logger: Logger;
     private readonly router: MessageRouter;

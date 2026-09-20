@@ -53,7 +53,9 @@ namespace themisto
                 sendJson(res, 500, { { "error", error } });
                 return;
             }
-            sendJson(res, 200, { { "sessionId", id }, { "status", "ready" }, { "kernelType", options.kernelType } });
+            auto session = m_registry.getSession(id);
+            sendJson(res, 200, session ? sessionToJson(*session)
+                                       : json{ { "sessionId", id }, { "status", "ready" }, { "kernelType", options.kernelType } });
         });
 
         m_server.Get("/sessions", [this](const httplib::Request&, httplib::Response& res) {
@@ -67,11 +69,7 @@ namespace themisto
                 sendJson(res, 404, { { "error", "session not found" } });
                 return;
             }
-            sendJson(res, 200, {
-                { "sessionId", session->id },
-                { "status", toString(session->status.load()) },
-                { "kernelType", session->options.kernelType }
-            });
+            sendJson(res, 200, sessionToJson(*session));
         });
 
         m_server.Delete(R"(/sessions/([^/]+))", [this](const httplib::Request& req, httplib::Response& res) {

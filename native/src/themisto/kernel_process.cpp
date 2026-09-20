@@ -1,5 +1,6 @@
 #include "kernel_process.hpp"
 
+#include <cctype>
 #include <cstdio>
 #include <iostream>
 #include <sstream>
@@ -9,11 +10,13 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <psapi.h>
 #else
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <fstream>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -382,6 +385,29 @@ namespace themisto
         }
         return oss.str();
     }
+
+    std::int64_t KernelProcess::pid() const
+    {
+        return static_cast<std::int64_t>(m_processId);
+    }
+
+    std::optional<std::uint64_t> KernelProcess::memoryUsageBytes() const
+    {
+        if (!m_processHandle)
+        {
+            return std::nullopt;
+        }
+        PROCESS_MEMORY_COUNTERS counters{};
+        counters.cb = sizeof(counters);
+        if (!K32GetProcessMemoryInfo(static_cast<HANDLE>(m_processHandle), &counters, sizeof(counters)))
+        {
+            return std::nullopt;
+        }
+        // WorkingSetSize (not PrivateUsage/PagefileUsage): the same "how
+        // much physical memory is this process actually using right now"
+        // number Task Manager's default "Memory" column shows.
+        return static_cast<std::uint64_t>(counters.WorkingSetSize);
+    }
 #else
     void KernelProcess::start()
     {
@@ -621,6 +647,43 @@ namespace themisto
             oss << "process status unknown (raw status " << status << ")";
         }
         return oss.str();
+    }
+
+    std::int64_t KernelProcess::pid() const
+    {
+        return static_cast<std::int64_t>(m_processId > 0 ? m_processId : 0);
+    }
+
+    std::optional<std::uint64_t> KernelProcess::memoryUsageBytes() const
+    {
+        if (m_processId <= 0)
+        {
+            return std::nullopt;
+        }
+        // /proc/<pid>/status's VmRSS -- Linux only; on macOS this path
+        // simply doesn't exist (no /proc filesystem), so the ifstream below
+        // fails to open and this naturally, honestly returns nullopt there
+        // too, without needing a separate macOS-specific implementation
+        // (Mach task_info/libproc) this codebase has no way to verify
+        // without a real Mac to test against.
+        std::ifstream status("/proc/" + std::to_string(m_processId) + "/status");
+        if (!status.is_open())
+        {
+            return std::nullopt;
+        }
+        std::string line;
+        while (std::getline(status, line))
+        {
+            if (line.compare(0, 6, "VmRSS:") != 0) continue;
+            std::size_t pos = 6;
+            while (pos < line.size() && std::isspace(static_cast<unsigned char>(line[pos]))) ++pos;
+            std::size_t end = pos;
+            while (end < line.size() && std::isdigit(static_cast<unsigned char>(line[end]))) ++end;
+            if (end == pos) return std::nullopt;
+            // VmRSS is reported in kB.
+            return static_cast<std::uint64_t>(std::stoull(line.substr(pos, end - pos))) * 1024;
+        }
+        return std::nullopt;
     }
 #endif
 }

@@ -55,6 +55,18 @@ namespace themisto
 
     std::string toString(SessionStatus status);
 
+    class Session;
+
+    // The one, shared "what does a session look like over HTTP" JSON
+    // shape -- used by both SessionRegistry::listSessions() and
+    // http_api.cpp's single-session GET, so the two can't drift out of
+    // sync (they briefly had: the single-session route was missing
+    // kernelType for a while after listSessions() already had it).
+    // pid/memoryBytes are best-effort (KernelProcess::pid()/
+    // memoryUsageBytes()) -- 0/omitted if the process isn't running or
+    // memory reporting isn't implemented for this platform.
+    json sessionToJson(const Session& session);
+
     // One R kernel session: the spawned elara process plus the ZMQ
     // client connected to it. Message traffic (execute/interrupt replies,
     // iopub output) is pumped out via `onMessage`, set by whichever

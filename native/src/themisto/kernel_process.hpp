@@ -2,6 +2,8 @@
 #define THEMISTO_KERNEL_PROCESS_HPP
 
 #include <atomic>
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -59,6 +61,20 @@ namespace themisto
         // alone, but call for very different debugging (a real crash vs. a
         // hang/deadlock/long blocking call).
         std::string describeStatus() const;
+
+        // 0 before start() (or after the process id itself becomes
+        // meaningless to report, e.g. never started) -- a real PID is
+        // always positive on both Windows and POSIX, so 0 is an
+        // unambiguous "not available" sentinel.
+        std::int64_t pid() const;
+
+        // Current resident/working-set memory, in bytes -- nullopt if it
+        // couldn't be determined (process not running, or platform support
+        // isn't implemented; see kernel_process.cpp's per-platform
+        // comments). A best-effort diagnostic for tools like the
+        // playground, not something any other part of this codebase
+        // depends on for correctness.
+        std::optional<std::uint64_t> memoryUsageBytes() const;
 
     private:
         void startOutputPump(void* readHandle);

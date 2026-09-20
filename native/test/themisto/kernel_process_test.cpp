@@ -57,6 +57,51 @@ TEST(KernelProcessTest, IsAliveIsTrueWhileTheProcessIsRunning)
     process.kill();
 }
 
+TEST(KernelProcessTest, PidIsAPositiveRealProcessIdWhileRunningAndZeroBeforeStart)
+{
+    KernelProcess process(longRunningOptions());
+    EXPECT_EQ(process.pid(), 0) << "no process id should be reported before start()";
+
+    process.start();
+    EXPECT_GT(process.pid(), 0);
+
+    process.kill();
+}
+
+TEST(KernelProcessTest, MemoryUsageBytesReturnsAValueForARunningProcess)
+{
+    // Best-effort (nullopt on platforms/situations where it can't be
+    // determined -- see KernelProcess::memoryUsageBytes()'s file comment),
+    // but a real, just-started process on a platform this is implemented
+    // for should always report *something* greater than zero.
+    KernelProcess process(longRunningOptions());
+    process.start();
+    ASSERT_TRUE(process.isAlive());
+
+    auto memory = process.memoryUsageBytes();
+
+#if defined(_WIN32) || defined(__linux__)
+    ASSERT_TRUE(memory.has_value());
+    EXPECT_GT(memory.value(), 0u);
+#else
+    // macOS: deliberately not implemented (no way to verify Mach/libproc
+    // APIs without a real Mac) -- nullopt is the documented, honest answer.
+    EXPECT_FALSE(memory.has_value());
+#endif
+
+    process.kill();
+}
+
+TEST(KernelProcessTest, MemoryUsageBytesIsNulloptAfterTheProcessIsKilled)
+{
+    KernelProcess process(longRunningOptions());
+    process.start();
+    ASSERT_TRUE(process.isAlive());
+    process.kill();
+
+    EXPECT_FALSE(process.memoryUsageBytes().has_value());
+}
+
 TEST(KernelProcessTest, KillTerminatesARunningProcess)
 {
     KernelProcess process(longRunningOptions());

@@ -88,6 +88,15 @@
       display: grid;
       grid-template-columns: 260px 1fr 320px;
       flex: 1;
+      /* Flex/grid items default to min-height: auto (their content's
+         natural size), not 0 -- without this, .repl-container's own
+         `flex: 1; overflow-y: auto` below has nothing to actually
+         constrain against, so the whole page grows to fit every
+         execution instead of the console area scrolling internally
+         (confirmed directly: output looked like it was "shrinking" the
+         cards above it, when what was actually happening is everything
+         just kept growing off-screen). */
+      min-height: 0;
       overflow: hidden;
       background: var(--bg-primary);
     }
@@ -97,6 +106,7 @@
       border-right: 1px solid var(--border-color);
       display: flex;
       flex-direction: column;
+      min-height: 0;
       overflow: hidden;
     }
 
@@ -166,6 +176,7 @@
     .center-stage {
       display: flex;
       flex-direction: column;
+      min-height: 0;
       overflow: hidden;
       background-color: var(--bg-primary);
     }
@@ -201,6 +212,14 @@
       border-radius: 6px;
       background: var(--code-bg);
       overflow: hidden;
+      /* Confirmed directly as the actual root cause of "output isn't
+         scrollable, it's minimizing the cards": flex items default to
+         flex-shrink: 1, so once more entries exist than .repl-container's
+         own height, every entry was shrinking to fit instead of the
+         container scrolling past its natural (larger) content height.
+         flex-shrink: 0 keeps each entry at its real size, which is what
+         actually makes the container's `overflow-y: auto` do anything. */
+      flex-shrink: 0;
     }
 
     .repl-header {
@@ -307,6 +326,7 @@
       border-left: 1px solid var(--border-color);
       display: flex;
       flex-direction: column;
+      min-height: 0;
       overflow: hidden;
     }
 
@@ -475,6 +495,9 @@
         <button class="btn-secondary" style="width: 100%; font-size: 11px; padding: 4px;" id="btnInterrupt">
           <span>&#9889;</span> Send SIGINT (Interrupt)
         </button>
+        <button class="btn-secondary" style="width: 100%; font-size: 11px; padding: 4px;" id="btnRemoveSession">
+          <span>&#128465;</span> Remove Session
+        </button>
       </div>
     </aside>
 
@@ -489,9 +512,6 @@
         <div class="kernel-controls">
           <button class="btn-secondary" id="btnClearConsole">
             <span>&#9003;</span> Clear Output
-          </button>
-          <button class="btn-primary" id="btnExecute">
-            <span>&#9654;</span> Run
           </button>
         </div>
       </div>
@@ -515,6 +535,9 @@
             <span><span class="kbd-key">Shift</span> + <span class="kbd-key">Enter</span> Run Cell</span>
             <span><span class="kbd-key">Ctrl</span>/<span class="kbd-key">Cmd</span> + <span class="kbd-key">Enter</span> also works</span>
           </div>
+          <button class="btn-primary" id="btnExecute">
+            <span>&#9654;</span> Run
+          </button>
         </div>
       </div>
     </main>
@@ -564,9 +587,19 @@
             <option value="python">Python (Carpo)</option>
           </select>
         </div>
+        <div id="modalRFields">
+          <div class="field"><label>R_HOME</label><input id="modalRHome" spellcheck="false"></div>
+          <div class="field"><label>R_PATH</label><input id="modalRPath" spellcheck="false"></div>
+          <div class="field"><label>R_LIBS (optional)</label><input id="modalRLibs" spellcheck="false"></div>
+        </div>
+        <div id="modalPythonFields" style="display:none;">
+          <div class="field"><label>PYTHONHOME</label><input id="modalPythonHome" spellcheck="false"></div>
+          <div class="field"><label>PYTHONPATH (optional)</label><input id="modalPythonPath" spellcheck="false"></div>
+          <div class="field"><label>venv path (optional)</label><input id="modalVenvPath" spellcheck="false"></div>
+        </div>
         <p style="color: var(--text-muted); font-size: 11px; line-height: 1.5;">
-          Uses this machine's detected R/Python install (<span id="modalInstallHint"></span>). Restart an existing
-          session instead if you need to point it at a different installation.
+          Pre-filled with this machine's detected install -- edit to point at a different R/Python
+          installation (e.g. to pick a specific version) before spawning.
         </p>
         <div class="modal-error" id="modalError"></div>
       </div>
@@ -637,11 +670,19 @@
       btnStopKernel: document.getElementById('btnStopKernel'),
       btnKillKernel: document.getElementById('btnKillKernel'),
       btnInterrupt: document.getElementById('btnInterrupt'),
+      btnRemoveSession: document.getElementById('btnRemoveSession'),
       newKernelModal: document.getElementById('newKernelModal'),
       modalError: document.getElementById('modalError'),
-      modalInstallHint: document.getElementById('modalInstallHint'),
       newKernelName: document.getElementById('newKernelName'),
       newKernelType: document.getElementById('newKernelType'),
+      modalRFields: document.getElementById('modalRFields'),
+      modalPythonFields: document.getElementById('modalPythonFields'),
+      modalRHome: document.getElementById('modalRHome'),
+      modalRPath: document.getElementById('modalRPath'),
+      modalRLibs: document.getElementById('modalRLibs'),
+      modalPythonHome: document.getElementById('modalPythonHome'),
+      modalPythonPath: document.getElementById('modalPythonPath'),
+      modalVenvPath: document.getElementById('modalVenvPath'),
       btnModalClose: document.getElementById('btnModalClose'),
       btnModalCancel: document.getElementById('btnModalCancel'),
       btnModalCreate: document.getElementById('btnModalCreate'),
@@ -703,8 +744,8 @@
             <span class="kernel-badge ${kernelBadgeClass(s.kernelType)}">${kernelLabel(s.kernelType)}</span>
           </div>
           <div class="session-meta">
-            <span>${id.slice(0, 8)}</span>
-            <span>${statusLabel(s.status)}</span>
+            <span>${s.pid ? 'PID: ' + s.pid : id.slice(0, 8)}</span>
+            <span>${s.status === 'ready' && s.memoryBytes != null ? formatBytes(s.memoryBytes) : statusLabel(s.status)}</span>
           </div>
         `;
         li.addEventListener('click', () => selectSession(id));
@@ -736,7 +777,7 @@
         btn.textContent = preset.label;
         btn.disabled = !canRun;
         btn.addEventListener('click', () => {
-          els.replInput.value = preset.code;
+          els.replInput.value = '';
           runCode(activeId, preset.code, preset.timeout);
         });
         els.presetList.appendChild(btn);
@@ -747,11 +788,12 @@
       if (id !== activeId) return;
       const s = sessions[id];
       els.replOutput.innerHTML = '';
-      if (!s || s.cells.length === 0) {
+      const visibleCells = s ? s.cells.filter((c) => !c.hidden) : [];
+      if (!s || visibleCells.length === 0) {
         els.replOutput.innerHTML = `<div class="empty-state">No output yet. Run some code below, or pick a preset from the right panel.</div>`;
         return;
       }
-      for (const cell of s.cells) {
+      for (const cell of visibleCells) {
         const entry = document.createElement('div');
         entry.className = 'repl-entry';
         let outputsHtml = '';
@@ -869,6 +911,7 @@
         els.kernelCtrls.style.display = 'none';
         els.replDock.style.display = 'none';
         els.sessionDetails.textContent = 'No session selected.';
+        if (infoPollTimer) { clearInterval(infoPollTimer); infoPollTimer = null; }
         renderPresets();
         return;
       }
@@ -879,14 +922,21 @@
       els.activeKernelDot.className = 'status-dot ' + statusDotClass(s.status);
       els.activeKernelBadge.style.display = 'inline-block';
       els.activeKernelBadge.className = 'kernel-badge ' + kernelBadgeClass(s.kernelType);
-      els.activeKernelBadge.textContent = kernelLabel(s.kernelType);
+      els.activeKernelBadge.textContent = s.version ? `${kernelLabel(s.kernelType)} ${s.version}` : kernelLabel(s.kernelType);
 
       els.kernelCtrls.style.display = 'flex';
       els.replDock.style.display = 'flex';
       els.inputPromptNumber.textContent = `In [${s.execCount + 1}]:`;
 
       els.btnExecute.disabled = !canRun;
-      els.btnRestartKernel.disabled = s.status === 'starting';
+      // Session.restart() (session-manager.ts) explicitly refuses once a
+      // session has been stopped -- by design, restart is only for
+      // recovering a crashed session or resetting a still-live one, not
+      // reviving one you deliberately stopped (create a new session for
+      // that). Disabling this here, not just relying on the server-side
+      // rejection, avoids the confusing "restart 'failed' so now it shows
+      // as crashed" UX a stopped session hitting that rejection produced.
+      els.btnRestartKernel.disabled = s.status === 'starting' || s.status === 'stopped';
       els.btnInterrupt.disabled = !canRun;
       els.btnStopKernel.disabled = s.status === 'stopped';
       els.btnKillKernel.disabled = s.status === 'stopped';
@@ -896,7 +946,10 @@
       els.sessionDetails.innerHTML = `
         <div><b>Session ID:</b> <span class="val">${escapeHtml(activeId)}</span></div>
         <div><b>Kernel Type:</b> <span class="val">${kernelLabel(s.kernelType)}</span></div>
+        <div><b>Kernel Version:</b> <span class="val">${escapeHtml(s.version || 'detecting…')}</span></div>
         <div><b>Status:</b> <span class="val">${statusLabel(s.status)}</span></div>
+        <div><b>PID:</b> <span class="val">${s.pid || 'unknown'}</span></div>
+        <div><b>Memory (RSS):</b> <span class="val">${formatBytes(s.memoryBytes)}</span></div>
         <div><b>Execution Count:</b> <span class="val">${s.execCount}</span></div>
         <div><b>${configLabel}:</b> <span class="val">${escapeHtml(configValue)}</span></div>
       `;
@@ -904,11 +957,51 @@
       renderPresets();
     }
 
+    let infoPollTimer = null;
+
     function selectSession(id) {
       activeId = id;
       renderSessionList();
       renderCells(id);
       updateActiveHeader();
+      startInfoPolling(id);
+    }
+
+    // Real pid/memoryBytes (see server.js's GET /api/sessions/:id/info,
+    // proxying the supervisor's own sessionToJson()) -- polled rather than
+    // pushed over the SSE stream since a process's own memory usage
+    // changes continuously and isn't something the kernel/supervisor
+    // publishes as a Jupyter protocol message; a periodic snapshot is
+    // enough for a diagnostic display. Only polls the currently-selected
+    // session, not every session at once.
+    function startInfoPolling(id) {
+        if (infoPollTimer) clearInterval(infoPollTimer);
+        const poll = async () => {
+            const s = sessions[id];
+            if (!s || id !== activeId) return;
+            try {
+                const res = await fetch(`/api/sessions/${id}/info`);
+                if (!res.ok) return;
+                const data = await res.json();
+                s.pid = data.pid || null;
+                s.memoryBytes = typeof data.memoryBytes === 'number' ? data.memoryBytes : null;
+                if (id === activeId) {
+                    updateActiveHeader();
+                    renderSessionList();
+                }
+            } catch {
+                // Best-effort -- a failed poll just leaves the last-known
+                // values displayed until the next one succeeds.
+            }
+        };
+        poll();
+        infoPollTimer = setInterval(poll, 3000);
+    }
+
+    function formatBytes(bytes) {
+        if (bytes === null || bytes === undefined) return 'unknown';
+        const mb = bytes / (1024 * 1024);
+        return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`;
     }
 
     async function runCode(id, code, timeout) {
@@ -944,6 +1037,15 @@
     async function restartSession(id) {
       const s = sessions[id];
       if (!s) return;
+      if (s.status === 'stopped') {
+        // Belt-and-suspenders: the button is disabled for this state
+        // (updateActiveHeader()), but guard the function itself too in
+        // case it's ever invoked another way. Session.restart() rejects
+        // this outright -- surfacing that as this session "crashing"
+        // would be actively misleading (it's stopped, not broken).
+        pushOutput(id, 'system', 'This session was stopped -- create a new session instead of restarting it.');
+        return;
+      }
       s.status = 'starting';
       renderSessionList();
       if (id === activeId) updateActiveHeader();
@@ -975,6 +1077,29 @@
       await fetch(`/api/sessions/${id}/kill`, { method: 'POST' });
     }
 
+    // Forgets this session client-side (closes its SSE stream, drops it
+    // from the local registry/session list). Doesn't try to also forget it
+    // on the supervisor -- SessionRegistry deliberately never erases a
+    // session entry once created (native/src/themisto/session_registry.hpp),
+    // so "remove" here means "stop showing it in this browser tab", not
+    // "the supervisor forgets it ever existed". Always kills first so a
+    // removed session never leaves an orphaned live kernel process behind.
+    async function removeSession(id) {
+      const s = sessions[id];
+      if (!s) return;
+      if (s.status !== 'stopped' && s.status !== 'crashed') {
+        await killSession(id);
+      }
+      s.es?.close();
+      delete sessions[id];
+      if (activeId === id) {
+        activeId = null;
+        els.replOutput.innerHTML = `<div class="empty-state">No sessions yet. Click <strong>+ New Kernel Session</strong> above to spawn a real R or Python kernel process.</div>`;
+        updateActiveHeader();
+      }
+      renderSessionList();
+    }
+
     async function interruptSession(id) {
       // No reply is ever routed back for this (interrupt_reply isn't
       // pumped over the WebSocket -- see lib/session/session-manager.ts's
@@ -990,7 +1115,13 @@
       els.modalError.classList.remove('show');
       els.newKernelName.value = '';
       els.newKernelType.value = 'r';
-      updateModalHint();
+      els.modalRHome.value = defaults.rHome ?? '';
+      els.modalRPath.value = defaults.rPath ?? '';
+      els.modalRLibs.value = defaults.rLibs ?? '';
+      els.modalPythonHome.value = defaults.pythonHome ?? '';
+      els.modalPythonPath.value = '';
+      els.modalVenvPath.value = '';
+      toggleKernelFields();
       els.newKernelModal.classList.add('show');
     }
 
@@ -998,11 +1129,10 @@
       els.newKernelModal.classList.remove('show');
     }
 
-    function updateModalHint() {
+    function toggleKernelFields() {
       const isPython = els.newKernelType.value === 'python';
-      els.modalInstallHint.textContent = isPython
-        ? (defaults.pythonHome || '(no Python found by the playground server)')
-        : (defaults.rHome || '(no R found by the playground server)');
+      els.modalRFields.style.display = isPython ? 'none' : 'block';
+      els.modalPythonFields.style.display = isPython ? 'block' : 'none';
     }
 
     async function confirmCreateKernel() {
@@ -1011,8 +1141,8 @@
       const kernelType = els.newKernelType.value;
       const name = els.newKernelName.value.trim() || (kernelType === 'python' ? 'Python session' : 'R session');
       const config = kernelType === 'python'
-        ? { pythonHome: defaults.pythonHome }
-        : { rHome: defaults.rHome, rPath: defaults.rPath, rLibs: defaults.rLibs };
+        ? { pythonHome: els.modalPythonHome.value, pythonPath: els.modalPythonPath.value, venvPath: els.modalVenvPath.value }
+        : { rHome: els.modalRHome.value, rPath: els.modalRPath.value, rLibs: els.modalRLibs.value };
 
       try {
         const res = await fetch('/api/sessions', {
@@ -1027,16 +1157,56 @@
           return;
         }
         const id = body.id;
-        sessions[id] = { id, name, kernelType, status: 'ready', cells: [], execCount: 0, currentCell: null, config };
+        sessions[id] = { id, name, kernelType, status: 'ready', cells: [], execCount: 0, currentCell: null, config, version: null, pid: null, memoryBytes: null };
         openStream(id);
         renderSessionList();
         closeNewKernelModal();
         selectSession(id);
+        probeKernelVersion(id);
       } catch (err) {
         els.modalError.textContent = err.message;
         els.modalError.classList.add('show');
       } finally {
         els.btnModalCreate.disabled = false;
+      }
+    }
+
+    // Kernel version isn't carried by kernel_info_reply anywhere this
+    // client can currently see it (Session's message pipeline only routes
+    // stream/execute_result/display_data/error -- kernel_info_reply isn't
+    // captured at all). Rather than add new native/HTTP/WS plumbing just
+    // for a version string, ask the kernel directly with one hidden
+    // (non-rendered) execute call right after creation, matching what a
+    // real interactive session would show anyway. Runs through the exact
+    // same execute path as a visible cell, just flagged `hidden` so
+    // renderCells() skips it and it's discarded once the version is read.
+    async function probeKernelVersion(id) {
+      const s = sessions[id];
+      if (!s) return;
+      const code = s.kernelType === 'python'
+        ? 'import sys; print(sys.version.split()[0], end="")'
+        : 'cat(paste(R.version$major, R.version$minor, sep="."))';
+      const cell = { inNum: -1, code, outputs: [], time: new Date(), hidden: true };
+      s.cells.push(cell);
+      const previousCurrent = s.currentCell;
+      s.currentCell = cell;
+      try {
+        await fetch(`/api/sessions/${id}/execute`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code })
+        });
+      } catch {
+        // Best-effort -- a failed version probe just leaves the version
+        // display blank, it's not worth surfacing as a real error.
+      }
+      s.currentCell = previousCurrent;
+      s.cells = s.cells.filter((c) => c !== cell);
+      const text = cell.outputs.map((o) => o.text).join('').trim();
+      if (text) {
+        s.version = text;
+        renderSessionList();
+        if (id === activeId) updateActiveHeader();
       }
     }
 
@@ -1057,6 +1227,8 @@
     function runFromDock() {
       if (!activeId) return;
       const code = els.replInput.value;
+      if (!code || !code.trim()) return;
+      els.replInput.value = '';
       runCode(activeId, code, undefined);
     }
 
@@ -1064,7 +1236,7 @@
     els.btnModalClose.addEventListener('click', closeNewKernelModal);
     els.btnModalCancel.addEventListener('click', closeNewKernelModal);
     els.btnModalCreate.addEventListener('click', confirmCreateKernel);
-    els.newKernelType.addEventListener('change', updateModalHint);
+    els.newKernelType.addEventListener('change', toggleKernelFields);
 
     els.tabPresetsBtn.addEventListener('click', () => switchInspectorTab('presets'));
     els.tabEnvBtn.addEventListener('click', () => switchInspectorTab('env'));
@@ -1088,6 +1260,7 @@
     els.btnStopKernel.addEventListener('click', () => activeId && stopSession(activeId));
     els.btnKillKernel.addEventListener('click', () => activeId && killSession(activeId));
     els.btnInterrupt.addEventListener('click', () => activeId && interruptSession(activeId));
+    els.btnRemoveSession.addEventListener('click', () => activeId && removeSession(activeId));
 
     loadDefaults();
     updateActiveHeader();
