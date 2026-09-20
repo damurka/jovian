@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Jovian runs language kernels as supervised Jupyter kernels, embeddable in Node.js and Electron applications. It ships a working R kernel today; a Python kernel ("Carpo") exists as build-time-opt-in scaffolding only -- see its own row below.
+Jovian runs language kernels as supervised Jupyter kernels, embeddable in Node.js and Electron applications. It ships two working kernels today -- R ("Elara") and Python ("Carpo") -- selected per session via `EngineOptions.kernelType` (`'r'` | `'python'`, default `'r'`).
 
 ## Components and names
 
@@ -13,11 +13,11 @@ The parts are named after moons of Jupiter, mirroring how Positron splits Amalth
 | **Jovian** | The umbrella product and npm package (`jovian`): a TypeScript client (`lib/`) over the native binaries below | repo root |
 | **Adrastea** | Language-neutral Jupyter kernel framework: protocol, ZMQ transport, kernel core, the abstract interpreter interface (`adrastea::`) -- built as its own static library, shared by Elara, Themisto, and Carpo | `native/src/adrastea`, `native/include/adrastea` |
 | **Elara** | The R kernel: embeds R on top of Adrastea, loading R's shared library dynamically at runtime (`elara::`, the `elara` executable) | `native/src/elara` |
-| **Themisto** | The kernel supervisor: spawns and monitors Elara processes, re-exposes sessions over HTTP + WebSocket (`themisto::`, the `themisto` executable) -- the role Kallichore plays for Ark | `native/src/themisto` |
-| **Carpo** *(scaffolding only)* | A second `adrastea::Interpreter` on top of Adrastea, proving the extension point generalizes beyond R -- identifies itself correctly over the Jupyter protocol (`kernel_info_request`) but every request needing real Python execution replies with a structured "not implemented" error. Not built by default (`JOVIAN_BUILD_CARPO`, default `OFF`) | `native/src/carpo`, `native/include/carpo` |
+| **Carpo** | The Python kernel: embeds CPython on top of Adrastea the same way, loading Python's shared library dynamically at runtime (`carpo::`, the `carpo` executable). Built by default (`JOVIAN_BUILD_CARPO`, default `ON`) | `native/src/carpo`, `native/include/carpo` |
+| **Themisto** | The kernel supervisor: spawns and monitors Elara/Carpo processes (one `kernelType` per session), re-exposes sessions over HTTP + WebSocket (`themisto::`, the `themisto` executable) -- the role Kallichore plays for Ark | `native/src/themisto` |
 | [hera](../../packages/hera) | The R companion package loaded inside an Elara session | `packages/hera` |
 
-There is no Node-API addon and no in-process engine: `lib/session/` talks to Themisto over plain HTTP (session lifecycle) and WebSocket (execute/interrupt/message streaming), and Themisto spawns one Elara process per session. This is deliberate -- a session blocking on a long-running R call (e.g. a Shiny app) can never starve another session, since they're different OS processes with different embedded R interpreters entirely.
+There is no Node-API addon and no in-process engine: `lib/session/` talks to Themisto over plain HTTP (session lifecycle) and WebSocket (execute/interrupt/message streaming), and Themisto spawns one Elara or Carpo process per session, per that session's `kernelType`. This is deliberate -- a session blocking on a long-running call (e.g. a Shiny app, or a long Python loop) can never starve another session, since they're different OS processes with different embedded interpreters entirely.
 
 ## High-Level Architecture
 
@@ -30,20 +30,24 @@ There is no Node-API addon and no in-process engine: `lib/session/` talks to The
                          │ HTTP (create/stop/restart) + WebSocket (execute/messages)
 ┌───────────────────────┴────────────────────────────────────┐
 │           Supervisor process (themisto.exe) -- "Themisto"  │
-│   SessionRegistry, KernelProcess (spawns/monitors),         │
-│   HttpApi, WsRelay -- a ZMQ *client* to each kernel below   │
-└───────────────────────┬────────────────────────────────────┘
-                         │ ZMQ (one kernel process per session)
-┌───────────────────────┴────────────────────────────────────┐
-│      Kernel process (elara.exe, one per session) -- "Elara" │
-│   Built on Adrastea (Kernel/KernelCore, ZMQ server,         │
-│   Jupyter message handling) + RInterpreter on top           │
-└───────────────────────┬────────────────────────────────────┘
-                         │ R C API (R's shared library, loaded dynamically at runtime)
-┌───────────────────────┴────────────────────────────────────┐
-│                R Package (packages/hera/) -- "hera"         │
-│         Execution │ Completion │ Inspection                 │
-└──────────────────────────────────────────────────────────┘
+│   SessionRegistry (keyed by kernelType: 'r' | 'python'),    │
+│   KernelProcess (spawns/monitors), HttpApi, WsRelay --      │
+│   a ZMQ *client* to each kernel below                       │
+└──────────────┬──────────────────────────────┬───────────────┘
+               │ ZMQ                          │ ZMQ
+┌──────────────┴───────────────┐  ┌───────────┴───────────────┐
+│ Kernel process (elara.exe)   │  │ Kernel process (carpo.exe) │
+│ "Elara" -- Adrastea +        │  │ "Carpo" -- Adrastea +      │
+│ RInterpreter                 │  │ PyInterpreter              │
+└──────────────┬───────────────┘  └───────────┬────────────────┘
+               │ R C API (dynamic)             │ Python C API (dynamic)
+┌──────────────┴───────────────┐  ┌───────────┴────────────────┐
+│ R Package (packages/hera/)   │  │ Inline Python bootstrap     │
+│ "hera" -- Execution │        │  │ source (interpreter_py.cpp) │
+│ Completion │ Inspection      │  │ -- same job as hera, small  │
+│                               │  │ enough not to need its own  │
+│                               │  │ installable package         │
+└───────────────────────────────┘  └──────────────────────────────┘
 ```
 
 ## Directory Structure
@@ -57,7 +61,7 @@ native/
 ├── include/
 │   ├── adrastea/         # Adrastea's public API headers
 │   ├── elara/            # Elara's public headers (engine.hpp, interpreter_r.hpp)
-│   └── carpo/            # Carpo's public headers (engine.hpp, interpreter_py.hpp) -- scaffolding only
+│   └── carpo/            # Carpo's public headers (engine.hpp, interpreter_py.hpp)
 ├── src/
 │   ├── adrastea/         # The `adrastea` static library
 │   │   ├── core/         # kernel/ (Kernel, KernelCore), execution/ (abstract Interpreter),
@@ -71,13 +75,16 @@ native/
 │   │   ├── bridge/       # elara::Server -- env setup, boots the Kernel
 │   │   └── elara.cpp     # main(): CLI args, registration handshake with Themisto
 │   ├── themisto/         # The `themisto` executable
-│   │   ├── session_registry.{hpp,cpp}  # session lifecycle, one KernelProcess per session
-│   │   ├── kernel_process.{hpp,cpp}    # spawns/monitors one elara.exe
+│   │   ├── session_registry.{hpp,cpp}  # session lifecycle, one KernelProcess per session,
+│   │   │                               # keyed by kernelType -> kernel executable path
+│   │   ├── kernel_process.{hpp,cpp}    # spawns/monitors one elara.exe or carpo.exe
 │   │   ├── http_api.{hpp,cpp}          # REST: create/list/get/delete/restart
 │   │   └── ws_relay.{hpp,cpp}          # WebSocket: execute/interrupt/message streaming
-│   └── carpo/            # The `carpo` executable -- SCAFFOLDING ONLY (JOVIAN_BUILD_CARPO, default OFF)
-│       ├── interpreter_py.cpp  # PyInterpreter: kernel_info_request works, everything else
-│       │                       # needing real execution replies "not implemented"
+│   └── carpo/            # The `carpo` executable
+│       ├── py/           # Python C-API interop: py_dynlib.{hpp,cpp} (dynamic Python loading,
+│       │                 # mirrors elara/r/r_dynlib.hpp)
+│       ├── interpreter_py.cpp  # PyInterpreter: real execute/is_complete/complete/inspect,
+│       │                       # backed by an inline Python bootstrap source (hera's equivalent)
 │       ├── bridge/       # carpo::Server -- mirrors elara/bridge/ exactly
 │       └── carpo.cpp     # main() -- mirrors elara.cpp exactly
 └── test/                 # C++ tests, mirroring src/'s per-feature split
@@ -85,7 +92,8 @@ native/
     │                     # kernel_configuration, client_zmq/heartbeat/handshake
     ├── elara/            # elara.exe's own startup behavior (e.g. missing-R handling)
     ├── themisto/         # SessionRegistry/KernelProcess, against a real elara.exe
-    └── carpo/            # PyInterpreter's stub behavior (only built when JOVIAN_BUILD_CARPO=ON)
+    └── carpo/            # PyInterpreter's real behavior against a real Python install
+                          # (skips itself via GTEST_SKIP if none is found at configure time)
 ```
 
 `adrastea` is a static library (not a DLL) -- elara/themisto each link it directly, so both ship as standalone executables with no companion library to distribute. There is currently no installable/exported CMake package for it outside this repo's own build (`add_subdirectory(native)`); see [C++ usage](cpp-usage.md) for what consuming it from outside this repo actually looks like today.
@@ -119,8 +127,8 @@ packages/
 
 - `examples/basic/simple-execute.js` -- one session, one execute() call, minimal.
 - `examples/advanced/two-sessions.js` -- two concurrent sessions, demonstrating that one session's blocking call never starves another.
-- `tools/playground/` -- a browser + terminal REPL for exercising a live session (`npm run playground`).
-- `tools/jupyter-kernelspec/` -- writes a standard Jupyter `kernel.json` so `elara` can be launched directly by `jupyter lab`/`jupyter console`, no supervisor involved (`npm run jupyter:kernelspec`).
+- `tools/playground/` -- a browser + terminal REPL for exercising a live session (`npm run playground`), with a kernel-type selector (R or Python) in its "New Kernel Session" dialog.
+- `tools/jupyter-kernelspec/` -- writes standard Jupyter `kernel.json` files (one for `elara`, one for `carpo`) so either can be launched directly by `jupyter lab`/`jupyter console`, no supervisor involved (`npm run jupyter:kernelspec`; `--only=r`/`--only=python` to write just one).
 
 ## Component Details
 
@@ -128,7 +136,7 @@ packages/
 
 - `Kernel` -- binds ZMQ sockets, runs the poll loop.
 - `KernelCore` -- dispatches an incoming Jupyter message to the registered `Interpreter`, catches exceptions and turns them into an `execute_reply` with `status: error` rather than letting the kernel die silently.
-- `Interpreter` -- abstract base class; `RInterpreter` (Elara) and `PyInterpreter` (Carpo, scaffolding) are its two concrete implementations. A global registry (`registerInterpreter`/`getInterpreter`) lets framework-level code (e.g. `input.cpp`'s blocking input request) reach "the" active interpreter without knowing which language it is.
+- `Interpreter` -- abstract base class; `RInterpreter` (Elara) and `PyInterpreter` (Carpo) are its two concrete implementations. A global registry (`registerInterpreter`/`getInterpreter`) lets framework-level code (e.g. `input.cpp`'s blocking input request) reach "the" active interpreter without knowing which language it is.
 
 ### Elara: R Interpreter Integration
 
@@ -136,11 +144,14 @@ packages/
 - Dynamic R loading (`native/src/elara/r/r_dynlib.{hpp,cpp}`) -- R's shared library (`R.dll` / `libR.so` / `libR.dylib`) is loaded at runtime via `LoadLibrary`/`dlopen`, not linked at build time, the same architecture Positron's Ark uses. This means: switching R installations is a runtime `R_HOME` decision needing no rebuild, and a missing/incompatible R surfaces as a clean, catchable error (exit code 1, an actionable message) instead of the OS refusing to start the process at all.
 - Code execution itself is delegated to the bundled `hera` R package via `.Call()`.
 
-### Carpo: Python Interpreter Scaffolding (not yet functional)
+### Carpo: Python Interpreter Integration
 
-- `PyInterpreter` -- exists to prove `adrastea::Interpreter` genuinely generalizes beyond Elara/R, not to run Python. `kernelInfoRequestImpl()` is fully implemented (identifies as `carpo`/`python` over the Jupyter protocol); every other `*RequestImpl()` that would need real execution (`executeRequestImpl`, `completeRequestImpl`, ...) replies with a structured "not implemented" error instead of hanging, crashing, or pretending to work.
-- Not built by default -- `cmake ... -DJOVIAN_BUILD_CARPO=ON` opts in.
-- A real implementation would embed Python the way `RInterpreter` embeds R: most likely dynamically loading `libpython` at runtime (mirroring `native/src/elara/r/r_dynlib.hpp`) rather than linking a specific Python version at build time, for the same "switch versions without a rebuild, fail cleanly if missing" reasons. See [`docs/cpp-usage.md`](../cpp-usage.md)'s "Writing a new interpreter" section.
+- `PyInterpreter` -- embeds CPython (`Py_Initialize`), proving `adrastea::Interpreter` genuinely generalizes beyond Elara/R. Real `executeRequestImpl`, `isCompleteRequestImpl`, `completeRequestImpl`, and `inspectRequestImpl` -- backed by a small inline Python bootstrap source (`interpreter_py.cpp`'s `kBootstrapSource`, hera's equivalent) using only the standard library (`ast`, `contextlib`, `traceback`, `codeop`, `rlcompleter`, `inspect`), exec'd once at construction into its own private namespace so none of it pollutes the user's `__main__`/`globals()`.
+- Dynamic Python loading (`native/src/carpo/py/py_dynlib.{hpp,cpp}`) -- mirrors Elara's dynamic R loading exactly: Python's shared library (`pythonXY.dll` / `libpythonX.Y.so*` / `libpythonX.Y.dylib`) is loaded at runtime via `LoadLibrary`/`dlopen`, discovering the newest version present under `python_home` (unlike R.dll's fixed name, Python's shared library name embeds its version). Only the documented, stable-ABI subset of the C API is used -- `PyObject` stays fully opaque, reference counting goes through the real `Py_IncRef`/`Py_DecRef` functions rather than macros that would read/write `ob_refcnt` directly.
+- Real-time stdout/stderr streaming -- a native C callback (`carpoNativeWriteStdout`/`WriteStderr`, wrapped into a Python-callable via `PyCFunction_NewEx`/`PyMethodDef`) is inserted directly into the bootstrap's globals before it runs; the bootstrap's `_CarpoStream` class calls it from `write()`, so every write publishes immediately -- the same granularity Elara gets for free from R's `WriteConsoleEx` callback.
+- venv support -- `EnvironmentConfig::venv_path` reaches the bootstrap via a `CARPO_VENV_PATH` env var; the bootstrap prepends that venv's `site-packages` directory to `sys.path` on startup. `PYTHONHOME` still points at the base install either way -- an embedded interpreter needs the base install's actual libpython/stdlib regardless of which venv's packages should also be importable.
+- Built by default (`JOVIAN_BUILD_CARPO`, default `ON`) -- like Elara's R dependency, Python is a *runtime* requirement (dynamically loaded), not a build-time one, so `carpo.exe` compiles fine even on a machine with no Python installed; it just can't run there without one.
+- See [`docs/cpp-usage.md`](../cpp-usage.md)'s "Writing a new interpreter" section for the design in more depth.
 
 ### Adrastea: ZMQ Transport Layer
 
@@ -150,8 +161,8 @@ packages/
 
 ### Themisto: Supervisor
 
-- `SessionRegistry` -- owns the map of live sessions, each with its own `KernelProcess` and `ClientZmq`. `createSession`/`restartSession` can each take a full set of R options (`rHome`/`rPath`/etc.), so restarting a session can switch R installations in place without creating a new session.
-- `KernelProcess` -- spawns one `elara.exe`, pumps its stdout/stderr, tracks liveness.
+- `SessionRegistry` -- owns the map of live sessions, each with its own `KernelProcess` and `ClientZmq`, plus a map of `kernelType` (`"r"`, `"python"`) to kernel executable path (`main.cpp` discovers both `elara`/`carpo` as siblings of `themisto` at startup). `createSession`/`restartSession` take a full set of options for either kernel type (`rHome`/`rPath`/`rLibs`/... or `pythonHome`/`pythonPath`/`venvPath`), so restarting a session can switch R/Python installations in place without creating a new session. A `createSession()` for a `kernelType` with no configured executable (e.g. `carpo` wasn't built) fails just that call with a clear error, not the whole supervisor.
+- `KernelProcess` -- spawns one `elara.exe` or `carpo.exe` (whichever `kernelType` calls for), pumps its stdout/stderr (labeled by the spawned executable's own name), tracks liveness.
 - `HttpApi` -- REST surface for session lifecycle (create/list/get/delete/restart).
 - `WsRelay` -- the WebSocket side: execute/interrupt requests in, streamed Jupyter messages out.
 
@@ -180,6 +191,7 @@ packages/
 ## Threading Model
 
 - **Elara**: R and the kernel's ZMQ poll loop run on the *same* thread (the process's main thread) -- deliberately, since R's own C-stack-bounds auto-detection assumes it's running on the process's real main thread.
+- **Carpo**: same shape -- Python and the kernel's ZMQ poll loop run on one thread. There is exactly one embedded Python interpreter per process, so the native stdout/stderr streaming callback (called synchronously from Python's own `write()` dispatch) needs no GIL handling beyond what's already implicit in that single-threaded embedding.
 - **Themisto**: one thread for its HTTP listener, one per spawned kernel process (pumping its stdout/stderr), one per session (polling that session's ZMQ client for messages to relay over its WebSocket).
 
 ## Build System
@@ -187,9 +199,9 @@ packages/
 ### CMake (C++)
 
 - Root `CMakeLists.txt` -- resolves dependencies (`find_package`), sets `dist/native/$<CONFIG>` as the output directory.
-- `native/CMakeLists.txt` -- defines the `adrastea` static library plus the `elara`/`themisto` executables (`JOVIAN_BUILD_ELARA`/`JOVIAN_BUILD_THEMISTO` options).
-- `native/test/CMakeLists.txt` -- the per-feature test executables (see Testing Strategy below).
-- Dependencies: ZeroMQ, cppzmq, nlohmann_json, OpenSSL, R (headers only -- see Elara's dynamic R loading above), httplib + ixwebsocket (Themisto only).
+- `native/CMakeLists.txt` -- defines the `adrastea` static library plus the `elara`/`themisto`/`carpo` executables (`JOVIAN_BUILD_ELARA`/`JOVIAN_BUILD_THEMISTO`/`JOVIAN_BUILD_CARPO` options, all default `ON`).
+- `native/test/CMakeLists.txt` -- the per-feature test executables (see Testing Strategy below). When `JOVIAN_BUILD_CARPO` is on, this also resolves a Python interpreter via CMake's own `find_package(Python3)` (not needed by `carpo` itself, only by `carpo_test` to know what to embed) and bakes its `sys.prefix` in as `CARPO_TEST_PYTHON_HOME`.
+- Dependencies: ZeroMQ, cppzmq, nlohmann_json, OpenSSL, R (headers only -- see Elara's dynamic R loading above), httplib + ixwebsocket (Themisto only). Carpo needs no Python-specific CMake dependency at all -- its C API is loaded dynamically at runtime, not linked.
 
 ### TypeScript
 
@@ -214,8 +226,8 @@ Tests are split the same way the source is: one native test executable/CTest ent
 
 - `native/test/adrastea/` -- MessageTest, MiddlewareTest, AuthenticationTest, ZmqSerializerTest, KernelConfigurationTest, ClientZmqTest, ClientHeartbeatTest, ClientHandshakeZmqTest. No R, no spawned process.
 - `native/test/elara/` -- ElaraTest: elara.exe's own startup behavior, spawned directly (e.g. the missing-R-installation failure path). Doesn't go through SessionRegistry.
-- `native/test/themisto/` -- SessionRegistryTest (drives a real `elara.exe` through SessionRegistry directly: create/execute/restart/stop, concurrency races) and KernelProcessTest (process spawn/liveness/kill against a dummy helper process, no R needed).
-- `native/test/carpo/` -- CarpoTest: `PyInterpreter`'s stub behavior (kernel_info_request identifies correctly, execute_request replies "not implemented"). Only built/registered when `JOVIAN_BUILD_CARPO=ON`.
+- `native/test/themisto/` -- SessionRegistryTest (drives a real `elara.exe` through SessionRegistry directly: create/execute/restart/stop, concurrency races, plus a kernelType-with-no-registered-executable failure path) and KernelProcessTest (process spawn/liveness/kill against a dummy helper process, no R needed).
+- `native/test/carpo/` -- CarpoTest: `PyInterpreter` embedding a real Python interpreter -- execution (arithmetic, exceptions, persistence across calls, real-time stdout/stderr streaming), is-complete/complete/inspect against live objects, and an end-to-end venv activation test that actually creates a throwaway venv. Only built/registered when `JOVIAN_BUILD_CARPO=ON` (default), and skips itself (`GTEST_SKIP`) if no Python interpreter was found at configure time.
 - `test/unit/lib/` -- TypeScript unit tests (ExecutionQueue, MessageRouter, MiddlewareChain, Session, message parsing).
 - `test/integration/` -- drives a real `SessionManager`/`Session` (and the `elara`/`themisto` processes behind them) end to end over HTTP/WebSocket.
 
@@ -232,6 +244,7 @@ dist/
 ├── lib/                     # compiled TypeScript (index.js, index.d.ts, ...)
 └── native/Release/
     ├── elara.exe            # R kernel (one process per session)
+    ├── carpo.exe            # Python kernel (one process per session)
     ├── themisto.exe         # supervisor (spawns and monitors kernels)
     ├── adrastea.lib         # (excluded from what actually ships -- build artifact only)
     └── *.dll                # runtime dependencies (ZeroMQ, OpenSSL, ...)
@@ -246,10 +259,16 @@ Test binaries (`*_test.exe`, `dummy_process_helper.*`, `gtest*.dll`, `*.lib`, `*
 import { SessionManager } from 'jovian';
 
 const manager = new SessionManager();
-const session = await manager.createSession({ rHome: '/path/to/R' });
 
-const result = await session.execute('x <- 1:10; mean(x)');
-console.log(result.success, result.output);
+// kernelType defaults to 'r' -- every caller written before this option
+// existed keeps working unchanged.
+const rSession = await manager.createSession({ rHome: '/path/to/R' });
+const rResult = await rSession.execute('x <- 1:10; mean(x)');
+console.log(rResult.success, rResult.output);
+
+const pySession = await manager.createSession({ kernelType: 'python', pythonHome: '/path/to/python' });
+const pyResult = await pySession.execute('sum(range(1, 11))');
+console.log(pyResult.success, pyResult.output);
 
 await manager.stopAll();
 ```

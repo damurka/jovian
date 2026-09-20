@@ -1,10 +1,11 @@
 # Using Jovian from C++
 
-Jovian's native layer is three CMake targets, defined in [`native/CMakeLists.txt`](../native/CMakeLists.txt):
+Jovian's native layer is four CMake targets, defined in [`native/CMakeLists.txt`](../native/CMakeLists.txt):
 
 - **`adrastea`** — a static library: the language-neutral Jupyter kernel framework (transport, messaging, the kernel request loop, the abstract `Interpreter` interface). Public headers under [`native/include/adrastea/`](../native/include/adrastea).
 - **`elara`** — an executable: embeds R on top of `adrastea`. Public headers under [`native/include/elara/`](../native/include/elara).
-- **`themisto`** — an executable: the supervisor that spawns/monitors `elara` processes.
+- **`carpo`** — an executable: embeds Python (CPython) on top of `adrastea` the same way. Public headers under [`native/include/carpo/`](../native/include/carpo).
+- **`themisto`** — an executable: the supervisor that spawns/monitors `elara`/`carpo` processes, one per session, keyed by that session's `kernelType`.
 
 ## Current state: in-tree only
 
@@ -27,7 +28,7 @@ Building a real `find_package(adrastea)`-style exported package (an `install(TAR
 2. Calls `adrastea::registerInterpreter(this)` once constructed, before anything calls `adrastea::getInterpreter()`.
 3. Gets embedded into its own executable the way `elara.cpp` does — `main()` parses CLI args, builds an `adrastea::KernelConfiguration`, constructs the interpreter, and runs `adrastea::Kernel::start()` (see [`native/src/elara/bridge/engine.cpp`](../native/src/elara/bridge/engine.cpp)'s `Server::start()`).
 
-This is exactly the shape Elara has -- and exactly what Carpo (`native/src/carpo/`, opt-in via `-DJOVIAN_BUILD_CARPO=ON`) already does today, as a concrete, buildable, testable example: `PyInterpreter` (`native/src/carpo/interpreter_py.cpp`) implements the full `Interpreter` interface, `kernelInfoRequestImpl()` for real, and every other `*RequestImpl()` as a clear "not implemented" stub rather than a real Python embedding. Turning Carpo into an actually-working Python kernel means replacing those stubs with real CPython embedding (most likely dynamically loading `libpython` at runtime, mirroring `native/src/elara/r/r_dynlib.hpp`, for the same version-switching/clean-failure reasons) -- the surrounding scaffold (registration, the executable, the CMake target, its own test suite) doesn't need to change shape to do that.
+This is exactly the shape both Elara and Carpo have (`native/src/carpo/`, built by default via `JOVIAN_BUILD_CARPO`) -- two concrete, working examples proving the extension point genuinely generalizes, not just in theory. `PyInterpreter` (`native/src/carpo/interpreter_py.cpp`) implements the full `Interpreter` interface for real: `executeRequestImpl`/`isCompleteRequestImpl`/`completeRequestImpl`/`inspectRequestImpl` all embed and drive a real CPython interpreter, the same way `RInterpreter` drives R. Its own C API is loaded dynamically at runtime (`native/src/carpo/py/py_dynlib.hpp`, mirroring `native/src/elara/r/r_dynlib.hpp`) rather than linked at build time, for the same version-switching/clean-failure reasons Elara does it for R. A third language kernel would follow the exact same three steps above; nothing about the surrounding scaffold (registration, the executable, the CMake target, its own test suite) needs to change shape to add one.
 
 ## Building and testing just the C++ side
 
@@ -42,4 +43,4 @@ cmake --build dist/native-test --config Release
 ctest --test-dir dist/native-test -C Release --output-on-failure
 ```
 
-Requires an R installation (only its headers, at build time — `elara` loads R's shared library dynamically at *runtime*, see [`native/src/elara/r/r_dynlib.hpp`](../native/src/elara/r/r_dynlib.hpp)) and [vcpkg](https://github.com/microsoft/vcpkg) with `VCPKG_ROOT` set.
+Requires an R installation (only its headers, at build time — `elara` loads R's shared library dynamically at *runtime*, see [`native/src/elara/r/r_dynlib.hpp`](../native/src/elara/r/r_dynlib.hpp)) and [vcpkg](https://github.com/microsoft/vcpkg) with `VCPKG_ROOT` set. No Python installation is needed to *build* `carpo` at all -- unlike R, Carpo doesn't even include Python's headers at compile time (see `py_dynlib.hpp`'s file comment for why); a Python install is only needed at runtime, and only to actually run a Python session (`CarpoTest` also needs one, to embed and exercise for real -- it skips itself via `GTEST_SKIP` if `native/test/CMakeLists.txt`'s `find_package(Python3)` doesn't find one at configure time).

@@ -2,7 +2,7 @@
   "name": "jovian",
   "version": "1.0.0",
   "type": "module",
-  "description": "Unified R kernel for Jupyter and Node.js with C++ backend",
+  "description": "Unified R and Python kernels for Jupyter and Node.js with a C++ backend",
   "main": "dist/lib/index.js",
   "types": "dist/lib/index.d.ts",
   "exports": {
