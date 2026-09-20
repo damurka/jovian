@@ -63,11 +63,27 @@ async function main() {
         argv.push('--r-libs', rLibs);
     }
 
+    // Jupyter's kernelspec format lets kernel.json set env vars for the
+    // frontend to apply before spawning argv above -- needed here on
+    // non-Windows for the same reason KernelProcess::start() sets
+    // LD_LIBRARY_PATH/DYLD_LIBRARY_PATH between fork() and exec()
+    // (native/src/themisto/kernel_process.cpp): R's own base packages
+    // (utils.so, methods.so, ...) need libR.so findable via the dynamic
+    // linker's normal search path when R loads them, and that has to be
+    // present in the new process's environment from the start (a plain
+    // process.env change from Node here, after this script has already
+    // started, wouldn't reach a process this script doesn't even spawn
+    // itself -- Jupyter does, later, reading this file).
     const kernelSpec = {
         argv,
         display_name: 'R (Elara)',
         language: 'R',
-        interrupt_mode: 'message'
+        interrupt_mode: 'message',
+        ...(process.platform !== 'win32' ? {
+            env: {
+                [process.platform === 'darwin' ? 'DYLD_LIBRARY_PATH' : 'LD_LIBRARY_PATH']: `${rHome}/lib`
+            }
+        } : {})
     };
 
     await mkdir(outDir, { recursive: true });

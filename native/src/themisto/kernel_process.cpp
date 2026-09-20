@@ -11,6 +11,7 @@
 #include <windows.h>
 #else
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <signal.h>
@@ -421,6 +422,43 @@ namespace themisto
             dup2(pipeFds[1], STDOUT_FILENO);
             dup2(pipeFds[1], STDERR_FILENO);
             close(pipeFds[1]);
+
+            // Real, reproduced CI failure this fixes: elara dlopen()s
+            // libR.so by its full path directly (r_dynlib.cpp), which needs
+            // no LD_LIBRARY_PATH entry for that one call -- but R's own base
+            // packages (utils.so, methods.so, ...) are themselves shared
+            // objects with libR.so as a plain, unqualified NEEDED entry,
+            // loaded later via R's own dyn.load(). Resolving that bare name
+            // needs LD_LIBRARY_PATH/DYLD_LIBRARY_PATH to find it, and that
+            // has to be set here, in the child, before exec() -- NOT inside
+            // elara's own main() (a first attempt at that lived in
+            // elara::Server::setupEnvironment(), engine.cpp, and didn't
+            // work): the dynamic linker builds its search path once, at
+            // process startup, before main() runs, so a setenv() from
+            // within an already-running process has no effect on it.
+            // Setting it here, between fork() and exec(), means the *new*
+            // process image's own linker startup sees it from the start.
+            // Without this, every one of R's own base packages fails to
+            // load, R limps on with none of its default packages (utils/
+            // methods/stats/...), and hera's own .Call()s into those
+            // missing packages then fail or (confirmed: a real segfault on
+            // macOS, from an unrelated bug this also happened to mask)
+            // crash outright instead of failing cleanly.
+            if (!m_options.rHome.empty())
+            {
+                std::string rLibDir = m_options.rHome + "/lib";
+#ifdef __APPLE__
+                const char* ldPathVar = "DYLD_LIBRARY_PATH";
+#else
+                const char* ldPathVar = "LD_LIBRARY_PATH";
+#endif
+                const char* existingLdPath = getenv(ldPathVar);
+                std::string newLdPath = existingLdPath && *existingLdPath
+                    ? rLibDir + ":" + existingLdPath
+                    : rLibDir;
+                setenv(ldPathVar, newLdPath.c_str(), 1);
+            }
+
             execv(m_options.kernelExePath.c_str(), argv.data());
             int execErrno = errno;
             // Best-effort: if this write is ever short/interrupted, the
