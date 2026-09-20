@@ -159,8 +159,15 @@ export class Session extends EventEmitter {
      * still-healthy one. Not available after an explicit stop()/kill(): at
      * that point the caller's intent was to end the session, not reset it
      * -- create a new one instead via SessionManager.createSession().
+     *
+     * `options`, if given, switches this session's R installation on the
+     * restart (rHome/rPath/etc) instead of reusing whatever it was created
+     * with -- e.g. flip from R 4.4 to R 4.6, the same way Positron's Ark
+     * lets you switch R versions on the fly, without closing this session
+     * and opening a new one (a different session id/WS URL) just to pick a
+     * different R.
      */
-    async restart(): Promise<void> {
+    async restart(options?: Partial<EngineOptions>): Promise<void> {
         if (this.stopped) {
             throw new Error(`Cannot restart session ${this.info.sessionId}: it was already stopped`);
         }
@@ -173,7 +180,7 @@ export class Session extends EventEmitter {
         // while the restart is still in flight waits for the new connection
         // instead of racing the old (already-dead-or-dying) one.
         this.readyPromise = (async () => {
-            await this.supervisor.restartSession(this.info);
+            await this.supervisor.restartSession(this.info, options);
             await this.connect();
         })();
 

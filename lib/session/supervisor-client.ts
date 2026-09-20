@@ -121,9 +121,28 @@ export class SupervisorClient {
      * unlike stopSession(), nothing about `info` changes here. Works both
      * to recover a crashed session and, same as Jupyter's "Restart Kernel",
      * to reset a healthy one.
+     *
+     * `options`, if given, replaces the R installation this session's next
+     * kernel process launches with (rHome/rPath/etc) instead of reusing
+     * whatever it was created with -- e.g. switching from R 4.4 to R 4.6
+     * for an existing notebook connection, the same way Positron's Ark lets
+     * you switch R versions on the fly, without needing to close this
+     * session and create a new one just to pick a different R.
      */
-    async restartSession(info: SessionConnectionInfo): Promise<void> {
-        const res = await fetch(`${info.httpBase}/sessions/${info.sessionId}/restart`, { method: 'POST' });
+    async restartSession(info: SessionConnectionInfo, options?: Partial<EngineOptions>): Promise<void> {
+        const res = await fetch(`${info.httpBase}/sessions/${info.sessionId}/restart`, {
+            method: 'POST',
+            ...(options ? {
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    rHome: options.rHome,
+                    rPath: options.rPath,
+                    rLibs: options.rLibs,
+                    pandocPath: options.pandocPath,
+                    heraSrcPath: options.heraSrcPath
+                })
+            } : {})
+        });
         const body = await res.json() as CreateSessionResponse;
         if (!res.ok || !body.sessionId) {
             throw new Error(body.error ?? `Supervisor failed to restart session ${info.sessionId} (HTTP ${res.status})`);

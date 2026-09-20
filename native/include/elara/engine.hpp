@@ -39,11 +39,11 @@ namespace elara
     // =========================================================================
     // THE SERVER: boots an embedded R Kernel and runs it to completion, on
     // the calling thread. This is the piece the standalone kernel
-    // executable (native/src/elara.cpp) uses directly -- it has no
+    // executable (native/src/elara/elara.cpp) uses directly -- it has no
     // dependency on how the resulting Kernel gets talked to (formerly an
     // in-process Client/Engine facade for the Node addon;
     // now a separate themisto process over ZMQ, see
-    // native/src/supervisor/session_registry.cpp).
+    // native/src/themisto/session_registry.cpp).
     //
     // start() runs synchronously on whichever thread calls it, deliberately
     // -- this used to spawn R onto a background thread (with a deliberately

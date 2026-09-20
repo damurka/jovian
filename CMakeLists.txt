@@ -135,16 +135,9 @@ find_package(R REQUIRED)
 find_package(httplib REQUIRED)
 find_package(ixwebsocket REQUIRED)
 
+message(STATUS "R_COMMAND        = ${R_COMMAND}")
 message(STATUS "R_HOME           = ${R_HOME}")
 message(STATUS "R_INCLUDE_DIR    = ${R_INCLUDE_DIR}")
-message(STATUS "R_LDFLAGS        = ${R_LDFLAGS}")
-message(STATUS "R_LIBRARY_BASE   = ${R_LIBRARY_BASE}")
-message(STATUS "R_LIBRARY_BLAS   = ${R_LIBRARY_BLAS}")
-message(STATUS "R_LIBRARY_LAPACK = ${R_LIBRARY_LAPACK}")
-message(STATUS "R_VERSION_MAJOR  = ${R_VERSION_MAJOR}")
-message(STATUS "R_VERSION_MINOR  = ${R_VERSION_MINOR}")
-message(STATUS "R_COMMAND        = ${R_COMMAND}")
-message(STATUS "R_SCRIPT_COMMAND = ${R_SCRIPT_COMMAND}")
 
 # Tests -- must be resolved before add_subdirectory(native), since
 # native/CMakeLists.txt only adds its own test/ subdirectory when

@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Jovian is a unified C++ and TypeScript project that runs language kernels (R today, Python planned) as supervised Jupyter kernels, designed to be embedded in Node.js applications and Electron environments.
+Jovian runs language kernels as supervised Jupyter kernels, embeddable in Node.js and Electron applications. It ships a working R kernel today; a Python kernel ("Carpo") exists as build-time-opt-in scaffolding only -- see its own row below.
 
 ## Components and names
 
@@ -10,295 +10,263 @@ The parts are named after moons of Jupiter, mirroring how Positron splits Amalth
 
 | Name | Role | Where |
 |---|---|---|
-| **Jovian** | The umbrella product and npm package (`jovian`): TypeScript client (`lib/`) plus the native binaries | repo root |
-| **Adrastea** | Language-neutral Jupyter kernel framework: protocol, ZMQ transport, kernel core, interpreter interface (`adrastea::`, `include/adrastea/`) | `native/` |
-| **Elara** | The R kernel: embeds R on top of Adrastea (`elara::`, `include/elara/`, the `elara` executable) | `native/src/r`, `native/src/bridge`, `native/src/elara.cpp` |
-| **Themisto** | The kernel supervisor: spawns and monitors kernels, re-exposes sessions over HTTP + WebSocket (`themisto::`, the `themisto` executable) | `native/src/supervisor` |
-| **hera** | The R companion package loaded inside an Elara session | `packages/hera` |
+| **Jovian** | The umbrella product and npm package (`jovian`): a TypeScript client (`lib/`) over the native binaries below | repo root |
+| **Adrastea** | Language-neutral Jupyter kernel framework: protocol, ZMQ transport, kernel core, the abstract interpreter interface (`adrastea::`) -- built as its own static library, shared by Elara, Themisto, and Carpo | `native/src/adrastea`, `native/include/adrastea` |
+| **Elara** | The R kernel: embeds R on top of Adrastea, loading R's shared library dynamically at runtime (`elara::`, the `elara` executable) | `native/src/elara` |
+| **Themisto** | The kernel supervisor: spawns and monitors Elara processes, re-exposes sessions over HTTP + WebSocket (`themisto::`, the `themisto` executable) -- the role Kallichore plays for Ark | `native/src/themisto` |
+| **Carpo** *(scaffolding only)* | A second `adrastea::Interpreter` on top of Adrastea, proving the extension point generalizes beyond R -- identifies itself correctly over the Jupyter protocol (`kernel_info_request`) but every request needing real Python execution replies with a structured "not implemented" error. Not built by default (`JOVIAN_BUILD_CARPO`, default `OFF`) | `native/src/carpo`, `native/include/carpo` |
+| [hera](../../packages/hera) | The R companion package loaded inside an Elara session | `packages/hera` |
 
-> The architecture sections below predate the move to a supervisor process. The N-API bridge (`addon.cpp`, `EngineWrapper`) and the in-process engine facade they describe no longer exist: `lib/session/` now talks to Themisto over HTTP/WebSocket, and Themisto spawns one Elara process per session.
+There is no Node-API addon and no in-process engine: `lib/session/` talks to Themisto over plain HTTP (session lifecycle) and WebSocket (execute/interrupt/message streaming), and Themisto spawns one Elara process per session. This is deliberate -- a session blocking on a long-running R call (e.g. a Shiny app) can never starve another session, since they're different OS processes with different embedded R interpreters entirely.
 
 ## High-Level Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                   TypeScript Layer (lib/)                │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐│
-│  │  Engine  │  │Messaging │  │Execution │  │Middleware││
-│  │  API     │  │ Routing  │  │  Queue   │  │ Plugins  ││
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘│
-└──────────────────────┬──────────────────────────────────┘
-                       │ N-API Bridge
-┌──────────────────────┴──────────────────────────────────┐
-│                  C++ Native Layer (native/)              │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐│
-│  │  Kernel  │  │ ZMQ      │  │ R        │  │ Platform ││
-│  │  Core    │  │Transport │  │Interpreter│  │ Specific ││
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘│
-└──────────────────────┬──────────────────────────────────┘
-                       │ R C API
-┌──────────────────────┴──────────────────────────────────┐
-│                   R Package (packages/hera/)             │
-│         Execution │ Completion │ Inspection              │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│              TypeScript Layer (lib/) -- "Jovian"          │
+│   SessionManager / Session, MessageRouter, handlers,      │
+│   ExecutionQueue, MiddlewareChain                         │
+└───────────────────────┬────────────────────────────────────┘
+                         │ HTTP (create/stop/restart) + WebSocket (execute/messages)
+┌───────────────────────┴────────────────────────────────────┐
+│           Supervisor process (themisto.exe) -- "Themisto"  │
+│   SessionRegistry, KernelProcess (spawns/monitors),         │
+│   HttpApi, WsRelay -- a ZMQ *client* to each kernel below   │
+└───────────────────────┬────────────────────────────────────┘
+                         │ ZMQ (one kernel process per session)
+┌───────────────────────┴────────────────────────────────────┐
+│      Kernel process (elara.exe, one per session) -- "Elara" │
+│   Built on Adrastea (Kernel/KernelCore, ZMQ server,         │
+│   Jupyter message handling) + RInterpreter on top           │
+└───────────────────────┬────────────────────────────────────┘
+                         │ R C API (R's shared library, loaded dynamically at runtime)
+┌───────────────────────┴────────────────────────────────────┐
+│                R Package (packages/hera/) -- "hera"         │
+│         Execution │ Completion │ Inspection                 │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ## Directory Structure
 
-### `native/` - C++ Native Code
+### `native/` — C++ Native Code
+
+Every folder under `native/src/` maps to exactly one of the four targets -- Adrastea, Elara, Themisto, or Carpo -- no mixing:
+
 ```
 native/
-├── include/adrastea/    # Public API headers
+├── include/
+│   ├── adrastea/         # Adrastea's public API headers
+│   ├── elara/            # Elara's public headers (engine.hpp, interpreter_r.hpp)
+│   └── carpo/            # Carpo's public headers (engine.hpp, interpreter_py.hpp) -- scaffolding only
 ├── src/
-│   ├── core/             # Kernel functionality
-│   │   ├── kernel/       # Kernel lifecycle
-│   │   ├── execution/    # Code execution, request handling
-│   │   ├── messaging/    # Jupyter messages
-│   │   └── history/      # Command history
-│   ├── transport/        # Communication layer
-│   │   ├── server/       # ZMQ server (ROUTER/PUB sockets)
-│   │   ├── client/       # ZMQ client (DEALER/SUB sockets)
-│   │   └── common/       # Serialization, authentication
-│   ├── bridge/           # Node.js N-API integration
-│   ├── platform/         # OS-specific code
-│   ├── r/                # R integration
-│   └── utils/            # Utilities
-└── test/                 # C++ tests
+│   ├── adrastea/         # The `adrastea` static library
+│   │   ├── core/         # kernel/ (Kernel, KernelCore), execution/ (abstract Interpreter),
+│   │   │                 # messaging/ (Jupyter messages), history/
+│   │   ├── transport/    # server/ (ZMQ ROUTER/PUB), client/ (ZMQ DEALER/SUB), common/
+│   │   ├── platform/     # OS-specific (guid, process helpers)
+│   │   └── utils/        # logging, input, helpers
+│   ├── elara/            # The `elara` executable
+│   │   ├── r/            # R C-API interop: routine.cpp (.Call() routines),
+│   │   │                 # r_dynlib.{hpp,cpp} (dynamic R loading), interpreter_r.cpp (RInterpreter)
+│   │   ├── bridge/       # elara::Server -- env setup, boots the Kernel
+│   │   └── elara.cpp     # main(): CLI args, registration handshake with Themisto
+│   ├── themisto/         # The `themisto` executable
+│   │   ├── session_registry.{hpp,cpp}  # session lifecycle, one KernelProcess per session
+│   │   ├── kernel_process.{hpp,cpp}    # spawns/monitors one elara.exe
+│   │   ├── http_api.{hpp,cpp}          # REST: create/list/get/delete/restart
+│   │   └── ws_relay.{hpp,cpp}          # WebSocket: execute/interrupt/message streaming
+│   └── carpo/            # The `carpo` executable -- SCAFFOLDING ONLY (JOVIAN_BUILD_CARPO, default OFF)
+│       ├── interpreter_py.cpp  # PyInterpreter: kernel_info_request works, everything else
+│       │                       # needing real execution replies "not implemented"
+│       ├── bridge/       # carpo::Server -- mirrors elara/bridge/ exactly
+│       └── carpo.cpp     # main() -- mirrors elara.cpp exactly
+└── test/                 # C++ tests, mirroring src/'s per-feature split
+    ├── adrastea/         # message, middleware, authentication, zmq_serializer,
+    │                     # kernel_configuration, client_zmq/heartbeat/handshake
+    ├── elara/            # elara.exe's own startup behavior (e.g. missing-R handling)
+    ├── themisto/         # SessionRegistry/KernelProcess, against a real elara.exe
+    └── carpo/            # PyInterpreter's stub behavior (only built when JOVIAN_BUILD_CARPO=ON)
 ```
 
-### `lib/` - TypeScript Code
+`adrastea` is a static library (not a DLL) -- elara/themisto each link it directly, so both ship as standalone executables with no companion library to distribute. There is currently no installable/exported CMake package for it outside this repo's own build (`add_subdirectory(native)`); see [C++ usage](cpp-usage.md) for what consuming it from outside this repo actually looks like today.
+
+### `lib/` — TypeScript Code (the `jovian` npm package)
+
 ```
 lib/
-├── core/                 # Engine core
-├── messaging/            # Message parsing/routing
-├── handlers/             # Message type handlers
-├── execution/            # Execution queue
-├── middleware/           # Plugin system
-├── types/                # Type definitions
-└── api/                  # Public API
+├── session/          # SessionManager, Session, SupervisorClient
+├── messaging/        # MessageRouter
+├── handlers/         # Per-msg_type handlers (stream, execute_result, display_data, error)
+├── execution/        # ExecutionQueue
+├── middleware/        # Plugin system (logging, metrics)
+├── utils/            # Logger, network helpers
+├── types/            # Public type definitions
+└── index.ts          # Package entry point
 ```
 
-### `packages/` - R Packages
+### `packages/` — R Packages
+
 ```
 packages/
-└── hera/                 # R kernel package
+└── hera/                 # R kernel companion package, loaded inside every Elara session
     └── R/
         ├── execute.R     # Code execution
         ├── completion.R  # Code completion
         └── inspect.R     # Object inspection
 ```
 
+### `examples/` and `tools/`
+
+- `examples/basic/simple-execute.js` -- one session, one execute() call, minimal.
+- `examples/advanced/two-sessions.js` -- two concurrent sessions, demonstrating that one session's blocking call never starves another.
+- `tools/playground/` -- a browser + terminal REPL for exercising a live session (`npm run playground`).
+- `tools/jupyter-kernelspec/` -- writes a standard Jupyter `kernel.json` so `elara` can be launched directly by `jupyter lab`/`jupyter console`, no supervisor involved (`npm run jupyter:kernelspec`).
+
 ## Component Details
 
-### 1. C++ Kernel Core
+### Adrastea: Kernel Core
 
-**Responsibilities:**
-- Manage kernel lifecycle (startup, shutdown)
-- Process Jupyter protocol messages
-- Coordinate between R interpreter and ZMQ transport
-- Handle multiple requests with priority queue
+- `Kernel` -- binds ZMQ sockets, runs the poll loop.
+- `KernelCore` -- dispatches an incoming Jupyter message to the registered `Interpreter`, catches exceptions and turns them into an `execute_reply` with `status: error` rather than letting the kernel die silently.
+- `Interpreter` -- abstract base class; `RInterpreter` (Elara) and `PyInterpreter` (Carpo, scaffolding) are its two concrete implementations. A global registry (`registerInterpreter`/`getInterpreter`) lets framework-level code (e.g. `input.cpp`'s blocking input request) reach "the" active interpreter without knowing which language it is.
 
-**Key Classes:**
-- `Kernel` - Main kernel orchestrator
-- `KernelCore` - Message dispatch and handling
-- `RequestQueue` - Priority queue for requests
-- `ExecutionState` - Track execution state
+### Elara: R Interpreter Integration
 
-### 2. R Interpreter Integration
+- `RInterpreter` -- embeds R (`Rf_initEmbeddedR`), runs on the process's own main thread (not a background thread -- R's C-stack-bounds auto-detection assumes that).
+- Dynamic R loading (`native/src/elara/r/r_dynlib.{hpp,cpp}`) -- R's shared library (`R.dll` / `libR.so` / `libR.dylib`) is loaded at runtime via `LoadLibrary`/`dlopen`, not linked at build time, the same architecture Positron's Ark uses. This means: switching R installations is a runtime `R_HOME` decision needing no rebuild, and a missing/incompatible R surfaces as a clean, catchable error (exit code 1, an actionable message) instead of the OS refusing to start the process at all.
+- Code execution itself is delegated to the bundled `hera` R package via `.Call()`.
 
-**Responsibilities:**
-- Embed R runtime (`Rf_initEmbeddedR`)
-- Execute R code via hera package
-- Capture stdout/stderr streams
-- Handle R console callbacks
+### Carpo: Python Interpreter Scaffolding (not yet functional)
 
-**Key Classes:**
-- `RInterpreter` - R embedding and execution
-- `InterpreterBase` - Abstract interpreter interface
+- `PyInterpreter` -- exists to prove `adrastea::Interpreter` genuinely generalizes beyond Elara/R, not to run Python. `kernelInfoRequestImpl()` is fully implemented (identifies as `carpo`/`python` over the Jupyter protocol); every other `*RequestImpl()` that would need real execution (`executeRequestImpl`, `completeRequestImpl`, ...) replies with a structured "not implemented" error instead of hanging, crashing, or pretending to work.
+- Not built by default -- `cmake ... -DJOVIAN_BUILD_CARPO=ON` opts in.
+- A real implementation would embed Python the way `RInterpreter` embeds R: most likely dynamically loading `libpython` at runtime (mirroring `native/src/elara/r/r_dynlib.hpp`) rather than linking a specific Python version at build time, for the same "switch versions without a rebuild, fail cleanly if missing" reasons. See [`docs/cpp-usage.md`](../cpp-usage.md)'s "Writing a new interpreter" section.
 
-### 3. ZMQ Transport Layer
+### Adrastea: ZMQ Transport Layer
 
-**Responsibilities:**
-- Implement Jupyter protocol over ZMQ
-- Manage multiple channels (shell, control, stdin, iopub, heartbeat)
-- Serialize/deserialize Jupyter messages
-- HMAC authentication
+- Implements the Jupyter wire protocol over ZMQ (shell, control, stdin, iopub, heartbeat channels).
+- `ServerZmq` (kernel side) / `ClientZmq` (Themisto's side, talking to a kernel).
+- `ZmqSerializer` -- message framing/(de)serialization; `Authentication` -- HMAC signing/verification of every message.
 
-**Key Classes:**
-- `ServerZmq` - Server-side ZMQ implementation
-- `ClientZmq` - Client-side ZMQ implementation (custom)
-- `ZmqSerializer` - Message serialization
-- `Authentication` - HMAC signing/verification
+### Themisto: Supervisor
 
-### 4. N-API Bridge
+- `SessionRegistry` -- owns the map of live sessions, each with its own `KernelProcess` and `ClientZmq`. `createSession`/`restartSession` can each take a full set of R options (`rHome`/`rPath`/etc.), so restarting a session can switch R installations in place without creating a new session.
+- `KernelProcess` -- spawns one `elara.exe`, pumps its stdout/stderr, tracks liveness.
+- `HttpApi` -- REST surface for session lifecycle (create/list/get/delete/restart).
+- `WsRelay` -- the WebSocket side: execute/interrupt requests in, streamed Jupyter messages out.
 
-**Responsibilities:**
-- Expose C++ engine to Node.js/TypeScript
-- Convert between C++ and JavaScript types
-- Manage JavaScript callbacks from C++
-- Handle async message passing
+### Jovian: TypeScript Client
 
-**Key Components:**
-- `addon.cpp` - N-API entry point
-- `EngineWrapper` - Wrap `Engine` for JS
-- `CallbackManager` - Manage JS callbacks
-
-### 5. TypeScript Engine
-
-**Responsibilities:**
-- Provide high-level API for users
-- Parse and route Jupyter messages
-- Queue and manage code executions
-- Implement middleware/plugin system
-
-**Key Classes:**
-- `Engine` - Main user-facing class
-- `MessageRouter` - Route messages to handlers
-- `ExecutionQueue` - Queue TypeScript-side executions
-- `MiddlewareChain` - Plugin architecture
+- `SessionManager` -- creates/tracks `Session`s, owns the shared `SupervisorClient` (spawns `themisto.exe` lazily, on first `createSession()`).
+- `Session` -- one WebSocket connection to one Themisto-managed session; `MessageRouter` + per-`msg_type` handlers + `ExecutionQueue` (single-flight execute()/createShiny() calls, timeout handling) + `MiddlewareChain` (optional logging/metrics plugins).
 
 ## Message Flow
 
 ### Execute Request Flow
-```
-1. TypeScript: engine.execute(code)
-2. → Native: addon.execute(code)
-3. → C++ Engine: Engine::execute()
-4. → Kernel Core: kernel_core::execute_request()
-5. → R Interpreter: r_interpreter::execute_request_impl()
-6. → R Package: hera::execute()
-7. → R Runtime: eval(parse(code))
-8. ← Results flow back through layers
-9. ← TypeScript: engine.on('result', ...)
-```
 
-### Message Priority
 ```
-Priority Queue:
-┌──────────────────────────────────────┐
-│ CRITICAL (0) - interrupt, shutdown   │
-├──────────────────────────────────────┤
-│ HIGH (1)     - kernel_info, comm     │
-├──────────────────────────────────────┤
-│ NORMAL (2)   - complete, inspect     │
-├──────────────────────────────────────┤
-│ LOW (3)      - execute_request       │
-└──────────────────────────────────────┘
+1. TypeScript: session.execute(code)
+   -- ExecutionQueue enqueues it, sends { type: 'execute', id, code } over the WebSocket
+2. Themisto: WsRelay receives the frame, calls SessionRegistry::sendExecute()
+3. Themisto → Elara: ClientZmq sends an execute_request over the shell channel
+4. Elara: KernelCore dispatches to RInterpreter::executeRequestImpl()
+5. Elara → hera: hera:::hera_call("execute", code, ...) via R's .Call()
+6. hera → R runtime: parses and evaluates the code
+7. Results flow back: hera → RInterpreter → KernelCore → ZMQ (execute_reply, iopub stream/
+   execute_result/error) → Themisto's ClientZmq → WsRelay → the WebSocket → Session
+8. TypeScript: the execute() promise resolves; 'stream'/'message' events fire along the way
 ```
 
 ## Threading Model
 
-> Also stale: within Elara, R and the kernel's polling loop now run on the
-> *same* thread (`elara::Server::start()`, `native/src/bridge/engine.cpp`)
-> deliberately, not the two separate threads implied below -- see that
-> function's own comment for why (R's C-stack-bounds auto-detection assumes
-> it's running on the process's real main thread). The `std::thread`s that
-> do exist today all belong to Themisto (`native/src/supervisor/`): one for
-> its HTTP listener, one per spawned kernel process (pumping its stdout),
-> and one per session (polling that session's ZMQ client).
-
-### C++ Threads
-1. **Main Thread** - R interpreter (single-threaded)
-2. **Server Thread** - Kernel server polling loop
-3. **IOPub Thread** - Publish messages to clients
-4. **Heartbeat Thread** - Keep-alive monitoring
-
-### Synchronization
-- `RequestQueue` with mutex for thread-safe request handling
-- `ExecutionState` with atomics for execution tracking
-- Message passing between threads via ZMQ inproc sockets
+- **Elara**: R and the kernel's ZMQ poll loop run on the *same* thread (the process's main thread) -- deliberately, since R's own C-stack-bounds auto-detection assumes it's running on the process's real main thread.
+- **Themisto**: one thread for its HTTP listener, one per spawned kernel process (pumping its stdout/stderr), one per session (polling that session's ZMQ client for messages to relay over its WebSocket).
 
 ## Build System
 
 ### CMake (C++)
-- Root `CMakeLists.txt` - Output to `dist/native/`
-- `native/CMakeLists.txt` - Source organization
-- Dependencies: zeromq, cppzmq, nlohmann_json, OpenSSL, R
+
+- Root `CMakeLists.txt` -- resolves dependencies (`find_package`), sets `dist/native/$<CONFIG>` as the output directory.
+- `native/CMakeLists.txt` -- defines the `adrastea` static library plus the `elara`/`themisto` executables (`JOVIAN_BUILD_ELARA`/`JOVIAN_BUILD_THEMISTO` options).
+- `native/test/CMakeLists.txt` -- the per-feature test executables (see Testing Strategy below).
+- Dependencies: ZeroMQ, cppzmq, nlohmann_json, OpenSSL, R (headers only -- see Elara's dynamic R loading above), httplib + ixwebsocket (Themisto only).
 
 ### TypeScript
-- `tsconfig.json` - Compile `lib/` → `dist/lib/`
-- ES modules with Node.js
-- Type definitions generated
 
-### Unified Build
+- `tsconfig.json` -- compiles `lib/` → `dist/lib/` (ES modules, type definitions generated alongside).
+
+### Build outputs — one root: `dist/`
+
+- `dist/lib/` -- compiled TypeScript.
+- `dist/native/` -- the main CMake build (`elara.exe`, `themisto.exe`, `adrastea.lib`, runtime DLLs).
+- `dist/native-test/` -- a separate CMake build tree with `JOVIAN_BUILD_TESTS=ON`, kept apart so test targets don't leak into the main build's cache.
+- `dist/ide/<preset>` and `dist/ide-install/<preset>` -- produced only if you configure via `CMakePresets.json` from an IDE (Visual Studio / VS Code CMake Tools); the npm scripts below never write here.
+
 ```bash
-npm run build    # Build both C++ (elara + themisto) and TypeScript
-npm run clean    # Clean all artifacts
-npm run dev      # Watch mode for TypeScript
+npm run build    # native (elara + themisto) + TypeScript, into dist/
+npm run clean    # remove dist/ (and any leftover legacy build/out/.cmake-js/ dirs)
+npm run dev      # watch mode for TypeScript
 ```
-
-## Style Guide
-
-- **C++**: Google C++ Style Guide
-- **TypeScript**: Standard + Prettier
-- **Formatting**: clang-format (C++), Prettier (TS)
-- **Linting**: clang-tidy (C++), ESLint (TS)
 
 ## Testing Strategy
 
-### Unit Tests
-- `native/test/` - C++ unit tests (GoogleTest, run via `ctest`; see `native/test/CMakeLists.txt`)
-- `test/unit/lib/` - TypeScript unit tests
+Tests are split the same way the source is: one native test executable/CTest entry per feature (Adrastea/Elara/Themisto/Carpo), plus Jovian's own TypeScript suite.
 
-### Integration Tests
-- `test/integration/` - Drives a real `Session`/`SessionManager` (and the `elara`/`themisto` processes behind them) end to end
+- `native/test/adrastea/` -- MessageTest, MiddlewareTest, AuthenticationTest, ZmqSerializerTest, KernelConfigurationTest, ClientZmqTest, ClientHeartbeatTest, ClientHandshakeZmqTest. No R, no spawned process.
+- `native/test/elara/` -- ElaraTest: elara.exe's own startup behavior, spawned directly (e.g. the missing-R-installation failure path). Doesn't go through SessionRegistry.
+- `native/test/themisto/` -- SessionRegistryTest (drives a real `elara.exe` through SessionRegistry directly: create/execute/restart/stop, concurrency races) and KernelProcessTest (process spawn/liveness/kill against a dummy helper process, no R needed).
+- `native/test/carpo/` -- CarpoTest: `PyInterpreter`'s stub behavior (kernel_info_request identifies correctly, execute_request replies "not implemented"). Only built/registered when `JOVIAN_BUILD_CARPO=ON`.
+- `test/unit/lib/` -- TypeScript unit tests (ExecutionQueue, MessageRouter, MiddlewareChain, Session, message parsing).
+- `test/integration/` -- drives a real `SessionManager`/`Session` (and the `elara`/`themisto` processes behind them) end to end over HTTP/WebSocket.
 
-`test/unit/native/` and `test/e2e/` are placeholder directories the CI/test setup doesn't use -- C++ tests actually live in `native/test/`, and there's no separate e2e suite beyond `test/integration/`.
+```bash
+npm test    # native ctest (all three feature suites) + TS unit + TS integration
+```
 
 ## Deployment
 
-### Package Contents
+### Package contents (`package.json`'s `files`)
+
 ```
 dist/
-├── lib/              # Compiled TypeScript
-│   ├── index.js
-│   └── index.d.ts
-└── native/
-    └── Release/
-        ├── elara.exe        # R kernel (one process per session)
-        └── themisto.exe     # supervisor (spawns and monitors kernels)
+├── lib/                     # compiled TypeScript (index.js, index.d.ts, ...)
+└── native/Release/
+    ├── elara.exe            # R kernel (one process per session)
+    ├── themisto.exe         # supervisor (spawns and monitors kernels)
+    ├── adrastea.lib         # (excluded from what actually ships -- build artifact only)
+    └── *.dll                # runtime dependencies (ZeroMQ, OpenSSL, ...)
+packages/hera/                # the R companion package, installed into a session's R library
 ```
 
-The `hera` R package ships alongside, under `packages/hera/`.
+Test binaries (`*_test.exe`, `dummy_process_helper.*`, `gtest*.dll`, `*.lib`, `*.pdb`) are explicitly excluded from what ships, via negated glob entries in `files`.
 
 ### Usage
+
 ```typescript
 import { SessionManager } from 'jovian';
 
 const manager = new SessionManager();
 const session = await manager.createSession({ rHome: '/path/to/R' });
 
-await session.execute('x <- 1:10; mean(x)');
+const result = await session.execute('x <- 1:10; mean(x)');
+console.log(result.success, result.output);
+
 await manager.stopAll();
 ```
 
-## Performance Considerations
+See [`examples/`](../../examples) for fuller, runnable examples.
 
-1. **Request Queue** - Prevents blocking on single-threaded R
-2. **Priority Handling** - Critical requests bypass queue
-3. **Message Batching** - Group similar requests
-4. **Async Operations** - Non-blocking API on TypeScript side
-5. **Zero-Copy** - Minimize data copying between layers
+## Style Guide
 
-## Security
-
-1. **HMAC Authentication** - All Jupyter messages signed
-2. **Input Validation** - Validate all user inputs
-3. **R Sandboxing** - (Future) Restrict R capabilities
-4. **No Eval** - Don't eval strings in TypeScript layer
-
-## Future Enhancements
-
-1. **Request Cancellation** - Cancel long-running operations
-2. **Multi-Session** - Support multiple R sessions
-3. **Debugger Integration** - R debugger support
-4. **Performance Metrics** - Built-in profiling
-5. **Plugin API** - Extensible middleware system
+- **C++**: Google C++ Style Guide.
+- **TypeScript**: Standard + Prettier.
+- **Formatting**: clang-format (C++), Prettier (TS) -- `npm run format`.
+- **Linting**: clang-tidy (C++), ESLint (TS) -- `npm run lint`.
 
 ## References
 
 - [Jupyter Kernel Protocol](https://jupyter-client.readthedocs.io/)
 - [ZeroMQ Guide](https://zguide.zeromq.org/)
 - [R Internals](https://cran.r-project.org/doc/manuals/r-release/R-ints.html)
-- [N-API Documentation](https://nodejs.org/api/n-api.html)
+- [Positron's Ark](https://github.com/posit-dev/positron) -- the architecture Jovian's Elara/Themisto split, and Elara's dynamic R loading, are both modeled on.
 - [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html)

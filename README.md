@@ -12,7 +12,7 @@ Jovian runs language kernels as supervised Jupyter kernels, embeddable in Node.j
 | **Themisto** | The kernel supervisor: spawns and monitors kernel processes, re-exposing sessions over HTTP + WebSocket (`themisto.exe` / `themisto`) — the role Kallichore plays for Ark. |
 | [hera](packages/hera) | The R companion package loaded inside an Elara session. |
 
-See [`docs/architecture/overview.md`](docs/architecture/overview.md) for the full component and directory breakdown.
+See [`docs/architecture/overview.md`](docs/architecture/overview.md) for the full component and directory breakdown, and [`docs/cpp-usage.md`](docs/cpp-usage.md) for using/extending the C++ side directly (e.g. writing a new language kernel on top of Adrastea).
 
 ## Usage
 
@@ -28,7 +28,7 @@ console.log(result.success, result.output);
 await manager.stopAll();
 ```
 
-Each session spawns its own `elara` process via `themisto`, so one session blocking on a long-running call (e.g. a Shiny app via `session.createShiny()`) never starves another. See [`index.js`](index.js) for a fuller example with two concurrent sessions.
+Each session spawns its own `elara` process via `themisto`, so one session blocking on a long-running call (e.g. a Shiny app via `session.createShiny()`) never starves another. See [`examples/`](examples) for runnable examples: [`basic/simple-execute.js`](examples/basic/simple-execute.js) (a single session) and [`advanced/two-sessions.js`](examples/advanced/two-sessions.js) (two concurrent sessions, one blocking, one not).
 
 ## Building
 

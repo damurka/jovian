@@ -1,4 +1,7 @@
-# Build outputs
+# Build outputs -- dist/ is the one real output root (dist/lib, dist/native,
+# dist/native-test, dist/ide/*, dist/ide-install/* -- see CMakePresets.json
+# and scripts/clean.js). build/ and out/ and .cmake-js/ are legacy/
+# pre-migration paths kept ignored in case a checkout still has them.
 dist/
 build/
 out/
