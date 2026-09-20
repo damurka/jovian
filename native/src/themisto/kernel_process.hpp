@@ -16,6 +16,16 @@ namespace themisto
         std::string rLibs;
         std::string pandocPath;
         std::string heraSrcPath;
+        // Carpo (Python) equivalents of the R fields above -- only one set
+        // is ever non-empty for a given process (SessionRegistry only fills
+        // in the fields matching SessionOptions::kernelType), but both live
+        // on this one struct rather than a variant: toArgPairs()
+        // (kernel_process.cpp) already skips empty values when building
+        // argv, so passing both unconditionally costs nothing and avoids
+        // needing a kernel-type switch here too.
+        std::string pythonHome;
+        std::string pythonPath;
+        std::string venvPath;
         std::string registrationIp;
         std::string registrationPort;
         std::string key;

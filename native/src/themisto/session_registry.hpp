@@ -24,11 +24,25 @@ namespace themisto
 
     struct SessionOptions
     {
+        // "r" (default, for every existing caller that predates this field)
+        // or "python" -- selects which kernel executable createSessionWithId()
+        // spawns (SessionRegistry::m_kernelExePaths) and which of the two
+        // field groups below actually gets used. Not an enum: it round-trips
+        // through JSON (http_api.cpp) and a plain string keeps that trivial
+        // and keeps SessionRegistry from needing to know about new kernel
+        // types beyond adding another map entry.
+        std::string kernelType = "r";
+
         std::string rHome;
         std::string rPath;
         std::string rLibs;
         std::string pandocPath;
         std::string heraSrcPath;
+
+        // Carpo (Python) equivalents, mirroring carpo::EnvironmentConfig.
+        std::string pythonHome;
+        std::string pythonPath;
+        std::string venvPath;
     };
 
     enum class SessionStatus
@@ -73,7 +87,14 @@ namespace themisto
     class SessionRegistry
     {
     public:
-        SessionRegistry(std::string kernelExePath, std::string registrationIp);
+        // kernelExePaths maps SessionOptions::kernelType ("r", "python") to
+        // the executable to spawn for that type -- main.cpp discovers both
+        // elara and carpo as siblings and builds this map once at startup.
+        // A type with no entry (or one whose file doesn't exist -- carpo
+        // isn't built by default, see JOVIAN_BUILD_CARPO) fails the
+        // individual createSession() call for that type with a clear error
+        // rather than the whole supervisor refusing to start.
+        SessionRegistry(std::map<std::string, std::string> kernelExePaths, std::string registrationIp);
         ~SessionRegistry();
 
         // Binds the shared registration listener. Must be called once
@@ -131,7 +152,7 @@ namespace themisto
         // while the session is (transitively) kept alive by m_sessions.
         void pollLoop(Session* session);
 
-        std::string m_kernelExePath;
+        std::map<std::string, std::string> m_kernelExePaths;
         std::string m_registrationIp;
         std::string m_registrationPort;
         std::string m_registrationKey;

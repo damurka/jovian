@@ -49,6 +49,9 @@ namespace themisto
                 { "--r-libs", options.rLibs },
                 { "--pandoc-path", options.pandocPath },
                 { "--hera-src-path", options.heraSrcPath },
+                { "--python-home", options.pythonHome },
+                { "--python-path", options.pythonPath },
+                { "--venv-path", options.venvPath },
                 { "--registration-ip", options.registrationIp },
                 { "--registration-port", options.registrationPort },
                 { "--key", options.key },
@@ -100,6 +103,28 @@ namespace themisto
 #endif
     }
 
+    namespace
+    {
+        // Was hardcoded to "elara" until Carpo became a second real,
+        // spawnable kernel type -- a Python session's own output was then
+        // confusingly relayed under an "[elara]" prefix (confirmed directly
+        // via a real end-to-end supervisor run). Derived from the actual
+        // spawned executable's filename instead, stripping a Windows
+        // ".exe" suffix so both platforms print the same bare name.
+        std::string outputPumpLabel(const std::string& kernelExePath)
+        {
+            std::size_t slash = kernelExePath.find_last_of("/\\");
+            std::string name = slash == std::string::npos ? kernelExePath : kernelExePath.substr(slash + 1);
+            const std::string exeSuffix = ".exe";
+            if (name.size() > exeSuffix.size() &&
+                name.compare(name.size() - exeSuffix.size(), exeSuffix.size(), exeSuffix) == 0)
+            {
+                name.resize(name.size() - exeSuffix.size());
+            }
+            return name.empty() ? "kernel" : name;
+        }
+    }
+
     KernelProcess::KernelProcess(const KernelProcessOptions& options) : m_options(options) {}
 
     KernelProcess::~KernelProcess()
@@ -116,9 +141,10 @@ namespace themisto
     void KernelProcess::startOutputPump(void* readHandle)
     {
         m_running = true;
+        std::string label = outputPumpLabel(m_options.kernelExePath);
 #ifdef _WIN32
         HANDLE handle = static_cast<HANDLE>(readHandle);
-        m_outputThread = std::thread([this, handle]() {
+        m_outputThread = std::thread([this, handle, label]() {
             char buffer[4096];
             std::string carry;
             DWORD bytesRead = 0;
@@ -128,19 +154,19 @@ namespace themisto
                 std::size_t pos;
                 while ((pos = carry.find('\n')) != std::string::npos)
                 {
-                    std::cerr << "[elara] " << carry.substr(0, pos) << std::endl;
+                    std::cerr << "[" << label << "] " << carry.substr(0, pos) << std::endl;
                     carry.erase(0, pos + 1);
                 }
             }
             if (!carry.empty())
             {
-                std::cerr << "[elara] " << carry << std::endl;
+                std::cerr << "[" << label << "] " << carry << std::endl;
             }
             CloseHandle(handle);
         });
 #else
         int fd = static_cast<int>(reinterpret_cast<intptr_t>(readHandle));
-        m_outputThread = std::thread([this, fd]() {
+        m_outputThread = std::thread([this, fd, label]() {
             char buffer[4096];
             std::string carry;
             ssize_t bytesRead;
@@ -150,13 +176,13 @@ namespace themisto
                 std::size_t pos;
                 while ((pos = carry.find('\n')) != std::string::npos)
                 {
-                    std::cerr << "[elara] " << carry.substr(0, pos) << std::endl;
+                    std::cerr << "[" << label << "] " << carry.substr(0, pos) << std::endl;
                     carry.erase(0, pos + 1);
                 }
             }
             if (!carry.empty())
             {
-                std::cerr << "[elara] " << carry << std::endl;
+                std::cerr << "[" << label << "] " << carry << std::endl;
             }
             close(fd);
         });

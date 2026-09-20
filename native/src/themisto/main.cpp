@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <future>
 #include <iostream>
+#include <map>
 #include <string>
 #include <unordered_map>
 
@@ -40,13 +41,13 @@ namespace
         return args;
     }
 
-    std::string defaultKernelExePath(const char* argv0)
+    std::string siblingExePath(const char* argv0, const char* name)
     {
         std::filesystem::path selfDir = std::filesystem::absolute(argv0).parent_path();
 #ifdef _WIN32
-        return (selfDir / "elara.exe").string();
+        return (selfDir / (std::string(name) + ".exe")).string();
 #else
-        return (selfDir / "elara").string();
+        return (selfDir / name).string();
 #endif
     }
 }
@@ -55,7 +56,9 @@ int main(int argc, char* argv[])
 {
     auto args = parseArgs(argc, argv);
 
-    std::string kernelExePath = args.count("kernel-exe") ? args["kernel-exe"] : defaultKernelExePath(argv[0]);
+    std::string kernelExePath = args.count("kernel-exe") ? args["kernel-exe"] : siblingExePath(argv[0], "elara");
+    std::string pythonKernelExePath = args.count("python-kernel-exe") ? args["python-kernel-exe"]
+                                                                       : siblingExePath(argv[0], "carpo");
     std::string registrationIp = args.count("registration-ip") ? args["registration-ip"] : "127.0.0.1";
 
     if (!std::filesystem::exists(kernelExePath))
@@ -65,7 +68,24 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    themisto::SessionRegistry registry(kernelExePath, registrationIp);
+    // Unlike elara, carpo is optional (JOVIAN_BUILD_CARPO defaults OFF, see
+    // native/CMakeLists.txt) -- its absence doesn't stop this supervisor
+    // from starting, it just means createSession() for kernelType "python"
+    // fails with a clear error (SessionRegistry::createSessionWithId())
+    // instead of every session, R included, being blocked on it.
+    std::map<std::string, std::string> kernelExePaths = { { "r", kernelExePath } };
+    if (std::filesystem::exists(pythonKernelExePath))
+    {
+        kernelExePaths["python"] = pythonKernelExePath;
+    }
+    else
+    {
+        std::cerr << "[themisto] NOTE: no Python kernel executable found at " << pythonKernelExePath
+                  << " -- sessions with kernelType 'python' will fail to create until one is built "
+                     "(JOVIAN_BUILD_CARPO) or --python-kernel-exe is passed." << std::endl;
+    }
+
+    themisto::SessionRegistry registry(kernelExePaths, registrationIp);
     registry.startRegistrationListener();
 
     themisto::HttpApi httpApi(registry);

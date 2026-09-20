@@ -9,11 +9,15 @@ namespace themisto
         SessionOptions parseSessionOptions(const json& body)
         {
             SessionOptions options;
+            options.kernelType = body.value("kernelType", "r");
             options.rHome = body.value("rHome", "");
             options.rPath = body.value("rPath", "");
             options.rLibs = body.value("rLibs", "");
             options.pandocPath = body.value("pandocPath", "");
             options.heraSrcPath = body.value("heraSrcPath", "");
+            options.pythonHome = body.value("pythonHome", "");
+            options.pythonPath = body.value("pythonPath", "");
+            options.venvPath = body.value("venvPath", "");
             return options;
         }
 
@@ -41,14 +45,15 @@ namespace themisto
                 return;
             }
 
+            SessionOptions options = parseSessionOptions(body);
             std::string error;
-            std::string id = m_registry.createSession(parseSessionOptions(body), error);
+            std::string id = m_registry.createSession(options, error);
             if (id.empty())
             {
                 sendJson(res, 500, { { "error", error } });
                 return;
             }
-            sendJson(res, 200, { { "sessionId", id }, { "status", "ready" } });
+            sendJson(res, 200, { { "sessionId", id }, { "status", "ready" }, { "kernelType", options.kernelType } });
         });
 
         m_server.Get("/sessions", [this](const httplib::Request&, httplib::Response& res) {
@@ -62,7 +67,11 @@ namespace themisto
                 sendJson(res, 404, { { "error", "session not found" } });
                 return;
             }
-            sendJson(res, 200, { { "sessionId", session->id }, { "status", toString(session->status.load()) } });
+            sendJson(res, 200, {
+                { "sessionId", session->id },
+                { "status", toString(session->status.load()) },
+                { "kernelType", session->options.kernelType }
+            });
         });
 
         m_server.Delete(R"(/sessions/([^/]+))", [this](const httplib::Request& req, httplib::Response& res) {

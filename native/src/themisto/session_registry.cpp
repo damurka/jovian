@@ -105,8 +105,8 @@ namespace themisto
         }
     }
 
-    SessionRegistry::SessionRegistry(std::string kernelExePath, std::string registrationIp)
-        : m_kernelExePath(std::move(kernelExePath))
+    SessionRegistry::SessionRegistry(std::map<std::string, std::string> kernelExePaths, std::string registrationIp)
+        : m_kernelExePaths(std::move(kernelExePaths))
         , m_registrationIp(std::move(registrationIp))
     {
     }
@@ -186,17 +186,28 @@ namespace themisto
 
     std::string SessionRegistry::createSessionWithId(const std::string& id, SessionOptions options, std::string& error)
     {
+        auto exeIt = m_kernelExePaths.find(options.kernelType);
+        if (exeIt == m_kernelExePaths.end() || exeIt->second.empty())
+        {
+            error = "no kernel executable is configured for kernelType '" + options.kernelType +
+                    "' (this supervisor was started without one -- see main.cpp's kernel discovery)";
+            return std::string();
+        }
+
         auto session = std::make_shared<Session>();
         session->id = id;
         session->options = options;
 
         KernelProcessOptions procOptions;
-        procOptions.kernelExePath = m_kernelExePath;
+        procOptions.kernelExePath = exeIt->second;
         procOptions.rHome = options.rHome;
         procOptions.rPath = options.rPath;
         procOptions.rLibs = options.rLibs;
         procOptions.pandocPath = options.pandocPath;
         procOptions.heraSrcPath = options.heraSrcPath;
+        procOptions.pythonHome = options.pythonHome;
+        procOptions.pythonPath = options.pythonPath;
+        procOptions.venvPath = options.venvPath;
         procOptions.registrationIp = m_registrationIp;
         procOptions.registrationPort = m_registrationPort;
 
@@ -226,7 +237,10 @@ namespace themisto
             // will hand back as the resulting KernelConfiguration's key
             // (see the comment in startRegistrationListener()).
             procOptions.key = m_registrationKey;
-            ensureRBinOnPath(options.rHome, options.rPath);
+            if (options.kernelType == "r")
+            {
+                ensureRBinOnPath(options.rHome, options.rPath);
+            }
             session->process = std::make_unique<KernelProcess>(procOptions);
             session->process->start();
 
@@ -368,7 +382,11 @@ namespace themisto
         json result = json::array();
         for (auto& [id, session] : m_sessions)
         {
-            result.push_back({ { "sessionId", id }, { "status", toString(session->status.load()) } });
+            result.push_back({
+                { "sessionId", id },
+                { "status", toString(session->status.load()) },
+                { "kernelType", session->options.kernelType }
+            });
         }
         return result;
     }

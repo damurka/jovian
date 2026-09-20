@@ -5,6 +5,15 @@ export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error';
 export type LoggerFunction = (level: LogLevel, message: string, data?: any) => void;
 
 export interface EngineOptions {
+    /**
+     * Which kernel a session runs: 'r' (Elara, the default -- every caller
+     * that predates this field keeps behaving exactly as before) or
+     * 'python' (Carpo). Selects which set of the fields below the
+     * supervisor actually uses (native/src/themisto/session_registry.cpp's
+     * SessionOptions::kernelType) and which kernel executable it spawns.
+     */
+    kernelType?: 'r' | 'python';
+
     rHome?: string;
     rPath?: string;
     rLibs?: string;
@@ -16,6 +25,14 @@ export interface EngineOptions {
      * Defaults to the copy bundled with this npm package.
      */
     heraSrcPath?: string;
+
+    /** Only used when kernelType is 'python' -- Carpo's equivalent of rHome. */
+    pythonHome?: string;
+    /** Only used when kernelType is 'python' -- Carpo's equivalent of rPath. */
+    pythonPath?: string;
+    /** Only used when kernelType is 'python' -- not yet consulted by Carpo itself (see carpo::EnvironmentConfig). */
+    venvPath?: string;
+
     queueSize?: number;
     enableLogging?: boolean;
     enableMetrics?: boolean;

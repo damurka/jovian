@@ -239,7 +239,7 @@ namespace
             // std::_Exit() (this file's main(), below) to reclaim the
             // process's resources sidesteps a destructor that's confirmed
             // broken rather than papering over it with a guess.
-            m_registry = new SessionRegistry(ELARA_TEST_KERNEL_EXE, "127.0.0.1");
+            m_registry = new SessionRegistry({ { "r", ELARA_TEST_KERNEL_EXE } }, "127.0.0.1");
             m_registry->startRegistrationListener();
 #endif
         }
@@ -268,7 +268,7 @@ namespace
 // borrowed pattern.
 TEST(SessionRegistryEmptyStateTest, GetSessionOnUnknownIdReturnsNull)
 {
-    auto* registry = new SessionRegistry("unused-kernel-exe-path", "127.0.0.1");
+    auto* registry = new SessionRegistry({ { "r", "unused-kernel-exe-path" } }, "127.0.0.1");
     registry->startRegistrationListener();
 
     EXPECT_EQ(registry->getSession("does-not-exist"), nullptr);
@@ -276,7 +276,7 @@ TEST(SessionRegistryEmptyStateTest, GetSessionOnUnknownIdReturnsNull)
 
 TEST(SessionRegistryEmptyStateTest, ListSessionsOnEmptyRegistryReturnsEmptyArray)
 {
-    auto* registry = new SessionRegistry("unused-kernel-exe-path", "127.0.0.1");
+    auto* registry = new SessionRegistry({ { "r", "unused-kernel-exe-path" } }, "127.0.0.1");
     registry->startRegistrationListener();
 
     json sessions = registry->listSessions();
@@ -286,7 +286,7 @@ TEST(SessionRegistryEmptyStateTest, ListSessionsOnEmptyRegistryReturnsEmptyArray
 
 TEST(SessionRegistryEmptyStateTest, StopSessionOnUnknownIdReturnsFalse)
 {
-    auto* registry = new SessionRegistry("unused-kernel-exe-path", "127.0.0.1");
+    auto* registry = new SessionRegistry({ { "r", "unused-kernel-exe-path" } }, "127.0.0.1");
     registry->startRegistrationListener();
 
     EXPECT_FALSE(registry->stopSession("does-not-exist"));
@@ -294,7 +294,7 @@ TEST(SessionRegistryEmptyStateTest, StopSessionOnUnknownIdReturnsFalse)
 
 TEST(SessionRegistryEmptyStateTest, SendExecuteOnUnknownIdReturnsFalse)
 {
-    auto* registry = new SessionRegistry("unused-kernel-exe-path", "127.0.0.1");
+    auto* registry = new SessionRegistry({ { "r", "unused-kernel-exe-path" } }, "127.0.0.1");
     registry->startRegistrationListener();
 
     EXPECT_FALSE(registry->sendExecute("does-not-exist", "msg-1", "1 + 1", json::object()));
@@ -302,7 +302,7 @@ TEST(SessionRegistryEmptyStateTest, SendExecuteOnUnknownIdReturnsFalse)
 
 TEST(SessionRegistryEmptyStateTest, SendInterruptOnUnknownIdReturnsFalse)
 {
-    auto* registry = new SessionRegistry("unused-kernel-exe-path", "127.0.0.1");
+    auto* registry = new SessionRegistry({ { "r", "unused-kernel-exe-path" } }, "127.0.0.1");
     registry->startRegistrationListener();
 
     EXPECT_FALSE(registry->sendInterrupt("does-not-exist", "msg-1"));
@@ -310,7 +310,7 @@ TEST(SessionRegistryEmptyStateTest, SendInterruptOnUnknownIdReturnsFalse)
 
 TEST(SessionRegistryEmptyStateTest, RestartSessionOnUnknownIdReturnsErrorAndEmptyId)
 {
-    auto* registry = new SessionRegistry("unused-kernel-exe-path", "127.0.0.1");
+    auto* registry = new SessionRegistry({ { "r", "unused-kernel-exe-path" } }, "127.0.0.1");
     registry->startRegistrationListener();
 
     std::string error;
@@ -326,7 +326,7 @@ TEST(SessionRegistryEmptyStateTest, CreateSessionSurfacesAKernelSpawnFailureAsAn
     // KernelProcess::start() (CreateProcessA) before anything R-related
     // happens, hitting createSessionWithId()'s catch block
     // (session_registry.cpp) rather than the registration-handshake path.
-    auto* registry = new SessionRegistry("C:\\this\\path\\does\\not\\exist\\elara.exe", "127.0.0.1");
+    auto* registry = new SessionRegistry({ { "r", "C:\\this\\path\\does\\not\\exist\\elara.exe" } }, "127.0.0.1");
     registry->startRegistrationListener();
 
     SessionOptions options;
@@ -335,6 +335,27 @@ TEST(SessionRegistryEmptyStateTest, CreateSessionSurfacesAKernelSpawnFailureAsAn
 
     EXPECT_TRUE(id.empty());
     EXPECT_FALSE(error.empty());
+}
+
+// Deliberately leaked for the same reason as SessionRegistryTest's fixture
+// member (see its comment above) -- consistent behavior, not just a
+// borrowed pattern.
+TEST(SessionRegistryEmptyStateTest, CreateSessionFailsCleanlyForAnUnregisteredKernelType)
+{
+    // This supervisor only knows about "r" (e.g. carpo wasn't built --
+    // JOVIAN_BUILD_CARPO defaults OFF, see main.cpp) -- requesting
+    // kernelType "python" must fail with a clear, immediate error instead
+    // of crashing, hanging, or silently falling back to "r"'s executable.
+    auto* registry = new SessionRegistry({ { "r", "unused-kernel-exe-path" } }, "127.0.0.1");
+    registry->startRegistrationListener();
+
+    SessionOptions options;
+    options.kernelType = "python";
+    std::string error;
+    std::string id = registry->createSession(options, error);
+
+    EXPECT_TRUE(id.empty());
+    EXPECT_NE(error.find("python"), std::string::npos);
 }
 
 // ElaraExitsCleanlyWithAnActionableMessageWhenRCannotBeLoaded moved to
@@ -370,7 +391,7 @@ TEST(SessionRegistryEmptyStateTest, CreateSessionFailsFastWhenTheKernelProcessDi
     // misconfigured -- an empty rHome is enough to reproduce elara's own
     // fast-exit path regardless of what's actually installed on the machine
     // running this test.
-    auto* registry = new SessionRegistry(ELARA_TEST_KERNEL_EXE, "127.0.0.1");
+    auto* registry = new SessionRegistry({ { "r", ELARA_TEST_KERNEL_EXE } }, "127.0.0.1");
     registry->startRegistrationListener();
 
     SessionOptions options; // rHome left empty deliberately

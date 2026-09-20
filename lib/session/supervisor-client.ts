@@ -90,11 +90,15 @@ export class SupervisorClient {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
+                kernelType: options.kernelType,
                 rHome: options.rHome,
                 rPath: options.rPath,
                 rLibs: options.rLibs,
                 pandocPath: options.pandocPath,
-                heraSrcPath: options.heraSrcPath
+                heraSrcPath: options.heraSrcPath,
+                pythonHome: options.pythonHome,
+                pythonPath: options.pythonPath,
+                venvPath: options.venvPath
             })
         });
 
@@ -135,11 +139,15 @@ export class SupervisorClient {
             ...(options ? {
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({
+                    kernelType: options.kernelType,
                     rHome: options.rHome,
                     rPath: options.rPath,
                     rLibs: options.rLibs,
                     pandocPath: options.pandocPath,
-                    heraSrcPath: options.heraSrcPath
+                    heraSrcPath: options.heraSrcPath,
+                    pythonHome: options.pythonHome,
+                    pythonPath: options.pythonPath,
+                    venvPath: options.venvPath
                 })
             } : {})
         });
