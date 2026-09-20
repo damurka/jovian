@@ -143,7 +143,14 @@ namespace {
 
     std::string describeOpenFailure(const std::string& path) {
         const char* r_home = std::getenv("R_HOME");
-        std::string reason = ::dlerror() ? std::string(::dlerror()) : "unknown error";
+        // dlerror() must be called exactly once here, not twice: POSIX
+        // clears the recorded error as soon as it's returned, so a second
+        // call (as this used to do, once in a condition and again inside
+        // its branch) always sees NULL by then -- std::string(nullptr) is
+        // undefined behavior, and this is confirmed to be exactly what
+        // crashed a real CI run (a segfault in ElaraTest on macOS).
+        const char* dlerror_msg = ::dlerror();
+        std::string reason = dlerror_msg ? std::string(dlerror_msg) : "unknown error";
         std::string message;
         if (!r_home || !*r_home) {
             message = "R_HOME is not set -- elara needs a working R installation to run. "

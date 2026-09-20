@@ -20,6 +20,34 @@ namespace elara
             fflush(stdout);
             #else
             setenv("R_HOME", env_config.r_home.c_str(), 1);
+
+            // Real, reproduced CI failure this fixes: loadRApi() (r_dynlib.cpp)
+            // dlopen()s libR.so by its full path directly, which needs no
+            // LD_LIBRARY_PATH/DYLD_LIBRARY_PATH entry for *that* one call --
+            // but R's own base packages (utils.so, methods.so, ...) are
+            // themselves shared objects with libR.so as a plain (unqualified)
+            // NEEDED entry, loaded later via R's own dyn.load(). The dynamic
+            // linker resolving *that* bare "libR.so"/"libR.dylib" name needs
+            // to find it via LD_LIBRARY_PATH/DYLD_LIBRARY_PATH -- our own
+            // earlier full-path dlopen() doesn't register it under a bare
+            // name the linker will consult for later loads. Without this,
+            // every one of R's own base packages fails to load ("unable to
+            // load shared object ... libR.so: cannot open shared object
+            // file"), R limps on in a half-initialized state with none of
+            // its default packages (utils/methods/stats/...), and hera's
+            // own .Call()s into those missing packages then fail or (as seen
+            // on macOS) crash outright instead of failing cleanly.
+            std::string r_lib_dir = env_config.r_home + "/lib";
+            #ifdef __APPLE__
+            const char* dyld_var = "DYLD_LIBRARY_PATH";
+            #else
+            const char* dyld_var = "LD_LIBRARY_PATH";
+            #endif
+            const char* existing_ld_path = getenv(dyld_var);
+            std::string new_ld_path = existing_ld_path && *existing_ld_path
+                ? r_lib_dir + ":" + existing_ld_path
+                : r_lib_dir;
+            setenv(dyld_var, new_ld_path.c_str(), 1);
             #endif
         } else {
             printf("[elara::Server] WARNING: R_HOME is empty!\n");
