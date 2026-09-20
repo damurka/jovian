@@ -1,5 +1,6 @@
 #include <string>
 #include <random>
+#include <cerrno>
 
 #include "zmq_addon.hpp"
 #include "middleware_impl.hpp"
@@ -64,7 +65,39 @@ namespace adrastea
 
         if (!port.empty())
         {
-            socket.bind(getEndPoint(transport, ip, port));
+            // 'port' was chosen ahead of time by findFreePort() (elara.cpp's
+            // makeKernelConfiguration(), so it can announce all 5 ports to
+            // themisto in one registration message before any socket
+            // exists yet). That's an inherent bind-then-unbind-then-bind-
+            // later TOCTOU: findFreePort() only proved the port was free at
+            // the moment it probed it, with real R interpreter
+            // initialization (seconds, not microseconds) sitting between
+            // that probe and this bind. A second kernel process racing
+            // through the same dance (e.g. two concurrent
+            // SessionRegistry::restartSession() calls each spawning their
+            // own elara.exe) can and did grab the same "free" port in that
+            // window -- confirmed via a real Ubuntu CI failure ("Address
+            // already in use") in
+            // ConcurrentRestartsForTheSameSessionDontLeakAnExtraKernelProcess.
+            // Rather than trying to make port reservation perfectly atomic
+            // across process boundaries (which POSIX/Winsock don't really
+            // support without holding the socket open across that whole
+            // gap), treat a stale reservation as recoverable: fall back to
+            // picking a fresh port directly on this socket, the same
+            // race-free path used below when no port was pre-selected at
+            // all.
+            try
+            {
+                socket.bind(getEndPoint(transport, ip, port));
+            }
+            catch (const zmq::error_t& e)
+            {
+                if (e.num() != EADDRINUSE)
+                {
+                    throw;
+                }
+                findFreePortImpl(socket, transport, ip, 100, 49152, 65536);
+            }
         }
         else
         {
