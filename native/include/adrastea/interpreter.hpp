@@ -82,6 +82,17 @@ namespace adrastea
         void inputRequest(const std::string& prompt, bool pwd);
         void inputReply(const std::string& value);
 
+        // Set from the current execute_request's allow_stdin at the top of
+        // executeRequest() (interpreter.cpp), before dispatching into the
+        // language-specific executeRequestImpl() -- read from a plain C
+        // callback with no access to a per-call config (elara::ReadConsole()
+        // in interpreter_r.cpp, carpoNativeInput() in interpreter_py.cpp),
+        // only to the process-wide registered interpreter. Lives here
+        // rather than being duplicated on each language backend since both
+        // backends need exactly the same "capture it, read it later from an
+        // unrelated callback" shape.
+        bool allowsStdin() const noexcept { return m_allowStdin; }
+
         void registerCommManager(adrastea::CommManager* manager);
 
         // --- FIXED NAMING COLLISIONS HERE ---
@@ -138,6 +149,7 @@ namespace adrastea
         ControlMessenger* p_messenger;
         const HistoryManager* p_history;
         RequestContext m_requestContext;
+        bool m_allowStdin = false;
     };
 
     // --- FIXED INLINE DEFINITIONS HERE ---

@@ -1,5 +1,6 @@
 #include "carpo/interpreter_py.hpp"
 #include "adrastea/helper.hpp"
+#include "adrastea/input.hpp"
 
 #include <cstdlib>
 #include <stdexcept>
@@ -115,6 +116,24 @@ if _carpo_venv:
     ):
         if os.path.isdir(_carpo_site) and _carpo_site not in sys.path:
             sys.path.insert(0, _carpo_site)
+
+
+# Routes every input() call -- from user code AND from anything the standard
+# library itself calls input() from -- through __carpo_native_input (wired
+# into this module's globals alongside __carpo_native_write_stdout/_stderr;
+# see this file's header comment and PyInterpreter's constructor). This
+# reassigns the process-wide builtins module's attribute, so it takes effect
+# for user code executed against m_userGlobals too, not just this bootstrap
+# module -- both share the same single `builtins` module instance, the same
+# way every Python module does.
+import builtins as _carpo_builtins
+
+
+def __carpo_input(prompt=""):
+    return __carpo_native_input(str(prompt))
+
+
+_carpo_builtins.input = __carpo_input
 
 
 def __carpo_run(code, g):
@@ -300,6 +319,37 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
 
         PyMethodDef kWriteStdoutDef = { "__carpo_native_write_stdout", carpoNativeWriteStdout, CARPO_PY_METH_VARARGS, nullptr };
         PyMethodDef kWriteStderrDef = { "__carpo_native_write_stderr", carpoNativeWriteStderr, CARPO_PY_METH_VARARGS, nullptr };
+
+        // Backs __carpo_input() (see kBootstrapSource's builtins.input
+        // override) -- genuinely blocks this single execution thread via
+        // adrastea::blockingInputRequest(), the same call R's ReadConsole()
+        // (interpreter_r.cpp) makes. Any exception it throws (allow_stdin
+        // was false, or some lower-level failure) is converted into a real
+        // Python exception here rather than being allowed to unwind across
+        // this C callback boundary into CPython's own C call stack -- the
+        // same rule ReadConsole() follows for R, just expressed the way
+        // Python callbacks are required to report failure (return nullptr
+        // with an exception set, per the C API's own contract), so the
+        // user's code sees an ordinary catchable exception raised from
+        // input(), structured by __carpo_run's own except clause like any
+        // other.
+        PyObject* carpoNativeInput(PyObject* /*self*/, PyObject* args)
+        {
+            std::string prompt = pyUnicodeToStdString(PyTuple_GetItem(args, 0));
+            try
+            {
+                std::string value = adrastea::blockingInputRequest(
+                    prompt, false, p_interpreter && p_interpreter->allowsStdin());
+                return PyUnicode_FromString(value.c_str());
+            }
+            catch (const std::exception& e)
+            {
+                PyErr_SetString(PyExc_RuntimeError, e.what());
+                return nullptr;
+            }
+        }
+
+        PyMethodDef kInputDef = { "__carpo_native_input", carpoNativeInput, CARPO_PY_METH_VARARGS, nullptr };
     }
 
     PyInterpreter* getPyInterpreter()
@@ -352,12 +402,14 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
         // ordinary already-bound globals when it references them.
         py::Ref stdoutFn(PyCFunction_NewEx(&kWriteStdoutDef, nullptr, nullptr));
         py::Ref stderrFn(PyCFunction_NewEx(&kWriteStderrDef, nullptr, nullptr));
-        if (!stdoutFn || !stderrFn)
+        py::Ref inputFn(PyCFunction_NewEx(&kInputDef, nullptr, nullptr));
+        if (!stdoutFn || !stderrFn || !inputFn)
         {
-            throw std::runtime_error(describePythonError("Could not create Carpo's native stdout/stderr callbacks"));
+            throw std::runtime_error(describePythonError("Could not create Carpo's native stdout/stderr/input callbacks"));
         }
         PyDict_SetItemString(bootstrapGlobals.get(), "__carpo_native_write_stdout", stdoutFn.get());
         PyDict_SetItemString(bootstrapGlobals.get(), "__carpo_native_write_stderr", stderrFn.get());
+        PyDict_SetItemString(bootstrapGlobals.get(), "__carpo_native_input", inputFn.get());
 
         py::Ref bootstrapResult(PyRun_String(
             kBootstrapSource, CARPO_PY_FILE_INPUT, bootstrapGlobals.get(), bootstrapGlobals.get()));
@@ -447,11 +499,6 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
         adrastea::ExecuteRequestConfig config,
         adrastea::json /*user_expressions*/)
     {
-        if (config.store_history)
-        {
-            const_cast<adrastea::HistoryManager&>(getHistoryManager()).storeInputs(0, execution_count, code);
-        }
-
         py::Ref args(PyTuple_New(2));
         PyTuple_SetItem(args.get(), 0, PyUnicode_FromString(code.c_str())); // steals the new ref
         Py_IncRef(static_cast<PyObject*>(m_userGlobals)); // PyTuple_SetItem steals; m_userGlobals is only borrowed

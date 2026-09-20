@@ -135,6 +135,26 @@ namespace themisto
         bool sendExecute(const std::string& sessionId, const std::string& msgId, const std::string& code, const json& options);
         bool sendInterrupt(const std::string& sessionId, const std::string& msgId);
 
+        // Sends a real Jupyter history_request on the shell channel --
+        // KernelCore::historyRequest() (kernel_core.cpp) already handles it
+        // and replies with a genuine history_reply; this was simply never
+        // reachable from anywhere outside a raw Jupyter client connecting
+        // directly to the kernel's own ZMQ ports until now. `options` may
+        // carry histAccessType ("tail"/"range"/"search", default "tail"),
+        // output, raw, n, session, start, stop, pattern, unique -- see
+        // HistoryManager::processRequest()'s own field reads for the exact
+        // per-access-type set. Reply is relayed like any other shell
+        // message (ws_relay.cpp/SessionRegistry::pollLoop()'s existing
+        // receiveOnShell() polling), not returned synchronously here.
+        bool sendHistory(const std::string& sessionId, const std::string& msgId, const json& options);
+
+        // Answers a real, currently-blocked input_request from this
+        // session's kernel (R's readline()/Python's input(), see
+        // adrastea::blockingInputRequest()) -- the one thing that actually
+        // unblocks it, since ServerZmqImpl::sendStdin() (kernel side) is a
+        // genuine blocking ZMQ recv waiting for exactly this.
+        bool sendInputReply(const std::string& sessionId, const std::string& value);
+
     private:
         std::string createSessionWithId(const std::string& id, SessionOptions options, std::string& error);
 

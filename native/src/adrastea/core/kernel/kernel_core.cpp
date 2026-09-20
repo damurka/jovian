@@ -263,6 +263,15 @@ namespace adrastea
                     channel::SHELL
                 );
 
+                // The one and only storeInputs() call site -- both
+                // RInterpreter and PyInterpreter used to also call this
+                // themselves, inside their own executeRequestImpl(), storing
+                // the exact same (session=0, execution_count, code) tuple a
+                // second time on every single execution. Removed there, not
+                // here: every interpreter's execute_reply flows through this
+                // one shared callback regardless of language, so this is the
+                // correct single place for it, not something each new
+                // interpreter needs to remember to do itself.
                 if (!config.silent && config.store_history)
                 {
                     p_historyManager->storeInputs(0, execution_count, code);

@@ -10,7 +10,7 @@ export type MessageTopic =
     | 'status'
     | string;
 
-export type MessageChannel = 'iopub' | 'shell';
+export type MessageChannel = 'iopub' | 'shell' | 'stdin';
 
 export interface JupyterMessage<T = any> {
     topic: MessageTopic;
@@ -47,4 +47,14 @@ export interface ErrorContent {
 export interface DisplayDataContent {
     data: Record<string, any>;
     metadata: Record<string, any>;
+}
+
+// Carried by the 'input_request' message a kernel sends on the stdin
+// channel when running code calls input()/readline()/scan() during an
+// execute() with allowStdin: true -- see Session's own 'input_request'
+// event and sendInputReply() (lib/session/session-manager.ts) for how a
+// caller answers it and unblocks the kernel's single execution thread.
+export interface InputRequestContent {
+    prompt: string;
+    password: boolean;
 }

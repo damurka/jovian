@@ -102,6 +102,29 @@ test('ExecutionQueue', async (t) => {
         assert.strictEqual(result.error?.message, 'boom');
     });
 
+    await t.test('should forward execute()\'s options (e.g. allowStdin) to the addon', async () => {
+        // Regression test: processNext() used to call this.addon.execute(
+        // item.code) with no second argument at all, so allowStdin/silent/
+        // storeHistory never reached the WS execute frame no matter what a
+        // caller passed to execute() -- see Session's wsAddon.execute() in
+        // lib/session/session-manager.ts, which is the addon this stands in for.
+        const emitter = new EventEmitter();
+        let receivedOptions: unknown;
+        const mockAddon = {
+            execute: (_code: string, options: unknown) => {
+                receivedOptions = options;
+                return 'msg-opts';
+            }
+        };
+
+        const queue = new ExecutionQueue(mockAddon, emitter);
+        const resultPromise = queue.execute('input("x?")', { allowStdin: true, silent: true });
+        emitter.emit('message', message('execute_reply', 'msg-opts', { status: 'ok' }));
+        await resultPromise;
+
+        assert.deepStrictEqual(receivedOptions, { allowStdin: true, silent: true });
+    });
+
     await t.test('should process queued executions sequentially, one in flight at a time', async () => {
         const emitter = new EventEmitter();
         const executed: string[] = [];
@@ -138,6 +161,28 @@ test('ExecutionQueue', async (t) => {
             queue.execute('Sys.sleep(100)', { timeout: 20 }),
             /timed out/
         );
+    });
+
+    await t.test('should not time out while blocked on an input_request, even past the configured timeout', async () => {
+        // Regression test for a real, reported problem: the playground's
+        // execute timeout used to apply even while a kernel was genuinely,
+        // healthily blocked waiting on a human to answer an input() prompt
+        // -- a slow human, not a stuck kernel, could trip it. An
+        // input_request must clear the pending timer so no fixed deadline
+        // applies once the kernel is legitimately waiting on stdin.
+        const emitter = new EventEmitter();
+        const mockAddon = { execute: () => 'msg-input' };
+        const queue = new ExecutionQueue(mockAddon, emitter, 100, undefined);
+
+        const resultPromise = queue.execute('input("x?")', { timeout: 20, allowStdin: true });
+        emitter.emit('message', message('input_request', 'msg-input', { prompt: 'x?', password: false }));
+
+        // Long past the 20ms timeout that would otherwise have fired.
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        emitter.emit('message', message('execute_reply', 'msg-input', { status: 'ok', execution_count: 1 }));
+
+        const result = await resultPromise;
+        assert.strictEqual(result.success, true);
     });
 
     await t.test('should reject when queue is full', async () => {

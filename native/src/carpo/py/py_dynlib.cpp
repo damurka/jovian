@@ -23,6 +23,7 @@ namespace api {
     PyErr_Fetch_t p_PyErr_Fetch = nullptr;
     PyErr_NormalizeException_t p_PyErr_NormalizeException = nullptr;
     PyErr_Clear_t p_PyErr_Clear = nullptr;
+    PyErr_SetString_t p_PyErr_SetString = nullptr;
 
     PyObject_Str_t p_PyObject_Str = nullptr;
     PyObject_GetAttrString_t p_PyObject_GetAttrString = nullptr;
@@ -57,6 +58,7 @@ namespace api {
     PyCFunction_NewEx_t p_PyCFunction_NewEx = nullptr;
 
     PyObject* p_Py_None = nullptr;
+    PyObject** p_PyExc_RuntimeError = nullptr;
 }
 
 namespace {
@@ -293,6 +295,7 @@ void loadPyApi(const std::string& pythonHome) {
     resolve(handle, "PyErr_Fetch", p_PyErr_Fetch, libPath);
     resolve(handle, "PyErr_NormalizeException", p_PyErr_NormalizeException, libPath);
     resolve(handle, "PyErr_Clear", p_PyErr_Clear, libPath);
+    resolve(handle, "PyErr_SetString", p_PyErr_SetString, libPath);
 
     resolve(handle, "PyObject_Str", p_PyObject_Str, libPath);
     resolve(handle, "PyObject_GetAttrString", p_PyObject_GetAttrString, libPath);
@@ -336,6 +339,12 @@ void loadPyApi(const std::string& pythonHome) {
     // which are pointer *variables* (SEXP R_NilValue;) needing an extra
     // dereference, _Py_NoneStruct is the object itself.
     resolve(handle, "_Py_NoneStruct", p_Py_None, libPath);
+
+    // A genuine pointer variable (see p_PyExc_RuntimeError's declaration
+    // comment), so this resolves to a PyObject** directly -- no extra
+    // dereference needed here, only at each use site (the PyExc_RuntimeError
+    // macro).
+    resolve(handle, "PyExc_RuntimeError", p_PyExc_RuntimeError, libPath);
 
     g_loaded = true;
 }

@@ -3,6 +3,7 @@
 #include "client_zmq_impl.hpp"
 #include "../common/authentication.hpp"
 #include "../common/zmq_serializer.hpp"
+#include "adrastea/guid.hpp"
 
 namespace adrastea
 {
@@ -15,9 +16,25 @@ namespace adrastea
     ClientZmqImpl::ClientZmqImpl(zmq::context_t& context,
         const KernelConfiguration& config,
         json::error_handler_t eh)
-        : p_auth(makeAuthentication(config.m_signatureScheme, config.m_key))
-        , m_shellClient(context, config.m_transport, config.m_ip, config.m_shellPort)
-        , m_controlClient(context, config.m_transport, config.m_ip, config.m_controlPort)
+        // One shared ZMQ identity across shell/control/stdin -- required so
+        // KernelCore::sendStdin() (kernel_core.cpp) can actually reach this
+        // client: it addresses the input_request it sends on the stdin
+        // ROUTER using the identity it captured from whichever execute_
+        // request arrived on the SHELL ROUTER, not a fresh one. Without an
+        // explicit identity here, each DealerChannel gets its own
+        // independently-random ZMQ-assigned identity, so that reused
+        // shell-channel identity would never match any peer actually
+        // connected to the stdin ROUTER -- ZMQ silently drops the send, and
+        // the kernel's real, untimed ZMQ recv underneath ends up blocking
+        // forever with no way to ever be answered (confirmed directly: this
+        // was the actual cause of input_request never arriving end-to-end,
+        // even though every other piece of this stdin feature -- the ZMQ
+        // wiring, the WS relay, the browser UI -- was independently correct).
+        : m_identity(newGuid().toString())
+        , p_auth(makeAuthentication(config.m_signatureScheme, config.m_key))
+        , m_shellClient(context, config.m_transport, config.m_ip, config.m_shellPort, m_identity)
+        , m_controlClient(context, config.m_transport, config.m_ip, config.m_controlPort, m_identity)
+        , m_stdinClient(context, config.m_transport, config.m_ip, config.m_stdinPort, m_identity)
         , m_iopubClient(context, config, this)
         , m_heartbeatClient(context, config, max_retry, heartbeat_timeout)
         , p_messenger(context)
@@ -69,6 +86,26 @@ namespace adrastea
         }
     }
 
+    void ClientZmqImpl::sendOnStdin(Message msg)
+    {
+        zmq::multipart_t wire_msg = ZmqSerializer::serialize(std::move(msg), *p_auth, m_errorHandler);
+        m_stdinClient.sendMessage(wire_msg);
+    }
+
+    std::optional<Message> ClientZmqImpl::receiveOnStdin(bool blocking)
+    {
+        std::optional<zmq::multipart_t> wire_msg = m_stdinClient.receiveMessage(blocking);
+
+        if (wire_msg.has_value())
+        {
+            return deserialize(wire_msg.value());
+        }
+        else
+        {
+            return std::nullopt;
+        }
+    }
+
     void ClientZmqImpl::registerShellListener(const listener& l)
     {
         m_shellListener = l;
@@ -77,6 +114,11 @@ namespace adrastea
     void ClientZmqImpl::registerControlListener(const listener& l)
     {
         m_controlListener = l;
+    }
+
+    void ClientZmqImpl::registerStdinListener(const listener& l)
+    {
+        m_stdinListener = l;
     }
 
     std::size_t ClientZmqImpl::iopubQueueSize() const
@@ -119,6 +161,11 @@ namespace adrastea
         m_controlListener(std::move(msg));
     }
 
+    void ClientZmqImpl::notifyStdinListener(Message msg)
+    {
+        m_stdinListener(std::move(msg));
+    }
+
     void ClientZmqImpl::notifyIopubListener(PubMessage msg)
     {
         m_iopubListener(std::move(msg));
@@ -133,11 +180,13 @@ namespace adrastea
     {
         zmq::multipart_t wire_msg;
         zmq::pollitem_t items[]
-            = { { m_shellClient.getSocket(), 0, ZMQ_POLLIN, 0 }, { m_controlClient.getSocket(), 0, ZMQ_POLLIN, 0 } };
+            = { { m_shellClient.getSocket(), 0, ZMQ_POLLIN, 0 },
+                { m_controlClient.getSocket(), 0, ZMQ_POLLIN, 0 },
+                { m_stdinClient.getSocket(), 0, ZMQ_POLLIN, 0 } };
 
         while (true)
         {
-            zmq::poll(&items[0], 2, std::chrono::milliseconds(timeout));
+            zmq::poll(&items[0], 3, std::chrono::milliseconds(timeout));
             try
             {
                 if (items[0].revents & ZMQ_POLLIN)
@@ -152,6 +201,13 @@ namespace adrastea
                     wire_msg.recv(m_controlClient.getSocket());
                     Message msg = deserialize(wire_msg);
                     notifyControlListener(std::move(msg));
+                    return;
+                }
+                if (items[2].revents & ZMQ_POLLIN)
+                {
+                    wire_msg.recv(m_stdinClient.getSocket());
+                    Message msg = deserialize(wire_msg);
+                    notifyStdinListener(std::move(msg));
                     return;
                 }
             }

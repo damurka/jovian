@@ -48,6 +48,17 @@ namespace adrastea
         std::optional<Message> receiveOnControl(bool blocking);
         void registerControlListener(const listener& l);
 
+        // stdin channel -- carries input_request (kernel -> here, when the
+        // interpreter blocks on e.g. R's readline()/Python's input(), see
+        // adrastea::blockingInputRequest()) and input_reply (here -> kernel,
+        // unblocking it). Themisto's SessionRegistry polls receiveOnStdin()
+        // the same way it already polls receiveOnShell(), relaying an
+        // input_request over this session's WebSocket; sendOnStdin() is
+        // what actually answers it once the browser replies.
+        void sendOnStdin(Message msg);
+        std::optional<Message> receiveOnStdin(bool blocking);
+        void registerStdinListener(const listener& l);
+
         // iopub channel
         std::size_t iopubQueueSize() const;
         std::optional<PubMessage> popIopubMessage();
@@ -74,14 +85,20 @@ namespace adrastea
 
         void notifyShellListener(Message msg);
         void notifyControlListener(Message msg);
+        void notifyStdinListener(Message msg);
         void notifyIopubListener(PubMessage msg);
         void notifyKernelDead(bool status);
+
+        // See this class's constructor comment for why shell/control/stdin
+        // all share this one identity.
+        std::string m_identity;
 
         using authentication_ptr = std::unique_ptr<Authentication>;
         authentication_ptr p_auth;
 
         DealerChannel m_shellClient;
         DealerChannel m_controlClient;
+        DealerChannel m_stdinClient;
         ClientIopub m_iopubClient;
         ClientHeartbeat m_heartbeatClient;
 
@@ -91,6 +108,7 @@ namespace adrastea
 
         listener m_shellListener;
         listener m_controlListener;
+        listener m_stdinListener;
         iopub_listener m_iopubListener;
 
         Thread m_iopubThread;

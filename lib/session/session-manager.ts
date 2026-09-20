@@ -1,6 +1,17 @@
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
-import type { EngineOptions, ExecutionOptions, ExecutionResult, LogLevel, ShinyAppHandle, ShinyAppOptions } from '../types/index.js';
+import type {
+    EngineOptions,
+    ExecutionHistoryEntry,
+    ExecutionOptions,
+    ExecutionResult,
+    KernelHistoryEntry,
+    KernelHistoryOptions,
+    LogLevel,
+    ShinyAppHandle,
+    ShinyAppOptions
+} from '../types/index.js';
+import type { JupyterMessage } from '../types/messages.js';
 import { Logger } from '../utils/logger.js';
 import { MessageRouter } from '../messaging/message-router.js';
 import { ExecutionQueue } from '../execution/execution-queue.js';
@@ -39,6 +50,12 @@ interface WsFrame {
  * doesn't care where its raw JSON envelope strings come from -- here, that's
  * the WebSocket's 'message' frames.
  */
+// Local, in-memory only -- same reasoning as the playground's own
+// MAX_HISTORY_CELLS (tools/playground/server.js): bounds a long-lived
+// Session's memory use against a session that just keeps running forever,
+// without needing every caller to remember to cap it themselves.
+const MAX_EXECUTION_HISTORY_ENTRIES = 200;
+
 export class Session extends EventEmitter {
     private ws: WebSocket | undefined;
     // Public (not just for this class's own use): callers that need to
@@ -47,6 +64,13 @@ export class Session extends EventEmitter {
     // display, via GET {httpBase}/sessions/{sessionId}) can, instead of
     // needing a new method here for every such diagnostic.
     readonly info: SessionConnectionInfo;
+    // The exact options this session was created with -- e.g. so a caller
+    // that only has a `Session` handle (not the options it was originally
+    // built from) can still answer "what R_HOME/PYTHONHOME is this",
+    // without needing its own separate bookkeeping (a real gap: the
+    // playground tool used to duplicate this into its own per-session
+    // `entry.config` purely because nothing on Session itself exposed it).
+    readonly options: EngineOptions;
     private readonly supervisor: SupervisorClient;
     private readonly logger: Logger;
     private readonly router: MessageRouter;
@@ -55,11 +79,19 @@ export class Session extends EventEmitter {
     private readyPromise: Promise<void>;
     private stopped = false;
 
+    // Every execute() call's code + the iopub messages it produced, bucketed
+    // by the execute_request's own msg id (execute_input's parentMsgId) --
+    // see getHistory()'s doc comment for what this is actually for.
+    private readonly executionHistory: ExecutionHistoryEntry[] = [];
+    private readonly executionHistoryByMsgId = new Map<string, ExecutionHistoryEntry>();
+
     constructor(info: SessionConnectionInfo, options: EngineOptions, supervisor: SupervisorClient) {
         super();
         this.info = info;
+        this.options = options;
         this.supervisor = supervisor;
         this.logger = new Logger(options.logger);
+        this.on('message', (message: JupyterMessage) => this.recordExecutionHistory(message));
 
         this.router = new MessageRouter(this);
         this.router.registerHandler('stream', new StreamHandler());
@@ -84,9 +116,9 @@ export class Session extends EventEmitter {
         // (client-side) rather than returned from the "addon", since the
         // supervisor has no synchronous return path over a WS send.
         const wsAddon = {
-            execute: (code: string): string => {
+            execute: (code: string, options: ExecutionOptions = {}): string => {
                 const id = randomUUID();
-                this.send({ type: 'execute', id, code });
+                this.send({ type: 'execute', id, code, options });
                 return id;
             }
         };
@@ -198,6 +230,50 @@ export class Session extends EventEmitter {
         this.ws?.send(JSON.stringify(frame));
     }
 
+    // Buckets every iopub message this session produces by which
+    // execute_request it belongs to, purely from the messages themselves --
+    // execute_input's own content.code/execution_count is enough to start a
+    // new entry, so this needs no separate bookkeeping of the original
+    // execute() call. Mirrors tools/playground/server.js's recordHistory(),
+    // now available to every consumer of this library, not just that one
+    // demo tool.
+    private recordExecutionHistory(message: JupyterMessage): void {
+        if (message.msgType === 'execute_input') {
+            const entry: ExecutionHistoryEntry = {
+                code: (message.content as { code?: string })?.code ?? '',
+                executionCount: (message.content as { execution_count?: number })?.execution_count,
+                time: Date.now(),
+                messages: []
+            };
+            this.executionHistory.push(entry);
+            this.executionHistoryByMsgId.set(message.parentMsgId, entry);
+            if (this.executionHistory.length > MAX_EXECUTION_HISTORY_ENTRIES) {
+                const removed = this.executionHistory.shift();
+                if (removed) {
+                    for (const [msgId, e] of this.executionHistoryByMsgId) {
+                        if (e === removed) {
+                            this.executionHistoryByMsgId.delete(msgId);
+                            break;
+                        }
+                    }
+                }
+            }
+            return;
+        }
+        // A stale input_request makes no sense to keep around -- by the
+        // time anyone reads getHistory(), it's either long since been
+        // answered (over the stdin channel, which never shows up as a
+        // 'message' event -- see the class doc on sendInputReply()) or
+        // whatever was blocked on it is long gone either way.
+        if (message.msgType === 'input_request') {
+            return;
+        }
+        const entry = this.executionHistoryByMsgId.get(message.parentMsgId);
+        if (entry) {
+            entry.messages.push(message);
+        }
+    }
+
     private async handleFrame(text: string, onReady: () => void): Promise<void> {
         let frame: WsFrame;
         try {
@@ -254,6 +330,84 @@ export class Session extends EventEmitter {
     async execute(code: string, options: ExecutionOptions = {}): Promise<ExecutionResult> {
         await this.readyPromise;
         return this.queue.execute(code, options);
+    }
+
+    /**
+     * Answers a pending input_request -- this session emits one (see the
+     * 'input_request' event, content: {prompt, password}) whenever the
+     * kernel calls input()/readline()/scan() during an execute() that was
+     * given { allowStdin: true }, and genuinely blocks its single execution
+     * thread until this arrives (ServerZmqImpl::sendStdin() in
+     * native/src/adrastea/transport/server/server_zmq_impl.cpp does a real,
+     * untimed ZMQ recv underneath). Fire-and-forget like interrupt(): the
+     * reply that eventually unblocks the kernel surfaces through the
+     * *execute_request's own* execute_reply/stream messages, not through a
+     * reply to this call.
+     */
+    sendInputReply(value: string): void {
+        this.send({ type: 'inputReply', value });
+    }
+
+    /**
+     * This session's own local record of every execute() call it has made
+     * and what each one produced (code + every iopub message), for as long
+     * as this Session object has been alive. Purely in-memory and
+     * process-local -- gone if the process holding this Session restarts,
+     * same as the Session object itself. Useful for e.g. rebuilding a UI's
+     * transcript after some *other* thing (not this process) reconnects to
+     * it, or for inspecting what actually ran without threading your own
+     * bookkeeping through every execute() call site.
+     *
+     * Not the same thing as queryKernelHistory(): this is this session's
+     * own bookkeeping (full fidelity -- includes actual output, which the
+     * kernel's own history manager doesn't track), while that one asks the
+     * *kernel itself* what it remembers running (input code only,
+     * authoritative even if some other client executed it, but capped by
+     * this process's own historical view of it, and lost across a kernel
+     * restart the same as the kernel's own memory of it is).
+     */
+    getHistory(): ExecutionHistoryEntry[] {
+        return this.executionHistory;
+    }
+
+    /**
+     * Sends a real Jupyter history_request and resolves with the kernel's
+     * own history_reply (KernelCore::historyRequest() ->
+     * HistoryManager::processRequest(), native/src/adrastea/core/history/)
+     * -- the kernel's own authoritative record of what it has executed,
+     * independent of which client (or how many, over how many reconnects)
+     * actually ran it. Defaults to the 100 most recent executions ('tail').
+     * See KernelHistoryOptions' own doc comment for the other access modes,
+     * and getHistory()'s doc comment for how this differs from that.
+     */
+    async queryKernelHistory(options: KernelHistoryOptions = {}): Promise<KernelHistoryEntry[]> {
+        await this.readyPromise;
+        const id = randomUUID();
+        const timeoutMs = 10000;
+
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                this.off('message', onMessage);
+                reject(new Error(`Timed out waiting for a history_reply after ${timeoutMs}ms`));
+            }, timeoutMs);
+
+            const onMessage = (message: JupyterMessage) => {
+                if (message.msgType !== 'history_reply' || message.parentMsgId !== id) {
+                    return;
+                }
+                clearTimeout(timer);
+                this.off('message', onMessage);
+                const content = message.content as { status?: string; ename?: string; evalue?: string; history?: KernelHistoryEntry[] };
+                if (content.status === 'error') {
+                    reject(new Error(content.evalue ?? content.ename ?? 'history_request failed'));
+                    return;
+                }
+                resolve(content.history ?? []);
+            };
+            this.on('message', onMessage);
+
+            this.send({ type: 'history', id, options });
+        });
     }
 
     /**

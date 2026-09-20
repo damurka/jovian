@@ -256,6 +256,22 @@
     .output-section.system { color: var(--text-muted); font-style: italic; }
     .output-section img { max-width: 100%; border-radius: 4px; }
 
+    .output-section.input-request { padding: 8px 14px; }
+    .input-request-row { display: flex; align-items: center; gap: 8px; }
+    .input-request-row .prompt-label { padding-top: 0; color: #e3b341; font-weight: normal; font-style: normal; }
+    .input-request-field {
+      flex: 1;
+      background: var(--code-bg);
+      border: 1px solid var(--border-focus);
+      color: var(--text-main);
+      border-radius: 4px;
+      padding: 6px 10px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      outline: none;
+    }
+    .input-request-field:disabled { border-color: var(--border-color); color: var(--text-muted); }
+
     .empty-state {
       padding: 40px; color: var(--text-muted); text-align: center; line-height: 1.6;
     }
@@ -798,7 +814,25 @@
         entry.className = 'repl-entry';
         let outputsHtml = '';
         for (const out of cell.outputs) {
-          outputsHtml += `<div class="output-section ${out.cls}">${out.isHtml ? out.text : escapeHtml(out.text)}</div>`;
+          if (out.isInputRequest) {
+            outputsHtml += `
+              <div class="output-section input-request">
+                <div class="input-request-row">
+                  <span class="prompt-label">${escapeHtml(out.prompt)}</span>
+                  <input
+                    type="${out.password ? 'password' : 'text'}"
+                    class="input-request-field"
+                    id="${out.fieldId}"
+                    ${out.answered ? 'disabled' : ''}
+                    value="${out.answered ? escapeHtml(out.password ? '••••••' : out.answeredValue ?? '') : ''}"
+                    onkeydown="if (event.key === 'Enter') { event.preventDefault(); submitPendingInput('${s.id}'); }"
+                  />
+                  ${out.answered ? '' : `<button class="btn-primary" onclick="submitPendingInput('${s.id}')">Send</button>`}
+                </div>
+              </div>`;
+          } else {
+            outputsHtml += `<div class="output-section ${out.cls}">${out.isHtml ? out.text : escapeHtml(out.text)}</div>`;
+          }
         }
         entry.innerHTML = `
           <div class="repl-header">
@@ -818,6 +852,36 @@
       if (!s || !s.currentCell) return;
       s.currentCell.outputs.push({ cls, text, isHtml: !!isHtml });
       renderCells(id);
+    }
+
+    // Answers the current cell's pending input_request (see
+    // handleStreamEvent's 'input_request' case) -- reads the field's live
+    // DOM value rather than tracked state, safe because the kernel stays
+    // blocked (nothing else can re-render this cell) until this reply goes
+    // out. POSTs fire-and-forget to /api/sessions/:id/input, which forwards
+    // to Session.sendInputReply() -- the reply that actually matters is
+    // whatever the still-pending execute() call eventually resolves with.
+    async function submitPendingInput(id) {
+      const s = sessions[id];
+      const cell = s?.currentCell;
+      const out = cell?.outputs.find((o) => o.isInputRequest && !o.answered);
+      if (!s || !cell || !out) return;
+
+      const field = document.getElementById(out.fieldId);
+      const value = field ? field.value : '';
+      out.answered = true;
+      out.answeredValue = value;
+      renderCells(id);
+
+      try {
+        await fetch(`/api/sessions/${id}/input`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value })
+        });
+      } catch (err) {
+        pushOutput(id, 'error', `Failed to send input reply: ${err.message}`);
+      }
     }
 
     function formatMimeData(data) {
@@ -854,6 +918,32 @@
           const c = msg.content ?? {};
           const traceback = Array.isArray(c.traceback) ? c.traceback.join('\n') : '';
           pushOutput(id, 'error', `${c.ename ?? 'Error'}: ${c.evalue ?? ''}${traceback ? '\n' + traceback : ''}`);
+          break;
+        }
+        case 'input_request': {
+          // The kernel's single execution thread is genuinely blocked
+          // (ServerZmqImpl::sendStdin()'s real, untimed ZMQ recv) until
+          // this session's sendInputReply() is called -- so nothing else
+          // can arrive for this session (no further stream/output/status
+          // messages) between this render and the user answering it below,
+          // which is what makes reading the field's live DOM value at
+          // submit time (rather than tracking it in `sessions` state on
+          // every keystroke) safe.
+          const s = sessions[id];
+          if (!s || !s.currentCell) break;
+          const c = msg.content ?? {};
+          const fieldId = `inputReq-${id}-${s.currentCell.inNum}-${s.currentCell.outputs.length}`;
+          s.currentCell.outputs.push({
+            cls: 'input-request',
+            isInputRequest: true,
+            fieldId,
+            prompt: c.prompt || 'Input requested:',
+            password: !!c.password
+          });
+          renderCells(id);
+          if (id === activeId) {
+            requestAnimationFrame(() => document.getElementById(fieldId)?.focus());
+          }
           break;
         }
         default:
@@ -911,6 +1001,14 @@
         els.kernelCtrls.style.display = 'none';
         els.replDock.style.display = 'none';
         els.sessionDetails.textContent = 'No session selected.';
+        // Distinguishes "genuinely nothing exists yet" from "sessions
+        // exist (e.g. reconnected after a page refresh -- see
+        // loadExistingSessions()) but none is selected" -- the static
+        // placeholder markup this replaces was written before reconnection
+        // existed, back when reaching this branch always meant the former.
+        els.replOutput.innerHTML = Object.keys(sessions).length > 0
+          ? `<div class="empty-state">Select a session from the sidebar to see its console.</div>`
+          : `<div class="empty-state">No sessions yet. Click <strong>+ New Kernel Session</strong> above to spawn a real R or Python kernel process.</div>`;
         if (infoPollTimer) { clearInterval(infoPollTimer); infoPollTimer = null; }
         renderPresets();
         return;
@@ -938,7 +1036,16 @@
       // as crashed" UX a stopped session hitting that rejection produced.
       els.btnRestartKernel.disabled = s.status === 'starting' || s.status === 'stopped';
       els.btnInterrupt.disabled = !canRun;
-      els.btnStopKernel.disabled = s.status === 'stopped';
+      // Stop asks the supervisor to gracefully shut down a live kernel
+      // process -- once a session has already crashed (its process is
+      // already gone), that request has nothing left to act on, so leaving
+      // it enabled either errors confusingly or does nothing. Disabled the
+      // same way it already is for 'stopped'. Kill stays enabled for
+      // 'crashed' on purpose: Session.kill() is a client-side-only cleanup
+      // (closes the WS, clears the queue) that doesn't need a live kernel,
+      // and it's the only way to move a crashed session to a definitive
+      // 'stopped' state short of restarting it.
+      els.btnStopKernel.disabled = s.status === 'stopped' || s.status === 'crashed';
       els.btnKillKernel.disabled = s.status === 'stopped';
 
       const configLabel = s.kernelType === 'python' ? 'PYTHONHOME' : 'R_HOME';
@@ -1023,6 +1130,21 @@
           body: JSON.stringify({ code, timeout })
         });
         const result = await res.json();
+        // Reconciles this cell's displayed "In [N]" (and the counter used
+        // for the *next* one) with the kernel's own authoritative count --
+        // matters most right after a reconnect (loadExistingSessions()),
+        // where s.execCount always restarts at 0 client-side even though
+        // the real kernel process kept counting the whole time it was
+        // alive; without this, a reconnected session's numbering would
+        // silently restart from 1 while the kernel itself reports whatever
+        // it's actually up to (e.g. 6), which is what execute_reply/
+        // execute_result messages elsewhere in this same session would
+        // still show.
+        if (typeof result.executionCount === 'number' && result.executionCount !== cell.inNum) {
+          cell.inNum = result.executionCount;
+          s.execCount = result.executionCount;
+          renderCells(id);
+        }
         if (!result.success) {
           pushOutput(id, 'system', `Execution failed${result.error ? ': ' + result.error : ''}`);
         }
@@ -1191,10 +1313,17 @@
       const previousCurrent = s.currentCell;
       s.currentCell = cell;
       try {
+        // silent: true -- this hidden probe shouldn't consume a real
+        // execution-count number (In [N] would otherwise skip one on every
+        // new session) or get recorded into the server's own session
+        // history (recordHistory() in server.js anchors a history cell on
+        // the execute_input message a silent execution never publishes),
+        // which would otherwise resurface as a spurious visible cell the
+        // next time this session's history gets replayed after a refresh.
         await fetch(`/api/sessions/${id}/execute`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code })
+          body: JSON.stringify({ code, silent: true })
         });
       } catch {
         // Best-effort -- a failed version probe just leaves the version
@@ -1207,6 +1336,105 @@
         s.version = text;
         renderSessionList();
         if (id === activeId) updateActiveHeader();
+      }
+    }
+
+    // Repopulates the sidebar from whatever sessions the supervisor still
+    // has running after a page refresh -- this page's own `sessions` map is
+    // pure in-memory client state, wiped on every reload, while the actual
+    // kernel processes (and themisto itself) keep running server-side the
+    // whole time. Without this, a refresh made every still-alive session
+    // permanently invisible/unmanageable from the UI (no way to select it,
+    // send it code, or even Stop/Kill/Restart it) even though it kept
+    // consuming resources in the background.
+    //
+    // Cell/output history can't be recovered this way -- it was only ever
+    // streamed live over SSE and held in this same in-memory `sessions`
+    // map, never persisted anywhere server-side -- so a reconnected session
+    // starts with an empty console, but is otherwise fully usable again:
+    // selectable, executable, and its real status (ready/stopped/crashed)
+    // is reflected immediately rather than assumed.
+    async function loadExistingSessions() {
+      try {
+        const res = await fetch('/api/sessions');
+        if (!res.ok) return;
+        const { sessions: existing } = await res.json();
+        for (const entry of existing) {
+          if (sessions[entry.id]) continue;
+          sessions[entry.id] = {
+            id: entry.id,
+            name: `Session ${entry.id.slice(0, 8)}`,
+            kernelType: entry.kernelType,
+            status: entry.status,
+            cells: [],
+            execCount: 0,
+            currentCell: null,
+            // Restored from the playground server's own bookkeeping (it
+            // knew this at creation time, before this page ever reloaded --
+            // see server.js's createSession(), which now saves it onto
+            // `entry` for exactly this). Falls back to {} only if an older
+            // server process (pre-dating this fix) never saved it.
+            config: entry.config || {},
+            version: null,
+            pid: null,
+            memoryBytes: null
+          };
+          openStream(entry.id);
+          hydrateSessionHistory(entry.id);
+          if (entry.status === 'ready') probeKernelVersion(entry.id);
+        }
+        renderSessionList();
+        // loadExistingSessions() runs unawaited from this file's init
+        // sequence (its fetch resolves well after the initial synchronous
+        // updateActiveHeader() call already ran against an empty `sessions`
+        // map) -- re-run it now so the "no sessions yet" vs "select one
+        // from the sidebar" messaging reflects what actually just loaded.
+        if (!activeId) updateActiveHeader();
+      } catch (err) {
+        console.error('Failed to reload existing sessions', err);
+      }
+    }
+
+    // Rebuilds a reconnected session's visible console from the transcript
+    // the server buffered on its own (recordHistory() in server.js) --
+    // config/status/PID were already restorable, but the actual cell/output
+    // log was pure browser-side state until now, so a refresh made a
+    // perfectly healthy, unaffected session look like it had lost
+    // everything it had ever run. Replays each historical cell's raw iopub
+    // messages through the exact same handleStreamEvent()/pushOutput() path
+    // a live execution already uses, just with `currentCell` pointed at the
+    // right historical cell instead of whatever's actually running now, so
+    // there's no separate rendering logic to keep in sync with the live one.
+    async function hydrateSessionHistory(id) {
+      try {
+        const res = await fetch(`/api/sessions/${id}/history`);
+        if (!res.ok) return;
+        const { history } = await res.json();
+        const s = sessions[id];
+        if (!s || !Array.isArray(history) || history.length === 0) return;
+
+        const previousCurrent = s.currentCell;
+        for (const record of history) {
+          const cell = {
+            inNum: typeof record.executionCount === 'number' ? record.executionCount : ++s.execCount,
+            code: record.code,
+            outputs: [],
+            time: new Date(record.time)
+          };
+          s.cells.push(cell);
+          s.currentCell = cell;
+          for (const message of record.messages) {
+            handleStreamEvent(id, { message });
+          }
+          if (typeof record.executionCount === 'number') {
+            s.execCount = Math.max(s.execCount, record.executionCount);
+          }
+        }
+        s.currentCell = previousCurrent;
+
+        if (id === activeId) renderCells(id);
+      } catch (err) {
+        console.error('Failed to hydrate session history', err);
       }
     }
 
@@ -1263,6 +1491,7 @@
     els.btnRemoveSession.addEventListener('click', () => activeId && removeSession(activeId));
 
     loadDefaults();
+    loadExistingSessions();
     updateActiveHeader();
   </script>
 </body>

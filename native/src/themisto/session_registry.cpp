@@ -293,6 +293,18 @@ namespace themisto
             }
             if (auto s = weakSession.lock())
             {
+                // Already reported -- most commonly by pollLoop()'s own
+                // faster OS-level exit check above, which usually wins this
+                // race by tens of seconds for a process that actually
+                // exited. Avoids sending the browser a second, redundant
+                // kernelExit for the same session. A genuinely stuck-but-
+                // still-running kernel (a deadlock, not an exit) is
+                // unaffected: that case is never caught by pollLoop()'s
+                // isAlive() check at all, only by this heartbeat timeout.
+                if (s->status == SessionStatus::Crashed || s->status == SessionStatus::Stopped)
+                {
+                    return;
+                }
                 s->status = SessionStatus::Crashed;
                 // Heartbeat timing out only tells us the kernel stopped
                 // answering pings -- it looks identical whether the process
@@ -330,6 +342,35 @@ namespace themisto
         auto* client = session->client.get();
         while (session->polling)
         {
+            // Fast, OS-level dead-kernel detection -- independent of, and
+            // far faster than, the ZMQ heartbeat's worst-case detection
+            // window (4 failed round trips x 20s timeout =~ 60-80s, see
+            // ClientHeartbeat/ClientZmqImpl's max_retry/heartbeat_timeout).
+            // An externally killed process (Task Manager, a segfault,
+            // os._exit()/quit()) is now visible within one poll interval
+            // (~5ms) instead of up to 80s -- confirmed via a real repro:
+            // without this, the browser saw nothing but its own client-side
+            // execute timeout (30s) firing first, with the session only
+            // flipping to "crashed" tens of seconds later once the
+            // heartbeat finally gave up.
+            //
+            // Safe against racing an intentional stop()/restart():
+            // stopSession() clears session->polling and joins this exact
+            // thread BEFORE it ever kills the process or sets
+            // SessionStatus::Stopped (see its own comment on that
+            // ordering), so this loop is never still running while a
+            // deliberate process kill is in flight -- if isAlive() is ever
+            // false here, the kernel died on its own, not because we
+            // stopped it.
+            if (session->process && !session->process->isAlive())
+            {
+                session->status = SessionStatus::Crashed;
+                session->emitKernelExit(
+                    "kernel process exited unexpectedly (" + session->process->describeStatus() + ")");
+                session->polling = false;
+                break;
+            }
+
             while (client->iopubQueueSize() > 0)
             {
                 if (auto pubOpt = client->popIopubMessage())
@@ -359,6 +400,28 @@ namespace themisto
                 json envelope = {
                     { "type", "message" },
                     { "channel", "shell" },
+                    { "topic", msg.header().value("msg_type", "") },
+                    { "msg_type", msg.header().value("msg_type", "") },
+                    { "parent_msg_id", msg.parentHeader().value("msg_id", "") },
+                    { "content", msg.content() }
+                };
+                session->emitMessage(envelope.dump());
+            }
+
+            // input_request: the interpreter blocked on e.g. R's readline()
+            // or Python's input() (adrastea::blockingInputRequest(), which
+            // genuinely blocks the kernel's own single execution thread on
+            // a ZMQ recv -- see ClientZmqImpl's stdin channel comment).
+            // Relayed the same way shell/iopub messages are; the WS client
+            // answers via a "type": "inputReply" frame (ws_relay.cpp),
+            // which reaches sendInputReply() below and is what actually
+            // unblocks the kernel.
+            if (auto stdinOpt = client->receiveOnStdin(false))
+            {
+                auto& msg = stdinOpt.value();
+                json envelope = {
+                    { "type", "message" },
+                    { "channel", "stdin" },
                     { "topic", msg.header().value("msg_type", "") },
                     { "msg_type", msg.header().value("msg_type", "") },
                     { "parent_msg_id", msg.parentHeader().value("msg_id", "") },
@@ -439,6 +502,44 @@ namespace themisto
         return true;
     }
 
+    bool SessionRegistry::sendHistory(const std::string& sessionId, const std::string& msgId, const json& options)
+    {
+        // Same reasoning as sendExecute() above -- serialize against a
+        // concurrent stop/restart of this same session.
+        std::lock_guard<std::recursive_mutex> opLock(*getSessionOperationLock(sessionId));
+
+        auto session = getSession(sessionId);
+        if (!session || !session->client)
+        {
+            return false;
+        }
+
+        json header = adrastea::makeHeader("history_request", "client_user", sessionId);
+        header["msg_id"] = msgId;
+
+        // Matches the real Jupyter history_request spec (KernelCore::
+        // historyRequest() -> HistoryManager::processRequest(), kernel_
+        // core.cpp/history_manager.cpp) -- "tail" (n most recent) by
+        // default, since that's what a client reconnecting to an
+        // already-running kernel actually wants ("what did this kernel
+        // already run"), not a full-range dump.
+        json content = {
+            { "hist_access_type", options.value("histAccessType", std::string("tail")) },
+            { "output", options.value("output", false) },
+            { "raw", options.value("raw", true) },
+            { "n", options.value("n", 100) }
+        };
+        if (options.contains("session")) content["session"] = options["session"];
+        if (options.contains("start")) content["start"] = options["start"];
+        if (options.contains("stop")) content["stop"] = options["stop"];
+        if (options.contains("pattern")) content["pattern"] = options["pattern"];
+        if (options.contains("unique")) content["unique"] = options["unique"];
+
+        adrastea::Message req({ "client_id" }, header, json::object(), json::object(), content, adrastea::buffer_sequence());
+        session->client->sendOnShell(std::move(req));
+        return true;
+    }
+
     bool SessionRegistry::sendInterrupt(const std::string& sessionId, const std::string& msgId)
     {
         // Same reasoning as sendExecute() above -- serialize against a
@@ -456,6 +557,30 @@ namespace themisto
 
         adrastea::Message req({ "client_id" }, header, json::object(), json::object(), json::object(), adrastea::buffer_sequence());
         session->client->sendOnControl(std::move(req));
+        return true;
+    }
+
+    bool SessionRegistry::sendInputReply(const std::string& sessionId, const std::string& value)
+    {
+        // Same reasoning as sendExecute()/sendInterrupt() above.
+        std::lock_guard<std::recursive_mutex> opLock(*getSessionOperationLock(sessionId));
+
+        auto session = getSession(sessionId);
+        if (!session || !session->client)
+        {
+            return false;
+        }
+
+        // dispatchStdin() (kernel_core.cpp) only ever reads content.value(
+        // "value", ...) -- it doesn't correlate against parent_header, since
+        // ServerZmqImpl::sendStdin() already blocks the kernel's one
+        // execution thread on this exact reply, so there's never more than
+        // one outstanding input_request for a session to answer.
+        json header = adrastea::makeHeader("input_reply", "client_user", sessionId);
+        json content = { { "value", value } };
+
+        adrastea::Message req({ "client_id" }, header, json::object(), json::object(), std::move(content), adrastea::buffer_sequence());
+        session->client->sendOnStdin(std::move(req));
         return true;
     }
 
@@ -518,6 +643,38 @@ namespace themisto
         }
 
         session->status = SessionStatus::Stopped;
+
+        // A stopped session is permanently terminal -- unlike Crashed, it
+        // can never come back (Session.restart() on the TS side refuses
+        // outright once a session has been stopped; this is that same rule
+        // enforced here too, not just trusted to the client). Nothing is
+        // ever going to reference this id again, so there's no reason to
+        // keep its ZMQ context (with its own IO threads), ClientZmq, and
+        // KernelProcess alive for the rest of this themisto process's
+        // lifetime -- unlike the "deliberately never erased" reasoning for
+        // m_sessionOperationLocks (below), which is about giving every
+        // caller for a given id the same canonical mutex OBJECT (erasing
+        // and later recreating one under the same id would let two callers
+        // each hold a *different* mutex while believing they have mutual
+        // exclusion), Session objects have no such identity requirement --
+        // erasing this map's own reference is safe under ordinary
+        // shared_ptr semantics: anything still concurrently holding its own
+        // copy (e.g. an in-flight WS ConnectionState) keeps the object
+        // alive exactly as long as it needs it, then it's destroyed
+        // normally once dropped, no dangling pointer possible.
+        //
+        // restartSession() (below) already independently erases and
+        // recreates this same id's entry around its own stopSession() call,
+        // so this doesn't change that path's behavior at all -- it's
+        // already proven safe there (ConcurrentRestartsForTheSameSession
+        // DontLeakAnExtraKernelProcess, ConcurrentExecuteDuringARestart
+        // DoesNotCrashOrLeak); this just makes a genuinely standalone stop
+        // (not a restart's internal one) release the same way.
+        {
+            std::lock_guard<std::mutex> lock(m_sessionsMutex);
+            m_sessions.erase(id);
+        }
+
         return true;
     }
 

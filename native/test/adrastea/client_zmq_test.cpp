@@ -59,17 +59,25 @@ namespace
         explicit FakeKernel(zmq::context_t& ctx)
             : m_shellRouter(ctx, zmq::socket_type::router)
             , m_controlRouter(ctx, zmq::socket_type::router)
+            , m_stdinRouter(ctx, zmq::socket_type::router)
             , m_iopubPub(ctx, zmq::socket_type::pub)
             , m_hbRep(ctx, zmq::socket_type::rep)
         {
             m_shellRouter.bind("tcp://127.0.0.1:0");
             m_controlRouter.bind("tcp://127.0.0.1:0");
+            m_stdinRouter.bind("tcp://127.0.0.1:0");
             m_iopubPub.bind("tcp://127.0.0.1:0");
             m_hbRep.bind("tcp://127.0.0.1:0");
         }
 
         std::string shellPort() const { return getSocketPort(m_shellRouter); }
         std::string controlPort() const { return getSocketPort(m_controlRouter); }
+        // ClientZmqImpl unconditionally connects a stdin DealerChannel now
+        // (see this file's own header comment update below) -- even tests
+        // that never exercise sendOnStdin/receiveOnStdin need a real ROUTER
+        // bound here, or that connect() throws ("Invalid argument" from an
+        // empty-port endpoint) before any test body runs.
+        std::string stdinPort() const { return getSocketPort(m_stdinRouter); }
         std::string iopubPort() const { return getSocketPort(m_iopubPub); }
         std::string hbPort() const { return getSocketPort(m_hbRep); }
 
@@ -105,9 +113,21 @@ namespace
             wire.send(m_iopubPub);
         }
 
+        // Mirrors ServerZmqImpl::sendStdin() -- a ROUTER send addressed by
+        // whatever identity list `msg` itself carries (msg.identities()),
+        // exactly how KernelCore::sendStdin() addresses a real input_request
+        // using the identity it captured from a *different* channel's
+        // (shell's) incoming request.
+        void sendStdinRequest(Message&& msg, const Authentication& auth)
+        {
+            zmq::multipart_t wire = ZmqSerializer::serialize(std::move(msg), auth);
+            wire.send(m_stdinRouter);
+        }
+
     private:
         zmq::socket_t m_shellRouter;
         zmq::socket_t m_controlRouter;
+        zmq::socket_t m_stdinRouter;
         zmq::socket_t m_iopubPub;
         zmq::socket_t m_hbRep;
     };
@@ -121,6 +141,7 @@ namespace
         config.m_key = kKey;
         config.m_shellPort = kernel.shellPort();
         config.m_controlPort = kernel.controlPort();
+        config.m_stdinPort = kernel.stdinPort();
         config.m_iopubPort = kernel.iopubPort();
         config.m_hbPort = kernel.hbPort();
         return config;
@@ -178,6 +199,52 @@ TEST(ClientZmqTest, SendOnShellAndReceiveOnShellRoundTrips)
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->header().at("msg_type").get<std::string>(), "execute_reply");
     EXPECT_EQ(result->content().at("status").get<std::string>(), "ok");
+}
+
+TEST(ClientZmqTest, StdinInputRequestReachesTheClientUsingTheIdentityCapturedFromShell)
+{
+    // Regression test for a real, confirmed-end-to-end bug: KernelCore::
+    // sendStdin() (kernel_core.cpp) addresses its ROUTER send on the STDIN
+    // socket using the ZMQ routing identity list it captured from whichever
+    // execute_request arrived on the SHELL socket (RequestContext::id()) --
+    // not a fresh receive on the stdin socket itself. This only reaches the
+    // real client if that same client presents an IDENTICAL identity to the
+    // stdin ROUTER too. Before ClientZmqImpl gave its shell/control/stdin
+    // DealerChannels a shared, explicit ZMQ_ROUTING_ID (see its constructor
+    // comment), each independently got its own random one, so this identity
+    // reuse silently matched no connected peer -- the send was dropped, and
+    // the kernel's real, untimed ZMQ recv underneath (ServerZmqImpl::
+    // sendStdin()) blocked forever with no way to ever be answered: exactly
+    // the "input()/readline() hangs forever" bug this whole feature exists
+    // to fix, just never previously caught because nothing exercised a
+    // *cross-channel* identity reuse this way.
+    zmq::context_t kernelCtx;
+    FakeKernel fakeKernel(kernelCtx);
+    auto kernelAuth = makeAuthentication("hmac-sha256", kKey);
+
+    StartedClient sc(makeConfig(fakeKernel));
+
+    sc.client->sendOnShell(makeRequest("execute_request", { { "code", "input('x?')" } }));
+    Message request = fakeKernel.recvShellRequest(*kernelAuth);
+
+    // Exactly what RequestContext::id() would capture from this request on
+    // the real kernel side, and later reuse to address the stdin send.
+    auto capturedIdentity = request.identities();
+    ASSERT_FALSE(capturedIdentity.empty());
+
+    Message inputRequest(
+        capturedIdentity,
+        makeHeader("input_request", "kernel", "session-1"),
+        json::object(),
+        json::object(),
+        json{ { "prompt", "x? " }, { "password", false } },
+        buffer_sequence());
+    fakeKernel.sendStdinRequest(std::move(inputRequest), *kernelAuth);
+
+    auto received = sc.client->receiveOnStdin(true);
+    ASSERT_TRUE(received.has_value());
+    EXPECT_EQ(received->header().at("msg_type").get<std::string>(), "input_request");
+    EXPECT_EQ(received->content().at("prompt").get<std::string>(), "x? ");
 }
 
 TEST(ClientZmqTest, SendOnControlAndReceiveOnControlRoundTrips)

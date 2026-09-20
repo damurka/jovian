@@ -72,7 +72,7 @@ export class ExecutionQueue {
 
         let msgId: string;
         try {
-            msgId = this.addon.execute(item.code);
+            msgId = this.addon.execute(item.code, item.options);
         } catch (error) {
             this.logger?.error('Native addon threw while starting execution', { error, queuedMs });
             item.reject(error as Error);
@@ -132,6 +132,23 @@ export class ExecutionQueue {
         }
 
         switch (message.msgType) {
+            case 'input_request':
+                // The kernel is now genuinely blocked waiting on a human to
+                // answer a prompt (see Session's own 'input_request' event/
+                // sendInputReply()) -- there's no way to know how long that
+                // will take, so the fixed execution timeout no longer
+                // applies once this arrives. Without this, an execute()
+                // with allowStdin: true could time out from nothing more
+                // than a user taking longer than DEFAULT_TIMEOUT_MS to
+                // answer a prompt, even though the kernel is behaving
+                // completely normally and will resume the moment it gets a
+                // reply.
+                if (pending.timer) {
+                    clearTimeout(pending.timer);
+                    pending.timer = undefined;
+                }
+                break;
+
             case 'stream':
             case 'execute_result':
             case 'display_data':

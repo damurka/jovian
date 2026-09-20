@@ -78,6 +78,7 @@ namespace adrastea
         json user_expressions)
     {
         setRequestContext(std::move(context));
+        m_allowStdin = config.allow_stdin;
         if (!config.silent)
         {
             ++m_executionCount;

@@ -117,6 +117,14 @@ namespace themisto
                                 {
                                     m_registry.sendInterrupt(state->sessionId, id);
                                 }
+                                else if (type == "inputReply")
+                                {
+                                    m_registry.sendInputReply(state->sessionId, frame.value("value", ""));
+                                }
+                                else if (type == "history")
+                                {
+                                    m_registry.sendHistory(state->sessionId, id, frame.value("options", json::object()));
+                                }
                             }
                             catch (const std::exception&)
                             {

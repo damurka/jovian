@@ -559,6 +559,73 @@ TEST_F(SessionRegistryTest, ExecuteRoundTripsThroughTheRealKernel)
     m_registry->stopSession(id);
 }
 
+TEST_F(SessionRegistryTest, SendHistoryReturnsAGenuineHistoryReplyForRealExecutions)
+{
+    // Regression test for a real gap: KernelCore::historyRequest()
+    // (kernel_core.cpp) and HistoryManager (adrastea/history_manager.hpp)
+    // were always fully implemented on the kernel side, but nothing outside
+    // a raw Jupyter client connecting directly to the kernel's own ZMQ
+    // ports could ever reach it -- ws_relay.cpp had no "history" frame case
+    // at all. This exercises the real end-to-end path this fixes: a
+    // history_request sent the same way sendExecute()/sendInterrupt()
+    // already are, answered by the same real kernel that ran the code.
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+
+    auto session = m_registry->getSession(id);
+    ASSERT_TRUE(session != nullptr);
+
+    std::vector<json> received;
+    std::mutex receivedMutex;
+    {
+        std::lock_guard<std::mutex> lock(session->callbackMutex);
+        session->onMessage = [&](const std::string& text) {
+            std::lock_guard<std::mutex> lock2(receivedMutex);
+            received.push_back(json::parse(text));
+        };
+    }
+
+    ASSERT_TRUE(m_registry->sendExecute(id, "hist-exec-1", "42", json::object()));
+    ASSERT_TRUE(waitFor([&]() {
+        std::lock_guard<std::mutex> lock(receivedMutex);
+        return std::any_of(received.begin(), received.end(), [](const json& msg) {
+            return msg.value("msg_type", "") == "execute_reply" && msg.value("parent_msg_id", "") == "hist-exec-1";
+        });
+    }, kTimeoutMs)) << "never received an execute_reply for the setup execution";
+
+    const std::string histMsgId = "hist-req-1";
+    ASSERT_TRUE(m_registry->sendHistory(id, histMsgId, json::object()));
+
+    bool gotHistoryReply = waitFor([&]() {
+        std::lock_guard<std::mutex> lock(receivedMutex);
+        return std::any_of(received.begin(), received.end(), [&](const json& msg) {
+            return msg.value("msg_type", "") == "history_reply" && msg.value("parent_msg_id", "") == histMsgId;
+        });
+    }, kTimeoutMs);
+    ASSERT_TRUE(gotHistoryReply) << "never received a history_reply for " << histMsgId;
+
+    std::lock_guard<std::mutex> lock(receivedMutex);
+    auto it = std::find_if(received.begin(), received.end(), [&](const json& msg) {
+        return msg.value("msg_type", "") == "history_reply" && msg.value("parent_msg_id", "") == histMsgId;
+    });
+    ASSERT_NE(it, received.end());
+    EXPECT_EQ(it->at("content").value("status", ""), "ok");
+    const auto& history = it->at("content").at("history");
+    ASSERT_FALSE(history.empty()) << "expected at least the '42' execution to show up in history";
+    // Each short entry is [session, line_num, input] -- confirm the actual
+    // code we ran is really in there, not just that *something* came back.
+    bool foundOurExecution = std::any_of(history.begin(), history.end(), [](const json& entry) {
+        return entry.at(2).get<std::string>() == "42";
+    });
+    EXPECT_TRUE(foundOurExecution) << "history_reply did not contain the '42' execution: " << it->at("content").dump();
+
+    m_registry->stopSession(id);
+}
+
 TEST_F(SessionRegistryTest, StopSessionMarksItStoppedAndTerminatesTheProcess)
 {
     SessionOptions options;
@@ -568,11 +635,92 @@ TEST_F(SessionRegistryTest, StopSessionMarksItStoppedAndTerminatesTheProcess)
     std::string id = m_registry->createSession(options, error);
     ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
 
+    // Grabbed *before* stopping -- a stopped session is now released from
+    // the registry (see stopSession()'s own comment on why: unlike Crashed,
+    // it's permanently terminal, so there's no reason to keep its ZMQ
+    // context/ClientZmq/KernelProcess alive for the rest of this themisto
+    // process's lifetime). This local shared_ptr keeps the object itself
+    // alive long enough to still assert its final status directly, the
+    // same safe "still-held copy outlives the registry's own reference"
+    // guarantee stopSession()'s comment describes.
+    auto session = m_registry->getSession(id);
+    ASSERT_TRUE(session != nullptr);
+
     EXPECT_TRUE(m_registry->stopSession(id));
+
+    EXPECT_EQ(session->status.load(), SessionStatus::Stopped);
+    EXPECT_EQ(m_registry->getSession(id), nullptr)
+        << "a stopped session should be released from the registry, not kept around forever";
+}
+
+TEST_F(SessionRegistryTest, StopSessionReleasesTheSessionButNotItsOperationLock)
+{
+    // Companion to the test above -- specifically distinguishes what gets
+    // released (the Session object/map entry) from what deliberately never
+    // does (the per-id operation lock, session_registry.hpp's own
+    // m_sessionOperationLocks comment): a second stopSession() call for the
+    // same, already-erased id must still return false cleanly through the
+    // exact same per-id lock machinery, not crash or hang by trying to
+    // create/acquire a lock for an id whose Session is already gone.
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+
+    EXPECT_TRUE(m_registry->stopSession(id));
+    ASSERT_EQ(m_registry->getSession(id), nullptr);
+
+    EXPECT_FALSE(m_registry->stopSession(id)) << "stopping an already-released session should fail cleanly";
+}
+
+TEST_F(SessionRegistryTest, PollLoopDetectsAnExternallyKilledKernelProcessQuickly)
+{
+    // Regression test for a real, user-reported bug: killing a kernel
+    // process externally (Task Manager, a segfault -- anything that isn't
+    // this codebase's own graceful stopSession()) used to go completely
+    // undetected until the ZMQ heartbeat's worst-case timeout elapsed (4
+    // failed round trips x 20s = up to ~80s -- ClientHeartbeat/
+    // ClientZmqImpl's max_retry/heartbeat_timeout), during which every
+    // execute() against that session just hung until ITS OWN unrelated
+    // 30s client-side timeout fired first. pollLoop() (session_registry.cpp)
+    // now polls the OS process handle directly on every iteration
+    // (~5ms), so an externally killed process is caught almost
+    // immediately -- asserted here with a 2s bound, nowhere close to the
+    // 60-80s heartbeat ceiling this used to require.
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
 
     auto session = m_registry->getSession(id);
     ASSERT_TRUE(session != nullptr);
-    EXPECT_EQ(session->status.load(), SessionStatus::Stopped);
+    ASSERT_TRUE(session->process != nullptr);
+
+    std::string exitReason;
+    {
+        std::lock_guard<std::mutex> lock(session->callbackMutex);
+        session->onKernelExit = [&](const std::string& reason) { exitReason = reason; };
+    }
+
+    // Not stopSession()/kill() through the registry -- that's the graceful
+    // path this test deliberately bypasses. KernelProcess::kill() itself
+    // (TerminateProcess on Windows) is the same OS-level effect an external
+    // Task Manager kill has: the process is simply gone, with none of
+    // SessionRegistry's own graceful-shutdown bookkeeping involved.
+    session->process->kill();
+
+    bool detected = waitFor([&]() {
+        return session->status.load() == SessionStatus::Crashed;
+    }, 2000);
+
+    EXPECT_TRUE(detected) << "pollLoop() did not detect the killed process within 2s";
+    EXPECT_FALSE(exitReason.empty()) << "onKernelExit was never invoked";
+
+    m_registry->stopSession(id);
 }
 
 TEST_F(SessionRegistryTest, SendInterruptOnARealSessionReturnsTrue)

@@ -8,10 +8,33 @@ namespace adrastea
     DealerChannel::DealerChannel(zmq::context_t& context,
         const std::string& transport,
         const std::string& ip,
-        const std::string& port)
+        const std::string& port,
+        const std::string& identity)
         : m_socket(context, zmq::socket_type::dealer)
         , m_dealerEndPoint("")
     {
+        // ZMQ_LINGER defaults to -1 (infinite) when never set -- meaning
+        // closing/destructing this socket (Session::~Session() tearing down
+        // its ClientZmq, ultimately here) blocks until every queued-but-
+        // unacknowledged outbound message is flushed, with NO timeout, if
+        // the peer never acknowledges it. A genuinely dead kernel (crashed,
+        // externally killed) can never acknowledge anything again -- so a
+        // control message sent to it right before teardown (e.g.
+        // stopSession()'s own shutdown_request, sent unconditionally even
+        // to an already-crashed session) could leave this socket blocking
+        // forever on destruction. Confirmed hit for real: an intermittent
+        // hang, timing-dependent on whether that send had already been
+        // recognized as undeliverable by the time teardown started, only
+        // ever surfacing for a session whose kernel died before stopSession()
+        // ran on it. Matches getSocketLinger()'s existing 1000ms convention
+        // (adrastea/middleware.hpp), already used by every other socket in
+        // this codebase for exactly this reason -- this was the one socket
+        // type that had never picked it up.
+        m_socket.set(zmq::sockopt::linger, getSocketLinger());
+        if (!identity.empty())
+        {
+            m_socket.set(zmq::sockopt::routing_id, identity);
+        }
         m_dealerEndPoint = getEndPoint(transport, ip, port);
         m_socket.connect(m_dealerEndPoint);
     }

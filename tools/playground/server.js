@@ -115,12 +115,42 @@ async function createSession(options) {
     entry.session = session;
     entry.status = 'ready';
     entry.kernelType = options.kernelType || 'r';
+    // Kept so a browser refresh can restore the "Session Details" panel
+    // (R_HOME/PYTHONHOME etc) for a reconnected session -- see
+    // loadExistingSessions() in public/index.html. This server process
+    // already knows this at creation time (it's right here in `options`),
+    // but a page reload wipes the *browser's* own copy of it (that page's
+    // whole `sessions` map is pure in-memory client state); without saving
+    // it here too, GET /api/sessions had no way to hand it back, and every
+    // reconnected session showed a permanently blank R_HOME/PYTHONHOME
+    // until the whole session was torn down and recreated.
+    entry.config = entry.kernelType === 'python'
+        ? { pythonHome: options.pythonHome, pythonPath: options.pythonPath, venvPath: options.venvPath }
+        : { rHome: options.rHome, rPath: options.rPath, rLibs: options.rLibs };
+
+    // Full transcript (code + every iopub message it produced), kept here
+    // for the same reason `entry.config` is: this SERVER process doesn't
+    // get wiped by a browser refresh the way the page's own in-memory
+    // `sessions` map does, so it's the only place that can hand a
+    // reconnecting browser back what it already ran -- see
+    // loadExistingSessions()/hydrateSessionHistory() in public/index.html.
+    // Without this, a reconnected session had its live status/PID/config
+    // restored (all genuinely still true), but its entire visible output
+    // panel came back empty even though nothing about the actual kernel or
+    // its state had changed -- confirmed directly as a real, confusing gap
+    // once the config-restoration fix above made every OTHER "reconnect
+    // fully" expectation seem like it should already hold too.
+    entry.history = [];
+    entry.historyByMsgId = new Map();
 
     // Not also forwarding session.on('stdout', ...): StreamHandler
     // (lib/handlers/stream-handler.ts) emits it from the exact same
     // 'stream' iopub message this 'message' listener already gets --
     // rendering both would duplicate every print()/cat() line.
-    session.on('message', (message) => broadcast(id, { event: 'message', message }));
+    session.on('message', (message) => {
+        broadcast(id, { event: 'message', message });
+        recordHistory(entry, message);
+    });
     session.on('exit', (info) => {
         entry.status = 'crashed';
         broadcast(id, { event: 'exit', reason: info?.reason });
@@ -150,6 +180,49 @@ async function createSession(options) {
     });
 
     return id;
+}
+
+// Local dev tool, not a real notebook store -- bounded so a long-running
+// session streaming forever (e.g. the "Streaming loop" preset left running)
+// can't grow this without limit; old cells are dropped, newest kept.
+const MAX_HISTORY_CELLS = 200;
+
+// Buckets every iopub message this session produces by which execute_request
+// (parentMsgId) it belongs to, purely from the messages themselves --
+// execute_input's own content.code/execution_count is enough to start a new
+// cell, so this needs no separate bookkeeping of the original REST request.
+function recordHistory(entry, message) {
+    if (message.msgType === 'execute_input') {
+        const cell = {
+            parentMsgId: message.parentMsgId,
+            executionCount: message.content?.execution_count,
+            code: message.content?.code ?? '',
+            time: Date.now(),
+            messages: []
+        };
+        entry.history.push(cell);
+        entry.historyByMsgId.set(message.parentMsgId, cell);
+        if (entry.history.length > MAX_HISTORY_CELLS) {
+            const removed = entry.history.shift();
+            entry.historyByMsgId.delete(removed.parentMsgId);
+        }
+        return;
+    }
+    // A stale input_request makes no sense to replay after a reconnect --
+    // by the time anyone reconnects, it's either long since been answered
+    // (over the stdin channel, which never shows up as a 'message' event at
+    // all -- see Session's own input_request/sendInputReply handling) or
+    // whatever was blocked on it is long gone from this browser's
+    // perspective either way. Replaying it would render a "live",
+    // answerable input box for a request nothing is actually still waiting
+    // on.
+    if (message.msgType === 'input_request') {
+        return;
+    }
+    const cell = entry.historyByMsgId.get(message.parentMsgId);
+    if (cell) {
+        cell.messages.push(message);
+    }
 }
 
 function sendJson(res, status, body) {
@@ -194,7 +267,7 @@ const server = createServer(async (req, res) => {
         // GET /api/sessions
         if (req.method === 'GET' && url.pathname === '/api/sessions') {
             sendJson(res, 200, {
-                sessions: [...sessions.entries()].map(([id, e]) => ({ id, status: e.status, kernelType: e.kernelType }))
+                sessions: [...sessions.entries()].map(([id, e]) => ({ id, status: e.status, kernelType: e.kernelType, config: e.config }))
             });
             return;
         }
@@ -247,6 +320,20 @@ const server = createServer(async (req, res) => {
                 return;
             }
 
+            // GET /api/sessions/:id/history -- the full transcript recorded
+            // so far (see recordHistory()), for a reconnecting browser to
+            // replay through its own existing handleStreamEvent() and
+            // rebuild the visible console exactly as it would have rendered
+            // live.
+            if (req.method === 'GET' && parts[3] === 'history') {
+                if (!entry) {
+                    sendJson(res, 404, { error: 'unknown session' });
+                    return;
+                }
+                sendJson(res, 200, { history: entry.history });
+                return;
+            }
+
             // GET /api/sessions/:id/stream  (SSE)
             if (req.method === 'GET' && parts[3] === 'stream') {
                 if (!entry) {
@@ -278,7 +365,25 @@ const server = createServer(async (req, res) => {
                 const body = await readJsonBody(req);
                 try {
                     const result = await entry.session.execute(body.code ?? '', {
-                        timeout: typeof body.timeout === 'number' ? body.timeout : undefined
+                        timeout: typeof body.timeout === 'number' ? body.timeout : undefined,
+                        // The playground always has UI to answer an
+                        // input_request (see the frontend's 'input_request'
+                        // handling and the /input endpoint below), so it
+                        // opts every execution into interactive input by
+                        // default rather than making every preset/call site
+                        // remember to ask for it.
+                        allowStdin: body.allowStdin !== false,
+                        // silent=true suppresses the kernel's own
+                        // execute_input publish (and its execution-count
+                        // increment/history-manager storage) -- used by the
+                        // frontend's hidden version-probe cell so it doesn't
+                        // consume a real "In [N]" number or get recorded
+                        // into this server's own session history (see
+                        // recordHistory() below, which anchors a history
+                        // cell on execute_input specifically). Real output
+                        // (stream messages) still comes through either way;
+                        // only silent executions skip publishing this.
+                        silent: body.silent === true
                     });
                     sendJson(res, 200, {
                         ok: true,
@@ -289,6 +394,22 @@ const server = createServer(async (req, res) => {
                 } catch (error) {
                     sendJson(res, 200, { ok: false, success: false, error: String(error?.message ?? error) });
                 }
+                return;
+            }
+
+            // POST /api/sessions/:id/input -- answers a pending input_request
+            // (see Session.sendInputReply()); fire-and-forget, same as
+            // /interrupt below, since the reply that matters here is
+            // whatever the blocked execute() call eventually resolves with,
+            // not a reply to this call itself.
+            if (req.method === 'POST' && parts[3] === 'input') {
+                if (!entry) {
+                    sendJson(res, 404, { error: 'unknown session' });
+                    return;
+                }
+                const body = await readJsonBody(req);
+                entry.session.sendInputReply(String(body.value ?? ''));
+                sendJson(res, 200, { ok: true });
                 return;
             }
 
@@ -329,13 +450,27 @@ const server = createServer(async (req, res) => {
                 return;
             }
 
-            // POST /api/sessions/:id/kill
+            // POST /api/sessions/:id/kill -- fire-and-forget stop(), not
+            // Session.kill() alone. kill() only closes this process's own
+            // WebSocket and clears its local queue; it never asks the
+            // supervisor to actually terminate the underlying kernel
+            // process. Confirmed directly: after calling it, the real
+            // carpo.exe/elara.exe process kept running, orphaned,
+            // indefinitely -- Session.kill() was designed for whole-app
+            // teardown (where SessionManager.killAll() also force-kills the
+            // supervisor process itself moments later, taking every child
+            // with it), not as a safe per-session action, which is exactly
+            // how this "Kill" button uses it. stop() actually terminates
+            // the process (graceful shutdown_request first, with the
+            // native side's own ~2.3s force-kill fallback if it doesn't
+            // exit cleanly) via the supervisor; not awaiting it here keeps
+            // this endpoint's perceived speed the same as before.
             if (req.method === 'POST' && parts[3] === 'kill') {
                 if (!entry) {
                     sendJson(res, 404, { error: 'unknown session' });
                     return;
                 }
-                entry.session.kill();
+                entry.session.stop().catch(() => {});
                 entry.status = 'stopped';
                 broadcast(id, { event: 'stopped' });
                 sendJson(res, 200, { ok: true });

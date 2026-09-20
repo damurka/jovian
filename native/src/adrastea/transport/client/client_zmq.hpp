@@ -30,10 +30,12 @@ namespace adrastea
 
         void sendOnShell(Message msg);
         void sendOnControl(Message msg);
+        void sendOnStdin(Message msg);
 
         // APIs for receiving on a specified channel
         std::optional<Message> receiveOnShell(bool blocking = true);
         std::optional<Message> receiveOnControl(bool blocking = true);
+        std::optional<Message> receiveOnStdin(bool blocking = true);
 
         std::size_t iopubQueueSize() const;
         std::optional<PubMessage> popIopubMessage();
@@ -41,6 +43,7 @@ namespace adrastea
         // APIs for receiving on all channels
         void registerShellListener(const listener& l);
         void registerControlListener(const listener& l);
+        void registerStdinListener(const listener& l);
         void registerIopubListener(const iopub_listener& l);
         void registerKernelStatusListener(const kernel_status_listener& l);
 

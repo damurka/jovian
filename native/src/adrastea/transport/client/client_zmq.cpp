@@ -47,6 +47,16 @@ namespace adrastea
         return p_clientImpl->receiveOnControl(blocking);
     }
 
+    void ClientZmq::sendOnStdin(Message msg)
+    {
+        p_clientImpl->sendOnStdin(std::move(msg));
+    }
+
+    std::optional<Message> ClientZmq::receiveOnStdin(bool blocking)
+    {
+        return p_clientImpl->receiveOnStdin(blocking);
+    }
+
     std::size_t ClientZmq::iopubQueueSize() const
     {
         return p_clientImpl->iopubQueueSize();
@@ -65,6 +75,11 @@ namespace adrastea
     void ClientZmq::registerControlListener(const listener& l)
     {
         p_clientImpl->registerControlListener(l);
+    }
+
+    void ClientZmq::registerStdinListener(const listener& l)
+    {
+        p_clientImpl->registerStdinListener(l);
     }
 
     void ClientZmq::registerIopubListener(const iopub_listener& l)

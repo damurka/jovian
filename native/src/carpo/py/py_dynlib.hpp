@@ -83,6 +83,7 @@ extern "C" {
     using PyErr_Fetch_t = void (*)(PyObject**, PyObject**, PyObject**);
     using PyErr_NormalizeException_t = void (*)(PyObject**, PyObject**, PyObject**);
     using PyErr_Clear_t = void (*)(void);
+    using PyErr_SetString_t = void (*)(PyObject*, const char*);
 
     using PyObject_Str_t = PyObject* (*)(PyObject*);
     using PyObject_GetAttrString_t = PyObject* (*)(PyObject*, const char*);
@@ -140,6 +141,7 @@ namespace carpo { namespace py { namespace api {
     extern PyErr_Fetch_t p_PyErr_Fetch;
     extern PyErr_NormalizeException_t p_PyErr_NormalizeException;
     extern PyErr_Clear_t p_PyErr_Clear;
+    extern PyErr_SetString_t p_PyErr_SetString;
 
     extern PyObject_Str_t p_PyObject_Str;
     extern PyObject_GetAttrString_t p_PyObject_GetAttrString;
@@ -179,6 +181,15 @@ namespace carpo { namespace py { namespace api {
     // exported name is "_Py_NoneStruct"; "Py_None" itself is only ever a
     // macro in Python's own headers, never a linker-visible symbol).
     extern PyObject* p_Py_None;
+
+    // A DATA symbol too, but unlike p_Py_None this one genuinely is a
+    // pointer *variable* ("PyObject *PyExc_RuntimeError;" in CPython's own
+    // pyerrors.h/exceptions.c) -- the exception type object itself lives
+    // elsewhere; this global just points at it. So the symbol's address is
+    // a PyObject**, and using it as PyErr_SetString's first argument needs
+    // one dereference, same reasoning r_dynlib.cpp gives for R_NilValue/
+    // R_GlobalEnv.
+    extern PyObject** p_PyExc_RuntimeError;
 } } }
 
 #define Py_Initialize (*::carpo::py::api::p_Py_Initialize)
@@ -189,6 +200,7 @@ namespace carpo { namespace py { namespace api {
 #define PyErr_Fetch (*::carpo::py::api::p_PyErr_Fetch)
 #define PyErr_NormalizeException (*::carpo::py::api::p_PyErr_NormalizeException)
 #define PyErr_Clear (*::carpo::py::api::p_PyErr_Clear)
+#define PyErr_SetString (*::carpo::py::api::p_PyErr_SetString)
 
 #define PyObject_Str (*::carpo::py::api::p_PyObject_Str)
 #define PyObject_GetAttrString (*::carpo::py::api::p_PyObject_GetAttrString)
@@ -226,6 +238,9 @@ namespace carpo { namespace py { namespace api {
 // address (unlike R_GlobalEnv/R_NilValue in r_dynlib.hpp, which are
 // pointer-to-pointer -- see py_dynlib.cpp), so no dereference here.
 #define Py_None (::carpo::py::api::p_Py_None)
+
+// See p_PyExc_RuntimeError's declaration above for why this dereferences.
+#define PyExc_RuntimeError (*::carpo::py::api::p_PyExc_RuntimeError)
 
 // METH_VARARGS' real value (Python.h's methodobject.h) -- see PyCFunction's
 // comment above.

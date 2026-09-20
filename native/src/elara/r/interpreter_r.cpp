@@ -72,7 +72,27 @@ namespace elara
     }
 
     int ReadConsole(const char* prompt, unsigned char* buffer, int length, int /*addtohistory*/) {
-        std::string res = adrastea::blockingInputRequest(prompt, false);
+        std::string res;
+        try
+        {
+            res = adrastea::blockingInputRequest(prompt, false, p_interpreter->allowsStdin());
+        }
+        catch (const std::exception& e)
+        {
+            // Deliberately not letting this propagate: R's evaluator calls
+            // this callback directly through a raw function pointer, and
+            // R's own internals aren't C++-exception-safe to unwind
+            // through (the same reason evalRString()/executeRequestImpl()
+            // use R_tryEval()/R_tryCatchError() instead of a raw Rf_eval()
+            // elsewhere in this file). Reporting via publishStream() --
+            // already proven safe to call from an R callback, same as
+            // WriteConsoleEx() -- and returning 0 (R's own "no more
+            // input"/EOF signal for this callback) lets R's normal
+            // readline()/scan() error handling take over from here,
+            // instead of risking undefined behavior.
+            p_interpreter->publishStream("stderr", std::string("input: ") + e.what() + "\n");
+            return 0;
+        }
 
         std::size_t size = std::min(res.size(), std::size_t(length));
         std::copy(res.c_str(), res.c_str() + size, buffer);
@@ -152,6 +172,24 @@ namespace elara
         registerRRoutines();
 
 #ifndef _WIN32
+        // KNOWN LIMITATION, not an oversight: tried extending this to
+        // Windows too as part of building out full interactive stdin
+        // support (readline()/scan() need ReadConsole() wired up the same
+        // way Linux/macOS already have it) -- confirmed directly that
+        // R.dll on Windows does NOT export "ptr_R_WriteConsole"/
+        // "ptr_R_ReadConsole" at all (loadRApi() fails loudly: "'R.dll' was
+        // loaded but is missing the expected symbol 'ptr_R_WriteConsole'").
+        // These are a Unix-only R frontend mechanism (Rinterface.h's
+        // R_INTERFACE_PTRS, see r_dynlib.hpp's own comment); Windows R
+        // embeds via a completely different, unimplemented-here mechanism
+        // (structRstart/R_SetParams). Net effect: on Windows, R falls back
+        // to its own default console I/O -- the hidden AllocConsole()
+        // window this constructor creates above -- so readline()/scan()
+        // still block forever with nothing able to answer them (unlike
+        // Carpo/Python's input(), which has no such platform restriction
+        // and works correctly on Windows). Fixing this for real needs the
+        // Windows Rstart-based embedding API, which is a separate, larger
+        // piece of work than this feature's scope.
         ptr_R_WriteConsole = nullptr;
         ptr_R_WriteConsoleEx = WriteConsoleEx;
         ptr_R_ReadConsole = ReadConsole;
@@ -324,10 +362,6 @@ namespace elara
         adrastea::json /*user_expressions*/
     )
     {
-        if (config.store_history) {
-            const_cast<adrastea::HistoryManager&>(getHistoryManager()).storeInputs(0, execution_count, code);
-        }
-
         SEXP code_ = PROTECT(Rf_mkString(code.c_str()));
         SEXP execution_counter_ = PROTECT(Rf_ScalarInteger(execution_count));
         SEXP silent_ = PROTECT(Rf_ScalarLogical(config.silent));

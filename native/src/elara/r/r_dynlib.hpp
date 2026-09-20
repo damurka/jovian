@@ -130,6 +130,23 @@ extern "C" {
 // verified against R's actual source (src/include/Rinterface.h), not
 // guessed -- an ABI mismatch here would be exactly the kind of
 // hard-to-debug failure dynamic loading exists to avoid.
+//
+// CONFIRMED genuinely Unix-only, not just header-gated: tried extending
+// this to Windows too (on the theory that GetProcAddress might still find
+// the data symbol even without the header declaring it) as part of this
+// stdin feature -- R.dll on Windows does NOT export "ptr_R_WriteConsole" at
+// all ("'R.dll' was loaded but is missing the expected symbol
+// 'ptr_R_WriteConsole'", loadRApi()'s own error, hit directly). Windows R
+// embeds via a completely different mechanism (structRstart/R_SetParams,
+// Rembedded.h's Windows-specific API), which this codebase doesn't
+// implement -- so on Windows, R's WriteConsoleEx()/ReadConsole() hooks
+// below are simply never wired up, and R falls back to its own default
+// console I/O (the hidden AllocConsole() window this constructor creates).
+// Net effect: readline()/scan() genuinely hang forever on Windows (nothing
+// can type into that hidden window), the same bug this whole feature exists
+// to fix, just still open for R specifically on this one platform -- Carpo/
+// Python's input() is unaffected (CPython's embedding has no equivalent
+// Unix-only restriction) and works correctly on Windows.
 extern "C" {
     using ptr_R_WriteConsole_t = void (*)(const char*, int);
     using ptr_R_WriteConsoleEx_t = void (*)(const char*, int, int);
