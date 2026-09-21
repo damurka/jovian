@@ -529,7 +529,7 @@ export class Session extends EventEmitter {
      * waiting on an input() / readline() reply must be answered (or its
      * execute() timed out) first.
      */
-    async interrupt(options: { timeout?: number } = {}): Promise<boolean> {
+    async interrupt(options: { timeout?: number | undefined } = {}): Promise<boolean> {
         try {
             const reply = await this.request<InterruptReplyContent>('interrupt_request', {}, { timeout: options.timeout ?? 5000 });
             return reply.status === 'ok';
@@ -561,7 +561,7 @@ export class Session extends EventEmitter {
      * queue/timeout/stdin semantics), input_reply (sendInputReply()) or
      * shutdown_request (stop()/restart()) -- the supervisor rejects those.
      */
-    async request<T = any>(msgType: string, content: Record<string, unknown> = {}, options: { timeout?: number } = {}): Promise<T> {
+    async request<T = any>(msgType: string, content: Record<string, unknown> = {}, options: { timeout?: number | undefined } = {}): Promise<T> {
         await this.readyPromise;
 
         const id = randomUUID();

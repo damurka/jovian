@@ -12,13 +12,13 @@ export interface EngineOptions {
      * supervisor actually uses (native/src/themisto/session_registry.cpp's
      * SessionOptions::kernelType) and which kernel executable it spawns.
      */
-    kernelType?: 'r' | 'python';
+    kernelType?: 'r' | 'python' | undefined;
 
-    rHome?: string;
-    rPath?: string;
-    rLibs?: string;
+    rHome?: string | undefined;
+    rPath?: string | undefined;
+    rLibs?: string | undefined;
     /** Directory containing the pandoc binary, for bundled R installs that don't ship it on PATH. */
-    pandocPath?: string;
+    pandocPath?: string | undefined;
     /**
      * Source directory of the 'hera' R package (packages/hera in this repo).
      * When set, Elara installs it via remotes::install_local() if it is
@@ -27,14 +27,14 @@ export interface EngineOptions {
      * already installed in the library -- install or update it with
      * `npm run hera:install`.
      */
-    heraSrcPath?: string;
+    heraSrcPath?: string | undefined;
 
     /** Only used when kernelType is 'python' -- Carpo's equivalent of rHome. */
-    pythonHome?: string;
+    pythonHome?: string | undefined;
     /** Only used when kernelType is 'python' -- Carpo's equivalent of rPath. */
-    pythonPath?: string;
+    pythonPath?: string | undefined;
     /** Only used when kernelType is 'python' -- not yet consulted by Carpo itself (see carpo::EnvironmentConfig). */
-    venvPath?: string;
+    venvPath?: string | undefined;
 
     /**
      * Directory the kernel process starts in -- what `getwd()` (R) /
@@ -43,12 +43,12 @@ export interface EngineOptions {
      * (i.e. the calling process's), which is rarely what you want for a
      * notebook/project: set it to the project or document folder.
      */
-    workingDirectory?: string;
+    workingDirectory?: string | undefined;
 
-    queueSize?: number;
-    enableLogging?: boolean;
-    enableMetrics?: boolean;
-    logger?: LoggerFunction;
+    queueSize?: number | undefined;
+    enableLogging?: boolean | undefined;
+    enableMetrics?: boolean | undefined;
+    logger?: LoggerFunction | undefined;
 }
 
 export type EngineState = 
@@ -60,36 +60,36 @@ export type EngineState =
     | 'error';
 
 export interface ExecutionOptions {
-    silent?: boolean;
-    storeHistory?: boolean;
-    allowStdin?: boolean;
+    silent?: boolean | undefined;
+    storeHistory?: boolean | undefined;
+    allowStdin?: boolean | undefined;
     /**
      * When this execution fails, abort every execute() still waiting behind
      * it in the queue instead of running them (Jupyter's stop_on_error) --
      * their results come back with `aborted: true` and nothing having run.
      * Also forwarded to the kernel in the execute_request itself.
      */
-    stopOnError?: boolean;
+    stopOnError?: boolean | undefined;
     /**
      * Expressions to evaluate in the kernel right after the code runs, as
      * {name: expression} (Jupyter's user_expressions). Only evaluated when
      * the code succeeded; each result -- or its own error -- comes back in
      * `ExecutionResult.userExpressions` under the same name.
      */
-    userExpressions?: Record<string, string>;
+    userExpressions?: Record<string, string> | undefined;
     /**
      * Milliseconds to wait for the execution to finish before giving up
      * (default 30000; 0 = no timeout, for calls meant to run indefinitely
      * such as a Shiny app).
      */
-    timeout?: number;
+    timeout?: number | undefined;
     /**
      * When the timeout fires, also send the kernel an interrupt (default
      * true) so it stops the code instead of carrying on with work no one is
      * waiting for -- which would otherwise block everything queued behind it.
      * Set false to leave the kernel running after a timeout.
      */
-    interruptOnTimeout?: boolean;
+    interruptOnTimeout?: boolean | undefined;
 }
 
 /** One evaluated user expression: its rich value, or the error evaluating it raised. */
@@ -143,19 +143,19 @@ export interface ExecutionHistoryEntry {
  */
 export interface KernelHistoryOptions {
     /** Defaults to 'tail' -- the n most recent executions. */
-    histAccessType?: 'tail' | 'range' | 'search';
+    histAccessType?: 'tail' | 'range' | 'search' | undefined;
     /** Include each entry's output alongside its input. Defaults to false -- the kernel doesn't actually record output today either way, so this currently only ever comes back empty. */
-    output?: boolean;
-    raw?: boolean;
+    output?: boolean | undefined;
+    raw?: boolean | undefined;
     /** Max entries to return ('tail'/'search'). Defaults to 100. */
-    n?: number;
+    n?: number | undefined;
     /** 'range' only. */
-    session?: number;
-    start?: number;
-    stop?: number;
+    session?: number | undefined;
+    start?: number | undefined;
+    stop?: number | undefined;
     /** 'search' only -- a glob pattern (*, ?). */
-    pattern?: string;
-    unique?: boolean;
+    pattern?: string | undefined;
+    unique?: boolean | undefined;
 }
 
 /**
@@ -195,13 +195,13 @@ export interface ShinyAppOptions {
     /** Directory containing the Shiny app (server.R/ui.R or app.R). */
     appDir: string;
     /** Defaults to an OS-assigned free port. */
-    port?: number;
+    port?: number | undefined;
     /** Defaults to '127.0.0.1'. */
-    host?: string;
+    host?: string | undefined;
     /** Defaults to false -- the caller decides how/where to display the app. */
-    launchBrowser?: boolean;
+    launchBrowser?: boolean | undefined;
     /** Max time to wait for the app to start accepting connections, in ms. Defaults to 10000. */
-    readyTimeout?: number;
+    readyTimeout?: number | undefined;
     /**
      * Environment variables to set (via Sys.setenv()) in the R session
      * before launching the app -- e.g. rmncah's app.R reads
@@ -211,7 +211,7 @@ export interface ShinyAppOptions {
      * that reads them after runApp() starts, since Sys.setenv() itself runs
      * synchronously right before it in the same execute() call.
      */
-    env?: Record<string, string>;
+    env?: Record<string, string> | undefined;
 }
 
 export interface ShinyAppHandle {
