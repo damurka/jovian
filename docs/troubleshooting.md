@@ -8,6 +8,8 @@ Messages below are quoted from the code. **First habit:** a kernel that fails to
 |---|---|
 | CMake cannot find `nlohmann_json` / `zeromq` / `cppzmq` / `httplib` / `ixwebsocket` | vcpkg's toolchain was not used. Set `VCPKG_ROOT` and re-configure with `-DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake` (`npm run build` does this when `VCPKG_ROOT` is set). |
 | `FindR.cmake requires the following variables to be set: R_COMMAND` | `cmake/FindR.cmake` runs `R RHOME`; put `R` on `PATH` or pass `-DR_COMMAND=<path to R>`. Only R's *headers* are needed to build. |
+| `R.h: No such file or directory` (Debian/Ubuntu) | Install `r-base-dev`. `cmake/FindR.cmake` finds Debian's split headers (`R.h` in `/usr/share/R/include`) via `R CMD config --cppflags`; if your R reports no such directory, add it with `-DCMAKE_CXX_FLAGS=-I<dir containing R.h>`. |
+| `ERR_UNKNOWN_FILE_EXTENSION … ".ts"` running the tests | The Node build has no TypeScript type stripping (Ubuntu's packaged `nodejs`). Use the official build from nodejs.org. |
 | `undefined reference to uuid_generate` (Linux) | Install `uuid-dev` (`sudo apt-get install uuid-dev`). |
 | `LNK1104: cannot open file '…\themisto.exe'` (Windows) | A `themisto` / `elara` / `carpo` process is still running from an earlier run. Kill strays (`tasklist \| findstr /i "themisto elara carpo"`) — or run against a *copy* of `dist/native/Release` via `JOVIAN_NATIVE_DIR`. |
 | C++23 / `/std:c++latest` errors on Windows | Use Visual Studio 2026 (the toolset the repo is built with); older toolsets are untested. |
@@ -39,6 +41,8 @@ Messages below are quoted from the code. **First habit:** a kernel that fails to
 
 Symptoms: the kernel log says `WARNING: 'hera' package could not be loaded (status: …)`, then `execute()` results in an error — the reply carries `R evaluation of hera:::hera_call("execute", ...) failed (is the 'hera' package installed?): …`, and completion/inspect fail the same way.
 
+On Debian/Ubuntu, `R CMD INSTALL` may fail loading an apt package with `undefined symbol: SETLENGTH` (`rlang`, `vctrs`, `htmltools`, …): those `r-cran-*` packages were built for a different R ABI. Hide the site library and install from CRAN into a private one — `export R_LIBS_SITE=/nonexistent R_LIBS_USER=$HOME/Rlib`, then `install.packages()` the dependencies and run `npm run hera:install` in the same shell, keeping both variables set when you start sessions.
+
 Fix: install `hera` and its dependencies into the library the session uses (`npm run hera:install`, i.e. `R CMD INSTALL packages/hera`, after installing `cli`, `evaluate`, `glue`, `IRdisplay`, `jsonlite`, `R6`, `repr`, `rlang` from CRAN), or pass `heraSrcPath: '<repo>/packages/hera'` (needs `remotes`) so Elara installs it. The status names in the warning: `no_source_configured` (not installed and no `heraSrcPath`), `source_not_found` (path does not exist), `remotes_unavailable` (install `remotes`), `install_failed` (see R's error above it — usually a missing dependency or an unwritable library: set `rLibs`).
 
 There is **no bundled fallback**: `heraSrcPath` has no default, whatever older comments say.
@@ -52,7 +56,7 @@ There is **no bundled fallback**: `heraSrcPath` has no default, whatever older c
 | Message | Cause / fix |
 |---|---|
 | `No python3NN.dll was found directly under python_home ('…'). Is Python installed there? …` | Windows: `pythonHome` must be the install root that directly contains `python3NN.dll`. |
-| `No libpython3.*.so*/.dylib was found under '<home>/lib'. …` | POSIX: `pythonHome` must be the prefix whose `lib/` has the shared library. Some builds (pyenv without `--enable-shared`, some Homebrew/conda layouts) have none. |
+| `No libpython3.*.so*/.dylib was found under '<home>/lib' (or lib64/, lib/<arch>-linux-gnu/). …` | POSIX: `pythonHome` must be the prefix whose `lib/`, `lib64/` or `lib/<arch>-linux-gnu/` has the shared library (a distribution Python works with `pythonHome: '/usr'`). Some builds (pyenv without `--enable-shared`, some Homebrew/conda layouts) have none. |
 | `Could not load <path> (…)` | The library was found but would not load — a 32/64-bit mismatch or a missing dependency. |
 | Imports from your venv fail | Set `venvPath` **and** keep `pythonHome` at the base install (`sys.base_prefix`). Inside a venv, `sys.prefix` has neither libpython nor the standard library. |
 

@@ -58,7 +58,7 @@ Jovian builds C++ (Adrastea, Elara, Carpo, Themisto) and TypeScript. R and Pytho
 | **CMake ≥ 3.24** | Declared in `CMakeLists.txt`. The local build uses CMake 4.3.1 (the copy bundled with Visual Studio 2026). |
 | **A C++23-capable compiler** | `CMAKE_CXX_STANDARD 23` is required. See the platform sections for what is actually verified. |
 | **vcpkg** with `VCPKG_ROOT` set | Dependencies come from the manifest in `vcpkg.json` (pinned `builtin-baseline`): `nlohmann-json`, `cppzmq`, `zeromq`, `openssl`, `gtest`, `cpp-httplib`, `ixwebsocket`. Clone [microsoft/vcpkg](https://github.com/microsoft/vcpkg) and run its bootstrap script (`bootstrap-vcpkg.bat` / `bootstrap-vcpkg.sh`); CMake picks the manifest up through the toolchain file `$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake`. |
-| **Node.js** (recent LTS) | The library is ES modules compiled with `tsc`; the test files are `.ts` and are run directly with `node --test`, which needs a Node with built-in TypeScript type stripping (unflagged since Node 22.18 / 23.6). Developed on Node 24; CI uses the current LTS. Global `fetch` and `WebSocket` are used by the client. |
+| **Node.js** (recent LTS) | The library is ES modules compiled with `tsc`; the test files are `.ts` and are run directly with `node --test`, which needs a Node with built-in TypeScript type stripping (unflagged since Node 22.18 / 23.6). Developed on Node 24; CI uses the current LTS. Use the official build from nodejs.org: some distribution packages (Ubuntu's `nodejs`) omit type stripping and fail with `ERR_UNKNOWN_FILE_EXTENSION` on `.ts` files. Global `fetch` and `WebSocket` are used by the client. |
 | **R** (to run R sessions, and its headers to build Elara) | Developed against R 4.6.0; CI uses the latest release. On Windows, R ≥ 4.2 is needed for `readline()` to work over the stdin channel (older R still starts, but `readline()` cannot be answered). |
 | **The R package `hera`** and its dependencies | Every R session needs it. Its `Imports` (from `packages/hera/DESCRIPTION`) are `cli`, `evaluate`, `glue`, `IRdisplay`, `jsonlite`, `R6`, `repr`, `rlang`, `tools`, `utils`. CI installs them with `r-lib/actions/setup-r-dependencies` using `packages: local::packages/hera`; locally, install those packages from CRAN and run **`npm run hera:install`** (`R CMD INSTALL packages/hera`), or pass `heraSrcPath` so Elara installs it on first start (needs the `remotes` package; `heraSrcPath` has no default). Use `hera` >= 0.6.0.9001: earlier versions work but only show the output of one long-running R expression when it ends, not as it is produced — re-run `npm run hera:install` after pulling. |
 | **Python** (optional) | Only needed to run Python sessions and to run `CarpoTest`. Carpo does not include Python's headers or link Python at build time. A CPython 3 installation with its shared library: `python3NN.dll` on Windows, `libpython3.*.so` on Linux, `libpython3.*.dylib` on macOS. |
@@ -75,7 +75,12 @@ Jovian builds C++ (Adrastea, Elara, Carpo, Themisto) and TypeScript. R and Pytho
 
 - A C++23 compiler, `cmake`, and vcpkg's own prerequisites (see the vcpkg docs). CI installs one extra package: **`uuid-dev`** (`sudo apt-get install uuid-dev`), because the GUID code calls `uuid_generate()` from libuuid.
 - R **must have been built with a shared library** (`--enable-R-shlib`; distribution packages and the CRAN/Posit binaries are). Elara `dlopen`s `$R_HOME/lib/libR.so`.
-- CI runs on `ubuntu-latest`.
+- CI runs on `ubuntu-latest`. The full suite (native, unit, integration) was also run on **Ubuntu 26.04 under WSL**; notes for Debian/Ubuntu:
+  - `cmake/FindR.cmake` finds Debian's split R headers (`R.h` in `/usr/share/R/include`) by asking `R CMD config --cppflags`, so `r-base-dev` is enough.
+  - Carpo looks for libpython in `lib/`, `lib64/` and `lib/<arch>-linux-gnu/`, so a distribution Python works with `PYTHONHOME=/usr` (`sudo apt install python3`; add `python3-venv` to run CarpoTest's venv test).
+  - If `hera` fails to install with `undefined symbol: SETLENGTH`, the apt `r-cran-*` packages were built for a different R ABI: hide the site library (`R_LIBS_SITE=/nonexistent`) and install `hera`'s dependencies from CRAN into a private `R_LIBS_USER`, as CI does.
+  - The distribution's packaged Node.js has no TypeScript type stripping; use the official build from nodejs.org to run the `.ts` tests.
+  - macOS is covered only by CI.
 
 ### macOS
 

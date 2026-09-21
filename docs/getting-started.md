@@ -7,8 +7,10 @@ This walks from a clean machine to a running R session and a running Python sess
 | Platform | Install |
 |---|---|
 | Windows | **Visual Studio** with the *Desktop development with C++* workload (the repo is built with Visual Studio 2026 / MSVC v145), **Git**, **Node.js** (recent LTS), **R** (4.2 or newer), optionally **Python 3**. |
-| Linux | A C++23 compiler, `cmake`, Git, Node.js, R built with a shared library (`--enable-R-shlib`; distribution packages are), `uuid-dev`, optionally Python 3. |
+| Linux | A C++23 compiler, `cmake`, Git, Node.js (the official build from nodejs.org — see the note below), R built with a shared library (`--enable-R-shlib`; distribution packages are), `uuid-dev`, optionally Python 3. On Ubuntu/Debian: `sudo apt install cmake ninja-build uuid-dev r-base-dev python3 python3-venv`. |
 | macOS | Xcode Command Line Tools, CMake, Git, Node.js, R, optionally Python 3. |
+
+On Ubuntu/Debian (verified on Ubuntu 26.04 under WSL): Debian's split R headers are found automatically (`cmake/FindR.cmake` asks `R CMD config --cppflags`), and Carpo finds a distribution Python's `libpython` in `lib/<arch>-linux-gnu/`, so `PYTHONHOME=/usr` works. The distribution's packaged Node.js has no TypeScript type stripping — install the official Node from nodejs.org to run the `.ts` tests. macOS is covered only by CI.
 
 Then install **vcpkg** and point `VCPKG_ROOT` at it:
 
@@ -29,6 +31,8 @@ install.packages(c("cli", "evaluate", "glue", "IRdisplay", "jsonlite", "R6", "re
 ```sh
 npm run hera:install               # = R CMD INSTALL packages/hera, from the repo root; re-run it after pulling to pick up hera changes
 ```
+
+On Debian/Ubuntu, if `hera` fails to install with `undefined symbol: SETLENGTH`, the apt `r-cran-*` packages were built for a different R ABI. Install the dependencies from CRAN into a private library instead: `export R_LIBS_SITE=/nonexistent R_LIBS_USER=$HOME/Rlib`, `mkdir -p $R_LIBS_USER`, then `install.packages(c("cli", "evaluate", "glue", "IRdisplay", "jsonlite", "R6", "repr", "rlang"), lib = Sys.getenv("R_LIBS_USER"))` and `npm run hera:install` in that same shell (keep both variables set when running sessions).
 
 (Alternatively pass `heraSrcPath` when creating a session and let Elara install it — see [Environments](guides/environments.md#the-hera-package-required).)
 
@@ -112,7 +116,7 @@ npm run playground:install    # once
 npm run playground            # http://127.0.0.1:4173
 ```
 
-It pre-fills R and Python from auto-discovery, shows PID / memory / working directory per session, and supports `Tab` completion and `Shift+Tab` inspect. See [the playground guide](guides/playground.md).
+It pre-fills R and Python from auto-discovery, shows PID / memory / working directory per session, and completes as you type (`Tab` accepts) and inspects a word when you rest the mouse or caret on it (`Shift+Tab` asks explicitly). See [the playground guide](guides/playground.md).
 
 ## 8. Run the tests
 
