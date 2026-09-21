@@ -46,6 +46,8 @@ What you must already have on the machine:
   install.packages(c("remotes", "cli", "evaluate", "glue", "IRdisplay", "jsonlite", "R6", "repr", "rlang"))
   ```
 
+  Install these before the first session. On Debian/Ubuntu, R packages installed with `apt` (`r-cran-*`) can be built for an older R and fail to load with `undefined symbol: SETLENGTH`; see [Troubleshooting](docs/troubleshooting.md#creating-a-session) for how to reinstall them from CRAN.
+
 - **Python 3** with its shared library (optional, for Python sessions); if `pythonHome` is not passed, it is found from `$PYTHONHOME`, then the first `python3` / `python` on `PATH` (its `sys.base_prefix`); pass `pythonHome` to choose one.
 - **Linux:** `libuuid` (`libuuid1`, present on nearly every system) and a glibc at least as new as the one the binaries were built against (Ubuntu 24.04's, 2.39). On an older distribution, [build from source](#requirements).
 - **macOS:** 14 or newer.
