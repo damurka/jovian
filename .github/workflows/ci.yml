@@ -1,27 +1,52 @@
 name: CI
 
+# One build per platform, used for everything: the tests, and -- when release.yml
+# calls this workflow with `package: true` -- the npm packages. Nothing is built
+# twice.
+
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      package:
+        description: 'Also stage, pack and smoke-test the npm packages, and upload them as artifacts (release.yml)'
+        type: boolean
+        default: false
+      version:
+        description: 'Version of the packages, as a tag: v0.1.3'
+        type: string
+        default: ''
 
 jobs:
   build-and-test:
-    name: ${{ matrix.os }}
+    name: ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
+    env:
+      # Oldest macOS the binaries run on (std::format of floats needs 13.3+).
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        include:
+          - { target: win32-x64,    os: windows-latest }
+          - { target: linux-x64,    os: ubuntu-24.04 }
+          - { target: linux-arm64,  os: ubuntu-24.04-arm }
+          - { target: darwin-arm64, os: macos-latest }
+          - { target: darwin-x64,   os: macos-15-intel }
+          # Not supported (docs/releasing.md): win32-arm64 (R for Windows on ARM64 is
+          # experimental and not on CRAN) and linux-armhf (32-bit ARM; GitHub has no
+          # runner that can run 32-bit ARM code).
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
-          node-version: 'lts/*'
+          node-version: '24'
 
       - uses: r-lib/actions/setup-r@v2
         with:
@@ -40,27 +65,22 @@ jobs:
 
       # carpo (native/src/carpo) dynamically loads Python at runtime the
       # same way elara loads R (native/src/carpo/py/py_dynlib.hpp) -- not a
-      # build-time dependency for carpo.exe itself, but CarpoTest
+      # build-time dependency for carpo itself, but CarpoTest
       # (native/test/carpo/carpo_test.cpp) needs a real interpreter to embed
       # and exercise. native/test/CMakeLists.txt discovers it via CMake's
-      # own find_package(Python3), which needs one actually on PATH -- the
-      # runner images ship a Python already, but pinning it explicitly
-      # (matching r-version: 'release' above) keeps this from silently
-      # depending on whatever a given image happens to preinstall.
+      # own find_package(Python3), which needs one actually on PATH -- pinning
+      # it explicitly keeps this from silently depending on whatever a given
+      # image happens to preinstall.
       - uses: actions/setup-python@v7
         with:
           python-version: '3.x'
 
       # hera is required for actually running code: SessionRegistryTest's
-      # real-kernel tests (ExecuteRoundTripsThroughTheRealKernel and
-      # friends) call hera:::hera_call("execute", ...) (native/src/r/
-      # rtools.hpp) to evaluate anything at all. Only the kernel's *startup*
-      # path tolerates hera being missing (RInterpreter::configureImpl()
-      # logs a warning and continues), which is why the earlier "no R
-      # packages needed" assumption here only held up through kernel_info/
-      # registration-only tests, not real execution. All of hera's Imports
-      # (packages/hera/DESCRIPTION) are on CRAN -- local::<path> installs
-      # both those and hera itself.
+      # real-kernel tests call hera:::hera_call("execute", ...) to evaluate
+      # anything at all. All of hera's Imports (packages/hera/DESCRIPTION) are
+      # on CRAN -- local::<path> installs both those and hera itself. (The
+      # package smoke test below deliberately does NOT use this library: it
+      # starts from an empty one.)
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
           packages: local::packages/hera
@@ -81,65 +101,49 @@ jobs:
           fi
           echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
 
-      # vcpkg's own binary cache (~/.cache/vcpkg or %LOCALAPPDATA%\vcpkg on
-      # Windows) holds built port archives keyed by vcpkg.json's pinned
-      # builtin-baseline -- this is what actually saves time on repeat runs
-      # (rebuilding zeromq/openssl/etc. from source, as a fresh vcpkg clone
-      # otherwise does every time, is the slow part; re-cloning vcpkg
-      # itself is comparatively cheap).
+      # vcpkg's own binary cache holds built port archives keyed by vcpkg.json's
+      # pinned builtin-baseline -- this is what actually saves time on repeat
+      # runs (rebuilding zeromq/openssl/etc. from source is the slow part).
       - name: Cache vcpkg archives
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cache/vcpkg/archives
             ~/Library/Caches/vcpkg/archives
             ~\AppData\Local\vcpkg\archives
-          key: vcpkg-archives-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-archives-${{ matrix.target }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
-            vcpkg-archives-${{ runner.os }}-
+            vcpkg-archives-${{ matrix.target }}-
 
       # This CMakeLists.txt assumes MSVC on Windows throughout once CMake
       # selects it (compile options, MSVC_RUNTIME_LIBRARY matching vcpkg's
       # triplet, the /STACK linker option) -- see the windows-path-include-*
       # comment above for why that selection needs help getting there at
       # all on this runner.
-      - name: Configure native (Release)
+      #
+      # One build, tests included: the release script ships only the kernels
+      # (themisto, elara, carpo) and the libraries they need, never the test
+      # binaries next to them.
+      - name: Configure native (Release, with tests)
         shell: bash
         run: |
-          cmake -S . -B dist/native \
+          cmake -S . -B dist/native -DJOVIAN_BUILD_TESTS=ON \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build native (elara + themisto + carpo)
+      - name: Build native (elara + themisto + carpo + tests)
         run: cmake --build dist/native --config Release
 
-      # Separate build directory from dist/native, same reasoning as
-      # scripts/test.js: JOVIAN_BUILD_TESTS=ON shouldn't stick around in
-      # the main build's CMakeCache.
-      - name: Configure native tests
-        shell: bash
-        run: |
-          cmake -S . -B dist/native-test -DJOVIAN_BUILD_TESTS=ON \
-            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            -DCMAKE_BUILD_TYPE=Release
-
-      - name: Build native tests
-        run: cmake --build dist/native-test --config Release
-
       - name: Run native tests (ctest)
-        run: ctest --test-dir dist/native-test -C Release --output-on-failure --timeout 180
+        run: ctest --test-dir dist/native -C Release --output-on-failure --timeout 180
 
       # A real, pre-existing version conflict, unrelated to anything else
       # in this workflow: package.json pins typescript@^7.0.2, but
       # @typescript-eslint/eslint-plugin@^8.0.0's peer dependency wants
       # typescript <6.1.0. `npm ci`'s strict peer-dependency resolution
-      # (unlike a plain `npm install`, which is more lenient) is what
-      # surfaces this -- this is the first time `npm ci` has run against
-      # this lockfile from a genuinely clean state. --legacy-peer-deps
-      # doesn't change any declared version, just how npm resolves the
-      # conflict; the real fix (pin an eslint-plugin version that supports
-      # TS 7, or pin an older typescript) is a version decision for
-      # whoever owns that choice, not something to make silently here.
+      # surfaces this. --legacy-peer-deps doesn't change any declared
+      # version, just how npm resolves the conflict; the real fix is a version
+      # decision for whoever owns that choice.
       - name: npm ci
         run: npm ci --legacy-peer-deps
 
@@ -151,3 +155,55 @@ jobs:
 
       - name: Integration tests
         run: node --test --test-force-exit test/integration/*.test.ts
+
+      # ---- Packages: only when release.yml asks for them ----------------------
+
+      - name: Resolve the version
+        if: inputs.package
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          VERSION_NUMBER="${VERSION#v}"
+          if ! [[ "$VERSION_NUMBER" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$VERSION' is not a version tag like v0.1.0"; exit 1
+          fi
+          echo "VERSION_NUMBER=$VERSION_NUMBER" >> "$GITHUB_ENV"
+
+      - name: Stage and pack the packages
+        if: inputs.package
+        shell: bash
+        run: |
+          node scripts/release.mjs platform --version "$VERSION_NUMBER" --target ${{ matrix.target }}
+          node scripts/release.mjs main --version "$VERSION_NUMBER"
+          mkdir -p dist/release/tarballs
+          (cd dist/release/jovian-${{ matrix.target }} && npm pack --pack-destination ../tarballs)
+          (cd dist/release/jovian && npm pack --pack-destination ../tarballs)
+
+      # Installs both tarballs into an empty project and runs real R and Python
+      # kernels from them, starting from an R library with nothing in it: the
+      # first-run install of hera and its packages is part of what is tested.
+      - name: Smoke test the packed packages (empty R library)
+        if: inputs.package
+        env:
+          R_LIBS_USER: ${{ runner.temp }}/jovian-empty-r-library
+        run: node scripts/release-smoke.mjs --dir dist/release/tarballs --python
+
+      # Every job packs the same main package; keep one copy.
+      - name: Keep the tarballs
+        if: inputs.package
+        shell: bash
+        run: |
+          mkdir -p upload
+          cp dist/release/tarballs/*-${{ matrix.target }}-*.tgz upload/
+          if [ "${{ matrix.target }}" = "linux-x64" ]; then
+            cp dist/release/tarballs/damurka-jovian-[0-9]*.tgz upload/
+          fi
+
+      - name: Upload the tarballs
+        if: inputs.package
+        uses: actions/upload-artifact@v7
+        with:
+          name: tarballs-${{ matrix.target }}
+          path: upload/*.tgz
+          if-no-files-found: error

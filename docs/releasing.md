@@ -15,9 +15,9 @@ The repository's own `package.json` is `"private": true` — it is the developme
 ## One-time setup
 
 1. **The scope.** `@damurka` must be a user or organization you can publish to on npmjs.com. If you use a different scope, change it in two places — `SCOPE` in `scripts/release.mjs` and `PACKAGE_SCOPE` in `lib/session/native-paths.ts` (a unit test fails if they differ) — plus the names in `README.md`, `docs/`, and the tarball globs in `.github/workflows/release.yml`.
-2. **A token.** On npmjs.com create an *automation* access token (or a granular token with read/write on the `@damurka` packages) and add it to the GitHub repository as the secret **`NPM_TOKEN`** (Settings → Secrets and variables → Actions). Staging needs no 2FA and works with any token type (npm also offers stage-only tokens, which cannot publish directly); the 2FA happens when you approve. A token that still asks for a one-time password on a direct `npm publish` fails in CI with `EOTP`.
+2. **Trusted publishing (no token).** Each of the six packages is registered on npmjs.com (package → Settings → Trusted Publisher) with this GitHub repository (`damurka/jovian`) and the workflow file **`release.yml`** as its publisher. The publish job then needs no secret: npm (≥ 11.5.1) exchanges the job's OIDC identity (`id-token: write`) for a short-lived credential, and every publish carries provenance. The workflow file name is part of the registration, so renaming `release.yml` breaks publishing until it is registered again. There is no `NPM_TOKEN` secret to keep; delete it if it is still there. A package that does not exist yet cannot be registered: publish its first version by hand (below), then register it.
 3. Scoped packages are private by default on npm; the packages carry `publishConfig.access: public`, and the workflow passes `--access public`.
-4. The workflow publishes with **provenance** (`--provenance`, needs the `id-token: write` permission it declares), which requires the GitHub repository to be public.
+4. Provenance (the badge that links a version to the workflow run that built it) needs the GitHub repository to be public.
 
 ## The first release is published by hand
 
@@ -45,15 +45,15 @@ The main package goes last so nothing depends on a version that is not there yet
    git push origin v0.1.0
    ```
 
-4. `release.yml` runs. For each platform it builds the native binaries in Release, compiles the library, stages both packages, packs them, and **smoke-tests the packed tarballs**: `scripts/release-smoke.mjs` installs the platform tarball and the main tarball into an empty project (outside the repository, with an empty R library so the bundled `hera` has to install from the package) and starts a real R kernel and a real Python kernel from them.
-5. Only if every platform passed does the `publish` job run. It **stages** the packages with `npm stage publish` (npm requires this for CI; needs npm ≥ 11.15, which the job installs), platform packages first, then the main package. Nothing is public yet.
+4. `release.yml` runs. It calls `ci.yml` for the work, so nothing is built twice: for each of the five platforms that is one native build, the native tests, the unit and integration tests, then staging and packing the packages and **smoke-testing the packed tarballs** (`scripts/release-smoke.mjs` installs the platform tarball and the main tarball into an empty project, outside the repository, with an **empty R library** so the first-run install of `hera` and its packages is part of the test, and starts a real R kernel and a real Python kernel from them). The same `ci.yml` runs on every push to `main` and pull request, without the packaging steps.
+5. Only if every platform passed does the `publish` job run (in `release.yml` itself, which is why it must keep that name). It **stages** the packages with `npm stage publish` (npm requires this for CI; needs npm ≥ 11.15, which the job installs), platform packages first, then the main package. Nothing is public yet.
 6. **Approve them**, with 2FA, in the same order: `npm stage list` shows the queue, `npm stage approve <stage-id>` publishes one (or approve on npmjs.com). Approve the main package last. `npm stage reject <stage-id>` discards one.
 
 A version with a hyphen (`v0.2.0-rc.1`) is published under the `next` dist-tag, so it does not become what `npm install` picks by default.
 
 ### Dry run
 
-Run the workflow by hand (Actions → Release → Run workflow). It does everything except publish and uploads the tarballs as artifacts, which you can download and `npm install` yourself.
+Run the workflow by hand (Actions → Release → Run workflow). It does everything except publish (build, all tests, packing, the smoke test) and uploads the tarballs as artifacts, which you can download and `npm install` yourself.
 
 ### Locally
 
@@ -81,7 +81,7 @@ Their users get `jovian: there are no prebuilt kernels for <os>-<cpu>` and can b
 ## Adding a platform
 
 1. Add the target to `TARGETS` in `scripts/release.mjs` and to `SUPPORTED_PLATFORMS` in `lib/session/native-paths.ts` (a unit test fails if they differ).
-2. Add it to the build matrix in `.github/workflows/release.yml`.
+2. Add it to the build matrix in `.github/workflows/ci.yml` (release.yml reuses it).
 3. Run the workflow by hand (a dry run) and fix what the smoke test finds before tagging a release.
 4. A new platform is a **new package on npm**, and npm cannot stage the first version of a package: publish it by hand once (see [The first release is published by hand](#the-first-release-is-published-by-hand)) before the main package that depends on it is approved. The workflow prints a warning naming each such package and does not fail.
 

@@ -72,15 +72,17 @@ The `hera` R package is installed into your R library, not run from the repo: af
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every push to `main`, on pull requests, and manually, on **Windows, Ubuntu and macOS** (`fail-fast: false`):
+`.github/workflows/ci.yml` runs on every push to `main`, on pull requests, and manually, on the five platforms the packages are published for (`fail-fast: false`): Windows x64, Linux x64 and arm64 (`ubuntu-24.04`, `ubuntu-24.04-arm`), macOS x64 and arm64 (`macos-15-intel`, `macos-latest`).
 
-1. Checkout, Node (`lts/*`), R (`release`, without Rtools on Windows), Python (`3.x`).
+1. Checkout, Node 24, R (`release`, without Rtools on Windows), Python (`3.x`).
 2. `r-lib/actions/setup-r-dependencies` with `packages: local::packages/hera` — installs `hera` and all its CRAN imports (real code execution needs it).
 3. `uuid-dev` on Linux.
-4. Clone and bootstrap vcpkg (`VCPKG_ROOT`), with the vcpkg binary cache keyed on `vcpkg.json`.
-5. Configure + build native (Release): elara, themisto, carpo.
-6. Configure + build the native tests (`dist/native-test`, `-DJOVIAN_BUILD_TESTS=ON`) and run `ctest -C Release --output-on-failure --timeout 180`.
+4. Clone and bootstrap vcpkg (`VCPKG_ROOT`), with the vcpkg binary cache keyed on the platform and `vcpkg.json`.
+5. **One** native build (`dist/native`, Release, `-DJOVIAN_BUILD_TESTS=ON`): elara, themisto, carpo and the tests. The release script ships only the kernels and their libraries, never the test binaries.
+6. `ctest -C Release --output-on-failure --timeout 180`.
 7. `npm ci --legacy-peer-deps` (a known peer-dependency conflict between TypeScript 7 and the `@typescript-eslint` plugin), `npx tsc --build`, unit tests, integration tests.
+
+`ci.yml` is also a reusable workflow: `release.yml` calls it with `package: true`, which adds staging, packing and a smoke test of the packed packages after step 7, using the same build (see [releasing.md](releasing.md)).
 
 ## Releasing
 
