@@ -13,7 +13,7 @@ export const PACKAGE_NAME = `${PACKAGE_SCOPE}/jovian`;
  * the main package only where it matches (each declares `os`/`cpu`). These are
  * the platforms that get a package.
  */
-export const SUPPORTED_PLATFORMS = ['win32-x64', 'linux-x64', 'linux-arm64', 'darwin-arm64', 'darwin-x64'] as const;
+export const SUPPORTED_PLATFORMS = ['win32-x64', 'linux-x64'] as const;
 
 export function platformPackageName(platform: string = process.platform, arch: string = process.arch): string | undefined {
     const key = `${platform}-${arch}`;

@@ -36,7 +36,7 @@ The pieces are named after moons of Jupiter:
 npm install @damurka/jovian
 ```
 
-The package ships **prebuilt** `themisto`, `elara` and `carpo` binaries — no compiler, CMake or vcpkg — for `win32-x64`, `linux-x64`, `linux-arm64`, `darwin-arm64` and `darwin-x64`. npm installs the matching `@damurka/jovian-<os>-<cpu>` package automatically as an optional dependency, so do not install with `--omit=optional` / `--no-optional`. Node.js ≥ 22.4 is required (ES modules; global `fetch` and `WebSocket`).
+The package ships **prebuilt** `themisto`, `elara` and `carpo` binaries — no compiler, CMake or vcpkg — for **Windows x64** (`win32-x64`) and **Linux x64** (`linux-x64`); macOS and Linux on ARM are not published yet, so build from source there and point `JOVIAN_NATIVE_DIR` at `dist/native/Release`. npm installs the matching `@damurka/jovian-<os>-<cpu>` package automatically as an optional dependency, so do not install with `--omit=optional` / `--no-optional`. Node.js ≥ 22.4 is required (ES modules; global `fetch` and `WebSocket`).
 
 What you must already have on the machine:
 
@@ -48,7 +48,7 @@ What you must already have on the machine:
 
 - **Python 3** with its shared library (optional, for Python sessions); pass `pythonHome` (`python3 -c "import sys; print(sys.prefix)"`).
 - **Linux:** `libuuid` (`libuuid1`, present on nearly every system) and a glibc at least as new as the one the binaries were built against (Ubuntu 24.04's, 2.39). On an older distribution, [build from source](#requirements).
-- **macOS:** 13 or newer. **Windows:** the [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist) (x64, 2015–2022) — the binaries use the dynamic C++ runtime; most machines already have it.
+- **Windows:** the [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist) (x64, 2015–2022) — the binaries use the dynamic C++ runtime; most machines already have it.
 
 The rest of this README is for building Jovian from source.
 

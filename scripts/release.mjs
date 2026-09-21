@@ -22,10 +22,8 @@ export const SCOPE = '@damurka';
 export const PACKAGE = `${SCOPE}/jovian`;
 export const TARGETS = {
     'win32-x64': { os: 'win32', cpu: 'x64' },
-    'linux-x64': { os: 'linux', cpu: 'x64' },
-    'linux-arm64': { os: 'linux', cpu: 'arm64' },
-    'darwin-arm64': { os: 'darwin', cpu: 'arm64' },
-    'darwin-x64': { os: 'darwin', cpu: 'x64' }
+    'linux-x64': { os: 'linux', cpu: 'x64' }
+    // linux-arm64, darwin-arm64 and darwin-x64 are not published yet; see docs/releasing.md.
 };
 
 const DIR_NAME = PACKAGE.split('/').pop();
