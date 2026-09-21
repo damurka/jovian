@@ -29,6 +29,19 @@ export function Playground() {
     const active = state.activeId ? state.sessions[state.activeId] ?? null : null;
     const inspector = useInspect(active?.id ?? null);
 
+    // A popover opened by resting on a word closes shortly after that rest
+    // ends -- unless the pointer moved onto the popover to read it.
+    const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const popoverHovered = useRef(false);
+    const cancelHoverClose = useCallback(() => clearTimeout(hoverCloseTimer.current), []);
+    const closeHover = inspector.closeHover;
+    const endHover = useCallback(() => {
+        clearTimeout(hoverCloseTimer.current);
+        hoverCloseTimer.current = setTimeout(() => {
+            if (!popoverHovered.current) closeHover();
+        }, 300);
+    }, [closeHover]);
+
     // -- kernel version --------------------------------------------------
 
     // The kernel's own version, from a real kernel_info_request.
@@ -303,7 +316,12 @@ export function Playground() {
                             void api.sendInput(active.id, value).catch((e) =>
                                 dispatch({ type: 'notice', id: active.id, cls: 'error', text: `Failed to send input reply: ${e.message}` }));
                         }}
-                        onInspect={(token, x, y) => void inspector.inspect(token, token, token.length, { kind: 'point', x, y }, active?.running)}
+                        onInspect={(token, x, y) => void inspector.inspect(token, token, token.length, { kind: 'point', x, y }, { kernelBusy: active?.running })}
+                        onHoverInspect={(token, x, y) => {
+                            cancelHoverClose();
+                            void inspector.inspect(token, token, token.length, { kind: 'point', x, y }, { hover: true });
+                        }}
+                        onHoverEnd={endHover}
                     />
 
                     {active && (
@@ -315,7 +333,11 @@ export function Playground() {
                             onRun={runDraft}
                             onInterrupt={() => void interrupt(active.id)}
                             onClear={() => dispatch({ type: 'clearOutput', id: active.id })}
-                            onInspect={(title, code, cursor, anchor, busy) => void inspector.inspect(title, code, cursor, anchor, busy)}
+                            onInspect={(title, code, cursor, anchor, options) => {
+                                if (options?.hover) cancelHoverClose();
+                                void inspector.inspect(title, code, cursor, anchor, options);
+                            }}
+                            onHoverEnd={endHover}
                         />
                     )}
                 </main>
@@ -331,7 +353,12 @@ export function Playground() {
             </div>
 
             <NewKernelModal open={modalOpen} defaults={defaults} onClose={() => setModalOpen(false)} onCreate={createSession} />
-            <InspectPopover state={inspector.state} onClose={inspector.close} />
+            <InspectPopover
+                state={inspector.state}
+                onClose={inspector.close}
+                onPointerEnter={() => { popoverHovered.current = true; cancelHoverClose(); }}
+                onPointerLeave={() => { popoverHovered.current = false; endHover(); }}
+            />
         </div>
     );
 }

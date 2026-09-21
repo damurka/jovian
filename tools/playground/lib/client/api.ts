@@ -60,18 +60,18 @@ export const api = {
     restart: (id: string) => post(`/api/sessions/${id}/restart`) as Promise<{ ok: boolean; error?: string }>,
     stop: (id: string) => post(`/api/sessions/${id}/stop`),
 
-    complete: (id: string, code: string, cursorPos: number, signal?: AbortSignal) =>
+    complete: (id: string, code: string, cursorPos: number, signal?: AbortSignal, noWait = false) =>
         request<CompletionResult>(`/api/sessions/${id}/complete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code, cursorPos }),
+            body: JSON.stringify({ code, cursorPos, noWait }),
             signal
         }),
-    inspect: (id: string, code: string, cursorPos: number, signal?: AbortSignal) =>
+    inspect: (id: string, code: string, cursorPos: number, signal?: AbortSignal, noWait = false) =>
         request<InspectResult>(`/api/sessions/${id}/inspect`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code, cursorPos }),
+            body: JSON.stringify({ code, cursorPos, noWait }),
             signal
         })
 };

@@ -16,10 +16,16 @@ const BUSY_TIMEOUT_MS = 30 * 60 * 1000;
 // POST /api/sessions/:id/complete  { code, cursorPos }
 export function POST(req: Request, ctx: RouteContext) {
     return withEntry(ctx, async (entry) => {
-        const { code = '', cursorPos = code.length } = await readJson<{ code?: string; cursorPos?: number }>(req);
+        const { code = '', cursorPos = code.length, noWait = false } = await readJson<{ code?: string; cursorPos?: number; noWait?: boolean }>(req);
 
         if (entry.status !== 'ready') {
             return json({ ok: false, error: `session is ${entry.status}` } satisfies CompletionResult);
+        }
+
+        // Automatic requests (as-you-type completion, hover inspect) must never
+        // sit behind a running cell: answer "busy" at once and let the UI stay quiet.
+        if (noWait && entry.running > 0) {
+            return json({ ok: false, busy: true } satisfies CompletionResult);
         }
 
         try {

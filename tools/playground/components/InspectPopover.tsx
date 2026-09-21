@@ -4,7 +4,13 @@ import { useEffect, useRef } from 'react';
 import type { InspectState } from '@/lib/client/use-inspect';
 
 /** Floating documentation card for the last inspect request. Esc or a click elsewhere closes it. */
-export function InspectPopover({ state, onClose }: { state: InspectState | null; onClose: () => void }) {
+export function InspectPopover({ state, onClose, onPointerEnter, onPointerLeave }: {
+    state: InspectState | null;
+    onClose: () => void;
+    /** For popovers opened by hovering: keep it while the pointer is on it, close it when it leaves. */
+    onPointerEnter?: () => void;
+    onPointerLeave?: () => void;
+}) {
     const ref = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -42,7 +48,7 @@ export function InspectPopover({ state, onClose }: { state: InspectState | null;
     }
 
     return (
-        <div className="inspect-popover" style={style} ref={ref} role="dialog" aria-label={`Documentation for ${state.title}`}>
+        <div className="inspect-popover" style={style} ref={ref} onMouseEnter={onPointerEnter} onMouseLeave={onPointerLeave} role="dialog" aria-label={`Documentation for ${state.title}`}>
             <div className="inspect-popover-header">
                 <span>Inspect <code>{state.title}</code></span>
                 <button onClick={onClose} aria-label="Close">&#10005;</button>

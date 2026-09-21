@@ -572,3 +572,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .heartbeat.hb-warn { color: #d29922; }
 .heartbeat.hb-bad { color: #f85149; }
 .heartbeat.hb-idle { color: var(--text-muted); }
+
+/* Hover-opened inspect popovers are lighter than an explicit one. */
+.inspect-popover { max-width: min(560px, calc(100vw - 24px)); }
+.code-input-preview { cursor: default; }

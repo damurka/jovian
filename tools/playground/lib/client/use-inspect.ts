@@ -14,6 +14,18 @@ export interface InspectState {
     anchor: Anchor;
     phase: 'loading' | 'found' | 'none' | 'busy' | 'error';
     text: string;
+    /**
+     * Opened by resting the pointer or caret on a word, not by asking (Shift+Tab,
+     * double-click): it closes again when that rest ends, and never shows
+     * "loading", "not found" or errors -- it only appears if there is something to show.
+     */
+    hover?: boolean;
+}
+
+export interface InspectOptions {
+    /** The kernel is running code, so an explicit request will wait for it. */
+    kernelBusy?: boolean;
+    hover?: boolean;
 }
 
 /**
@@ -23,45 +35,65 @@ export interface InspectState {
  */
 export function useInspect(sessionId: string | null) {
     const [state, setState] = useState<InspectState | null>(null);
+    const stateRef = useRef<InspectState | null>(null);
     const seq = useRef(0);
     const controller = useRef<AbortController | null>(null);
+
+    const publish = useCallback((next: InspectState | null) => {
+        stateRef.current = next;
+        setState(next);
+    }, []);
 
     const close = useCallback(() => {
         seq.current++;
         controller.current?.abort();
-        setState(null);
-    }, []);
+        publish(null);
+    }, [publish]);
 
-    const inspect = useCallback(async (title: string, code: string, cursorPos: number, anchor: Anchor, kernelBusy = false) => {
+    /** Closes a popover that was only opened by hovering / resting; leaves an explicit one alone. */
+    const closeHover = useCallback(() => {
+        if (stateRef.current?.hover) close();
+    }, [close]);
+
+    const inspect = useCallback(async (
+        title: string, code: string, cursorPos: number, anchor: Anchor, options: InspectOptions = {}
+    ) => {
         if (!sessionId) return;
+        const { kernelBusy = false, hover = false } = options;
         const mine = ++seq.current;
         controller.current?.abort();
         const abort = new AbortController();
         controller.current = abort;
-        // A kernel that is running code answers after it finishes -- say so
-        // instead of looking hung.
-        setState({
-            title, anchor, phase: 'loading',
-            text: kernelBusy ? 'The kernel is running code. This will appear as soon as it finishes (or press Interrupt).' : ''
-        });
+
+        if (!hover) {
+            // A kernel that is running code answers after it finishes -- say so
+            // instead of looking hung.
+            publish({
+                title, anchor, phase: 'loading',
+                text: kernelBusy ? 'The kernel is running code. This will appear as soon as it finishes (or press Interrupt).' : ''
+            });
+        }
 
         try {
-            const result = await api.inspect(sessionId, code, cursorPos, abort.signal);
+            const result = await api.inspect(sessionId, code, cursorPos, abort.signal, hover);
             if (mine !== seq.current) return;
-            if (result.busy) {
-                setState({ title, anchor, phase: 'busy', text: 'The kernel did not answer in time. Try again in a moment.' });
+            if (result.ok && result.found) {
+                publish({ title, anchor, phase: 'found', text: cleanHelpText(result.text ?? ''), hover });
+            } else if (hover) {
+                closeHover();
+            } else if (result.busy) {
+                publish({ title, anchor, phase: 'busy', text: 'The kernel did not answer in time. Try again in a moment.' });
             } else if (!result.ok) {
-                setState({ title, anchor, phase: 'error', text: result.error ?? 'Inspect failed.' });
-            } else if (!result.found) {
-                setState({ title, anchor, phase: 'none', text: `No documentation found for “${title}”.` });
+                publish({ title, anchor, phase: 'error', text: result.error ?? 'Inspect failed.' });
             } else {
-                setState({ title, anchor, phase: 'found', text: cleanHelpText(result.text ?? '') });
+                publish({ title, anchor, phase: 'none', text: `No documentation found for “${title}”.` });
             }
         } catch (error) {
             if (mine !== seq.current || (error as Error).name === 'AbortError') return;
-            setState({ title, anchor, phase: 'error', text: String((error as Error).message ?? error) });
+            if (hover) closeHover();
+            else publish({ title, anchor, phase: 'error', text: String((error as Error).message ?? error) });
         }
-    }, [sessionId]);
+    }, [sessionId, publish, closeHover]);
 
-    return { state, inspect, close };
+    return { state, inspect, close, closeHover };
 }

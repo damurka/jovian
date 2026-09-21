@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { isSingleToken } from '@/lib/client/text';
 import type { SessionView } from '@/lib/client/store';
 import { MAX_OUTPUT_CHARS, type Output } from '@/lib/transcript';
+import { inspectableToken, isInspectableToken } from '@/lib/client/autotrigger';
+import { tokenAtDomPoint } from '@/lib/client/textarea-hit';
 
 export function kernelLabel(kernelType: string): string {
     return kernelType === 'python' ? 'Python (Carpo)' : 'R (Elara)';
@@ -53,11 +55,50 @@ interface Props {
     onAnswerInput: (value: string) => void;
     /** Inspect a symbol the user picked out of the transcript. */
     onInspect: (token: string, x: number, y: number) => void;
+    /** Inspect a word of echoed code the pointer has rested on. */
+    onHoverInspect: (token: string, x: number, y: number) => void;
+    /** The pointer left that word. */
+    onHoverEnd: () => void;
 }
 
+const HOVER_INSPECT_DELAY_MS = 450;
+
 /** The scrolling transcript: one entry per execution, code above its output. */
-export function ConsoleView({ session, hasSessions, onAnswerInput, onInspect }: Props) {
+export function ConsoleView({ session, hasSessions, onAnswerInput, onInspect, onHoverInspect, onHoverEnd }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
+    const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const hovered = useRef<string | null>(null);
+    const lastMove = useRef(0);
+
+    useEffect(() => () => clearTimeout(hoverTimer.current), []);
+
+    const endHover = () => {
+        clearTimeout(hoverTimer.current);
+        if (hovered.current !== null) {
+            hovered.current = null;
+            onHoverEnd();
+        }
+    };
+
+    // Resting the pointer on a word of echoed code inspects it. (Output text is
+    // deliberately excluded: it is data, not code.)
+    const onMouseMove = (e: React.MouseEvent) => {
+        if (!session || session.running) return;
+        const now = performance.now();
+        if (now - lastMove.current < 60) return;
+        lastMove.current = now;
+
+        if (!(e.target as HTMLElement).closest?.('.code-input-preview')) return endHover();
+        const hit = tokenAtDomPoint(e.clientX, e.clientY);
+        if (!hit || !isInspectableToken(hit.token)) return endHover();
+        const name = inspectableToken(hit.token);
+        if (hovered.current === name) return;
+
+        clearTimeout(hoverTimer.current);
+        hovered.current = name;
+        const { left, bottom } = hit.rect;
+        hoverTimer.current = setTimeout(() => onHoverInspect(name, left, bottom), HOVER_INSPECT_DELAY_MS);
+    };
     const [chip, setChip] = useState<{ x: number; y: number; text: string } | null>(null);
 
     const cells = session?.transcript.cells ?? [];
@@ -116,7 +157,7 @@ export function ConsoleView({ session, hasSessions, onAnswerInput, onInspect }: 
     }
 
     return (
-        <div className="repl-container" id="replOutput" ref={containerRef} onMouseUp={onMouseUp}>
+        <div className="repl-container" id="replOutput" ref={containerRef} onMouseUp={onMouseUp} onMouseMove={onMouseMove} onMouseLeave={endHover}>
             {cells.length === 0 && (
                 <div className="empty-state">No output yet. Run some code below, or pick a preset from the right panel.</div>
             )}
