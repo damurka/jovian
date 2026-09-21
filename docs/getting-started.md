@@ -1,6 +1,6 @@
 # Getting started
 
-This walks from a clean machine to a running R session and a running Python session, **building Jovian from source**. If you only want to use it from Node.js, `npm install @damurka/jovian` ships prebuilt binaries and you can skip to [your first R session](#4-your-first-r-session) — see [Install](../README.md#install) for what R needs. The [README](../README.md#requirements) has the precise requirements per platform; this page is the sequence.
+This walks from a clean machine to a running R session and a running Python session, **building Jovian from source**. If you only want to use it from Node.js, `npm install @damurka/jovian` ships prebuilt binaries and you can skip to [your first R session](#4-your-first-r-session) — see [Install](../README.md#install) for what R needs. [Building from source](building.md) has the precise requirements per platform and the build commands; this page is the sequence.
 
 ## 1. Install the prerequisites
 

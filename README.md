@@ -36,18 +36,16 @@ The pieces are named after moons of Jupiter:
 npm install @damurka/jovian
 ```
 
-The package ships **prebuilt** `themisto`, `elara` and `carpo` binaries — no compiler, CMake or vcpkg — for **Windows x64**, **Linux x64 and arm64**, and **macOS x64 (Intel) and arm64 (Apple Silicon)**. Windows on ARM and 32-bit ARM Linux are not supported (there is no ARM64 R for Windows yet); build from source elsewhere and point `JOVIAN_NATIVE_DIR` at `dist/native/Release`. npm installs the matching `@damurka/jovian-<os>-<cpu>` package automatically as an optional dependency, so do not install with `--omit=optional` / `--no-optional`. Node.js ≥ 22.13 is required. The package is an ES module: use `import` (in a project with `"type": "module"`, or `.mjs`/`.mts` files), or `require()` it from CommonJS on Node 22.13+.
+The package ships **prebuilt** `themisto`, `elara` and `carpo` binaries — no compiler, CMake or vcpkg — for **Windows x64**, **Linux x64 and arm64**, and **macOS x64 (Intel) and arm64 (Apple Silicon)**. Windows on ARM and 32-bit ARM Linux are not supported (there is no ARM64 R for Windows yet); [build from source](docs/building.md#using-your-own-build) there. npm installs the matching `@damurka/jovian-<os>-<cpu>` package automatically as an optional dependency, so do not install with `--omit=optional` / `--no-optional`. Node.js ≥ 22.13 is required. The package is an ES module: use `import` (in a project with `"type": "module"`, or `.mjs`/`.mts` files), or `require()` it from CommonJS on Node 22.13+.
 
 What you must already have on the machine:
 
 - **R** (4.2 or newer; a build with a shared library, which the CRAN/Posit binaries and distribution packages are) for R sessions. If `rHome` is not passed, it is found from `$R_HOME`, then `R RHOME` (R on `PATH`), then the Windows registry; pass `rHome` to choose a specific installation. You do not need to install any R packages yourself. The `hera` R package every R session needs ships inside the npm package, and before the **first** R session the library installs it, together with its CRAN dependencies (`cli`, `evaluate`, `glue`, `IRdisplay`, `jsonlite`, `R6`, `repr`, `rlang` and what they need), into your R library. Nothing else (not even `remotes`) has to be installed first. This needs an internet connection, takes about 20 seconds where CRAN has binaries (Windows, macOS) and a few minutes on Linux, where packages are compiled from source and need a compiler (Ubuntu: `sudo apt install build-essential`). It happens once; later sessions start straight away. A package that is installed but cannot be loaded (Debian/Ubuntu `r-cran-*` packages built for an older R fail with `undefined symbol: SETLENGTH`) is reinstalled from CRAN into your own library. If it cannot finish, `createSession()` rejects with R's own reason. Set `JOVIAN_SKIP_R_SETUP=1` to skip this step and manage the packages yourself.
 
 - **Python 3** with its shared library (optional, for Python sessions); if `pythonHome` is not passed, it is found from `$PYTHONHOME`, then the first `python3` / `python` on `PATH` (its `sys.base_prefix`); pass `pythonHome` to choose one.
-- **Linux:** `libuuid` (`libuuid1`, present on nearly every system) and a glibc at least as new as the one the binaries were built against (Ubuntu 24.04's, 2.39). On an older distribution, [build from source](#requirements).
+- **Linux:** `libuuid` (`libuuid1`, present on nearly every system) and a glibc at least as new as the one the binaries were built against (Ubuntu 24.04's, 2.39). On an older distribution, [build from source](docs/building.md).
 - **macOS:** 14 or newer.
 - **Windows:** the [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist) (x64, 2015–2022) — the binaries use the dynamic C++ runtime; most machines already have it.
-
-The rest of this README is for building Jovian from source.
 
 ## Features
 
@@ -65,78 +63,26 @@ The rest of this README is for building Jovian from source.
 - **A browser playground** (Next.js) for exercising live sessions — see [`tools/playground`](tools/playground/README.md).
 - **Standard Jupyter launch mode.** `elara` and `carpo` can also be started directly by `jupyter lab` / `jupyter console` via a generated kernelspec (`npm run jupyter:kernelspec`), no supervisor involved.
 
-## Requirements
+## Environment variables
 
-*Building from source. To use the published package, see [Install](#install).*
-
-Jovian builds C++ (Adrastea, Elara, Carpo, Themisto) and TypeScript. R and Python are **runtime** dependencies of the kernels, not build-time ones: Elara and Carpo load R's and Python's shared libraries dynamically when a session starts, so the binaries build without either installed (R's headers are still needed to compile Elara).
-
-### All platforms
-
-| Requirement | Notes |
+| Variable | Meaning |
 |---|---|
-| **Git** | To clone the repo and vcpkg. |
-| **CMake ≥ 3.24** | Declared in `CMakeLists.txt`. The local build uses CMake 4.3.1 (the copy bundled with Visual Studio 2026). |
-| **A C++23-capable compiler** | `CMAKE_CXX_STANDARD 23` is required. See the platform sections for what is actually verified. |
-| **vcpkg** with `VCPKG_ROOT` set | Dependencies come from the manifest in `vcpkg.json` (pinned `builtin-baseline`): `nlohmann-json`, `cppzmq`, `zeromq`, `openssl`, `gtest`, `cpp-httplib`, `ixwebsocket`. Clone [microsoft/vcpkg](https://github.com/microsoft/vcpkg) and run its bootstrap script (`bootstrap-vcpkg.bat` / `bootstrap-vcpkg.sh`); CMake picks the manifest up through the toolchain file `$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake`. |
-| **Node.js** (recent LTS) | The library is ES modules compiled with `tsc`; the test files are `.ts` and are run directly with `node --test`, which needs a Node with built-in TypeScript type stripping (unflagged since Node 22.18 / 23.6). Developed on Node 24; CI uses the current LTS. Use the official build from nodejs.org: some distribution packages (Ubuntu's `nodejs`) omit type stripping and fail with `ERR_UNKNOWN_FILE_EXTENSION` on `.ts` files. Global `fetch` and `WebSocket` are used by the client. |
-| **R** (to run R sessions, and its headers to build Elara) | Developed against R 4.6.0; CI uses the latest release. On Windows, R ≥ 4.2 is needed for `readline()` to work over the stdin channel (older R still starts, but `readline()` cannot be answered). |
-| **The R package `hera`** and its dependencies | Every R session needs it. Its `Imports` (from `packages/hera/DESCRIPTION`) are `cli`, `evaluate`, `glue`, `IRdisplay`, `jsonlite`, `R6`, `repr`, `rlang`, `tools`, `utils`. CI installs them with `r-lib/actions/setup-r-dependencies` using `packages: local::packages/hera`; locally, install those packages from CRAN and run **`npm run hera:install`** (`R CMD INSTALL packages/hera`), or pass `heraSrcPath` so Elara installs it on first start (needs the `remotes` package; `heraSrcPath` has no default). Use `hera` >= 0.6.0.9001: earlier versions work but only show the output of one long-running R expression when it ends, not as it is produced — re-run `npm run hera:install` after pulling. |
-| **Python** (optional) | Only needed to run Python sessions and to run `CarpoTest`. Carpo does not include Python's headers or link Python at build time. A CPython 3 installation with its shared library: `python3NN.dll` on Windows, `libpython3.*.so` on Linux, `libpython3.*.dylib` on macOS. |
+| `R_HOME` | R installation to use when `rHome` is not passed; otherwise the library asks `R RHOME`. |
+| `PYTHONHOME` | Python installation prefix when `pythonHome` is not passed; otherwise the library asks `python3` / `python` for its `sys.base_prefix`. |
+| `JOVIAN_NATIVE_DIR` | Directory holding `themisto`, `elara` and `carpo`. Default: the installed `@damurka/jovian-<os>-<cpu>` package. Use it to run your own build ([building from source](docs/building.md#using-your-own-build)). |
+| `JOVIAN_LOG_LEVEL` | How much the library prints: `trace`, `debug`, `info`, `notice` (the default), `warn`, `error` or `silent`. `debug` also shows the kernels' start-up output. See [the API reference](docs/api/README.md#sessionmanager). |
+| `JOVIAN_KERNEL_OUTPUT` | Set to print the kernels' own `[elara]` / `[carpo]` start-up output. |
+| `JOVIAN_SKIP_R_SETUP` | Set to skip the one-time install of `hera` and its R packages. |
 
-### Windows
+## Building from source
 
-- **Visual Studio with the “Desktop development with C++” workload** (MSVC, Windows SDK, and the bundled CMake). The repository is built and tested here with **Visual Studio 2026 (version 18), MSVC toolset v145**, generator `Visual Studio 18 2026`. CI builds on the GitHub `windows-latest` runner. Earlier Visual Studio versions have not been tried; the build needs MSVC's `/std:c++latest` C++23 mode.
-- `CMakePresets.json` also defines Ninja + `cl.exe` presets (`x64-debug`, `x64-release`, `x86-*`); they require `VCPKG_ROOT` and `VSINSTALLDIR` (open a *Developer PowerShell / Command Prompt*, or configure from Visual Studio).
-- vcpkg installs the `x64-windows` triplet (dynamic DLLs), which is why `dist/native/Release/` contains ZeroMQ/OpenSSL DLLs next to the executables.
-- R's DLL lives in `<R_HOME>\bin\x64`; pass it as `rPath` if it is not on `PATH`. You do **not** need Rtools.
-- Note that `npm run compile` uses `%VCPKG_ROOT%` (cmd.exe syntax); use `npm run build` from any shell.
-
-### Linux
-
-- A C++23 compiler, `cmake`, and vcpkg's own prerequisites (see the vcpkg docs). CI installs one extra package: **`uuid-dev`** (`sudo apt-get install uuid-dev`), because the GUID code calls `uuid_generate()` from libuuid.
-- R **must have been built with a shared library** (`--enable-R-shlib`; distribution packages and the CRAN/Posit binaries are). Elara `dlopen`s `$R_HOME/lib/libR.so`.
-- CI runs on `ubuntu-latest`. The full suite (native, unit, integration) was also run on **Ubuntu 26.04 under WSL**; notes for Debian/Ubuntu:
-  - `cmake/FindR.cmake` finds Debian's split R headers (`R.h` in `/usr/share/R/include`) by asking `R CMD config --cppflags`, so `r-base-dev` is enough.
-  - Carpo looks for libpython in `lib/`, `lib64/` and `lib/<arch>-linux-gnu/`, so a distribution Python works with `PYTHONHOME=/usr` (`sudo apt install python3`; add `python3-venv` to run CarpoTest's venv test).
-  - If `hera` fails to install with `undefined symbol: SETLENGTH`, the apt `r-cran-*` packages were built for a different R ABI: hide the site library (`R_LIBS_SITE=/nonexistent`) and install `hera`'s dependencies from CRAN into a private `R_LIBS_USER`, as CI does.
-  - The distribution's packaged Node.js has no TypeScript type stripping; use the official build from nodejs.org to run the `.ts` tests.
-  - macOS is covered only by CI.
-
-### macOS
-
-- A C++23-capable Apple clang (Xcode or the Command Line Tools); the build links the CoreFoundation framework. CI runs on `macos-latest` using the runner's preinstalled toolchain and installs nothing extra.
-- R must provide `libR.dylib` under `$R_HOME/lib` (CRAN's framework build does).
-
-### Environment variables
-
-| Variable | Used by | Meaning |
-|---|---|---|
-| `VCPKG_ROOT` | build | vcpkg checkout; used by `npm run build` and the CMake presets. |
-| `R_HOME` | runtime, tests, examples | R installation to use when `rHome` is not passed; otherwise the library asks `R RHOME`. |
-| `R_PATH`, `R_LIBS` | examples, playground | Passed as `rPath` / `rLibs`. |
-| `PYTHONHOME` | runtime, tests | Python installation prefix when `pythonHome` is not passed; otherwise the library asks `python3` / `python` for its `sys.base_prefix`. |
-| `JOVIAN_NATIVE_DIR` | `lib/` | Directory holding `themisto`, `elara` and `carpo`. Default: the installed `@damurka/jovian-<os>-<cpu>` package, else `dist/native/Release` in a source checkout. Use it to run against a *copy* of the binaries (Windows will not let you overwrite a running `.exe`). |
-| `ELARA_HERA_SRC` | Elara | Set for you from the `heraSrcPath` option: where Elara installs `hera` from if it is missing or older than the source. |
-
-## Building and testing
+You only need this to work on Jovian or to run it on a platform without a prebuilt package: [docs/building.md](docs/building.md) has the requirements per platform (Visual Studio on Windows, a compiler and vcpkg elsewhere), the build and test commands, and how to point the library at your own build.
 
 ```sh
-npm install --legacy-peer-deps   # CI uses `npm ci --legacy-peer-deps` (typescript and the eslint plugin disagree on peer versions)
-npm run build                    # native (elara + carpo + themisto, Release) into dist/native, then TypeScript into dist/lib
+npm install --legacy-peer-deps
+npm run build   # native kernels into dist/native, then TypeScript into dist/lib
+npm test
 ```
-
-`npm run build` configures with `VCPKG_ROOT`'s toolchain file when the variable is set. The individual steps are `npm run build:native` (only `cmake --build`, after a configure) and `npm run build:lib` (`tsc --build`).
-
-```sh
-npm test                 # native ctest + TypeScript unit + integration tests (scripts/test.js)
-npm run test:unit        # TypeScript unit tests only (fake WebSocket, no processes)
-npm run test:integration # end-to-end: real themisto + real R / Python kernels
-```
-
-The TypeScript tests import the **compiled** library from `dist/`, so run `npm run build:lib` after changing anything in `lib/`. The integration tests skip themselves when the native binaries are not built, and the Python ones skip when no Python or no `carpo` is available. More in [docs/development.md](docs/development.md).
-
-Other scripts: `npm run hera:install` (install/update the `hera` R package from `packages/hera`), `npm run dev` (TypeScript watch mode), `npm run clean` (removes `dist/`), `npm run format`, `npm run lint`, `npm run jupyter:kernelspec` (write `kernel.json` files for `elara` and `carpo`; `-- --only=r` / `--only=python` for one).
 
 ## Playground
 
@@ -153,12 +99,13 @@ See [`tools/playground/README.md`](tools/playground/README.md).
 
 | | |
 |---|---|
-| [Getting started](docs/getting-started.md) | Prerequisites → build → your first R and Python session. |
+| [Getting started](docs/getting-started.md) | Building from source → your first R and Python session. |
 | [Architecture](docs/architecture/overview.md) | Components, process and thread model, message flows. |
 | [Protocol](docs/protocol.md) | Jupyter messages supported, Themisto's HTTP API and WebSocket frames. |
 | [API reference](docs/api/README.md) | `SessionManager`, `Session`, `Comm`, options and result types. |
 | Guides | [Interactive input](docs/guides/interactive-input.md) · [Interrupting](docs/guides/interrupting.md) · [Comms](docs/guides/comms.md) · [History](docs/guides/history.md) · [Session lifecycle](docs/guides/sessions-lifecycle.md) · [R and Python environments](docs/guides/environments.md) · [Playground](docs/guides/playground.md) |
 | [Kernels](docs/kernels.md) | How Elara and Carpo work, and where they differ. |
+| [Building from source](docs/building.md) | Requirements per platform, build and test commands, using your own build. |
 | [Development](docs/development.md) | Repo layout, build system, test layers, CI, debugging. |
 | [Releasing](docs/releasing.md) | How the npm packages are built and published. |
 | [Troubleshooting](docs/troubleshooting.md) | Real error messages and what causes them. |

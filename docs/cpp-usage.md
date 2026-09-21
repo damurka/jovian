@@ -55,6 +55,6 @@ cmake --build dist/native-test --config Release
 ctest --test-dir dist/native-test -C Release --output-on-failure --timeout 180
 ```
 
-See [Development](development.md) for what each CTest entry covers and the platform prerequisites ([README](../README.md#requirements)).
+See [Development](development.md) for what each CTest entry covers and the platform prerequisites ([Building from source](building.md)).
 
 Requires an R installation (only its headers, at build time — `elara` loads R's shared library dynamically at *runtime*, see [`native/src/elara/r/r_dynlib.hpp`](../native/src/elara/r/r_dynlib.hpp)) and [vcpkg](https://github.com/microsoft/vcpkg) with `VCPKG_ROOT` set. No Python installation is needed to *build* `carpo` at all -- unlike R, Carpo doesn't even include Python's headers at compile time (see `py_dynlib.hpp`'s file comment for why); a Python install is only needed at runtime, and only to actually run a Python session (`CarpoTest` also needs one, to embed and exercise for real -- it skips itself via `GTEST_SKIP` if `native/test/CMakeLists.txt`'s `find_package(Python3)` doesn't find one at configure time).
