@@ -293,6 +293,23 @@ namespace
             return std::nullopt;
         }
 
+        // Waits for a stream message of `parentMsgId` whose text contains `needle`.
+        bool waitForStreamText(const std::string& needle, const std::string& parentMsgId)
+        {
+            return waitFor([&]() {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                for (const auto& msg : m_messages)
+                {
+                    if (msg.value("msg_type", "") == "stream" && msg.value("parent_msg_id", "") == parentMsgId &&
+                        msg.at("content").value("text", "").find(needle) != std::string::npos)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }, kTimeoutMs);
+        }
+
         std::optional<json> waitForMessage(const std::string& msgType, const std::string& parentMsgId)
         {
             waitFor([&]() { return find(msgType, parentMsgId).has_value(); }, kTimeoutMs);
@@ -1275,9 +1292,11 @@ TEST_F(SessionRegistryTest, InterruptStopsARunningSleepAndTheKernelStaysUsable)
     Collector collector(session);
 
     const auto started = std::chrono::steady_clock::now();
-    ASSERT_TRUE(m_registry->sendExecute(id, "sleep-1", "Sys.sleep(60)", json::object()));
-    // Let the execution actually start (execute_input is published first).
-    ASSERT_TRUE(collector.waitForMessage("execute_input", "sleep-1").has_value());
+    ASSERT_TRUE(m_registry->sendExecute(id, "sleep-1", "cat('sleeping\\n'); Sys.sleep(60)", json::object()));
+    // Interrupt only once the code is really inside the sleep: an interrupt
+    // that lands while hera is still setting up the evaluation is a
+    // different (and racy) thing to test.
+    ASSERT_TRUE(collector.waitForStreamText("sleeping", "sleep-1"));
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
     ASSERT_TRUE(m_registry->sendInterrupt(id, "int-sleep"));
@@ -1369,7 +1388,7 @@ TEST_F(SessionRegistryTest, ShutdownRequestSentDuringAnExecutionIsHandledAfterIt
     ASSERT_TRUE(session != nullptr);
     Collector collector(session);
 
-    ASSERT_TRUE(m_registry->sendExecute(id, "slow-1", "Sys.sleep(2); 'finished'", json::object()));
+    ASSERT_TRUE(m_registry->sendExecute(id, "slow-1", "Sys.sleep(1); 'finished'", json::object()));
     ASSERT_TRUE(collector.waitForMessage("execute_input", "slow-1").has_value());
 
     // stopSession() sends shutdown_request while the sleep is still running.

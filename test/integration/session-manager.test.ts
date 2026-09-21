@@ -538,10 +538,18 @@ hera::CommManager$register_comm_target("echo", function(comm, message) {
         try {
             session.on('error', () => {});
 
-            for (const code of ['Sys.sleep(60)', 'x <- 0; while (TRUE) x <- x + 1']) {
+            // Each snippet announces itself first, so the interrupt is sent once
+            // the code is really running (not while it is still being set up).
+            const snippets: Array<[string, string]> = [
+                ['sleeping', 'cat("sleeping\n"); Sys.sleep(60)'],
+                ['looping', 'cat("looping\n"); x <- 0; while (TRUE) x <- x + 1']
+            ];
+            for (const [marker, code] of snippets) {
                 const started = Date.now();
+                const seen = waitForEvent<string>(session, 'stdout', (text) => text.includes(marker));
                 const running = session.execute(code, { timeout: 60000 });
-                await new Promise((resolve) => setTimeout(resolve, 500));
+                await seen;
+                await new Promise((resolve) => setTimeout(resolve, 300));
 
                 assert.strictEqual(await session.interrupt({ timeout: 5000 }), true, `interrupt not acknowledged for: ${code}`);
                 const result = await running;
@@ -570,10 +578,16 @@ hera::CommManager$register_comm_target("echo", function(comm, message) {
         try {
             session.on('error', () => {});
 
-            for (const code of ['import time\ntime.sleep(60)', 'while True:\n    pass']) {
+            const snippets: Array<[string, string]> = [
+                ['sleeping', 'import time\nprint("sleeping", flush=True)\ntime.sleep(60)'],
+                ['looping', 'print("looping", flush=True)\nwhile True:\n    pass']
+            ];
+            for (const [marker, code] of snippets) {
                 const started = Date.now();
+                const seen = waitForEvent<string>(session, 'stdout', (text) => text.includes(marker));
                 const running = session.execute(code, { timeout: 60000 });
-                await new Promise((resolve) => setTimeout(resolve, 500));
+                await seen;
+                await new Promise((resolve) => setTimeout(resolve, 300));
 
                 assert.strictEqual(await session.interrupt({ timeout: 5000 }), true, `interrupt not acknowledged for: ${code}`);
                 const result = await running;

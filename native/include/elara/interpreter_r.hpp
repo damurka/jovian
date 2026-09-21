@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <sstream>
+#include <thread>
 #include <string>
 #include <memory>
 
@@ -54,6 +55,12 @@ namespace elara
         // True while executeRequestImpl() is running; read from the control
         // thread by interruptRequestImpl().
         std::atomic<bool> m_executing{ false };
+        // Set when an interrupt_request arrived during the current execution,
+        // so an execution R unwinds out of can be reported as interrupted.
+        std::atomic<bool> m_interruptRequested{ false };
+        // The thread R runs on (POSIX): blocking calls such as Sys.sleep()
+        // only notice the interrupt flag once a signal wakes them.
+        std::thread::native_handle_type m_mainThread{};
     };
 
     RInterpreter* getRInterpreter();

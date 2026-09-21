@@ -9,6 +9,7 @@
 // sockets, no R, no spawned process) to drive those paths directly.
 #include <atomic>
 #include <chrono>
+#include <optional>
 #include <thread>
 
 #include <gtest/gtest.h>
@@ -232,16 +233,33 @@ TEST(ClientZmqTest, StdinInputRequestReachesTheClientUsingTheIdentityCapturedFro
     auto capturedIdentity = request.identities();
     ASSERT_FALSE(capturedIdentity.empty());
 
-    Message inputRequest(
-        capturedIdentity,
-        makeHeader("input_request", "kernel", "session-1"),
-        json::object(),
-        json::object(),
-        json{ { "prompt", "x? " }, { "password", false } },
-        buffer_sequence());
-    fakeKernel.sendStdinRequest(std::move(inputRequest), *kernelAuth);
+    // A ROUTER silently drops a send to an identity that has not finished
+    // connecting, and the client's stdin DEALER connects asynchronously --
+    // on a slow runner it can still be mid-handshake here (a real macOS CI
+    // hang: the one send was lost and the blocking receive below waited
+    // forever). Re-send until the client has it; the identity check this
+    // test is about is unaffected by retries.
+    std::optional<Message> received;
+    for (int attempt = 0; attempt < 40 && !received; ++attempt)
+    {
+        Message inputRequest(
+            capturedIdentity,
+            makeHeader("input_request", "kernel", "session-1"),
+            json::object(),
+            json::object(),
+            json{ { "prompt", "x? " }, { "password", false } },
+            buffer_sequence());
+        fakeKernel.sendStdinRequest(std::move(inputRequest), *kernelAuth);
 
-    auto received = sc.client->receiveOnStdin(true);
+        for (int wait = 0; wait < 25 && !received; ++wait)
+        {
+            received = sc.client->receiveOnStdin(false);
+            if (!received)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }
+    }
     ASSERT_TRUE(received.has_value());
     EXPECT_EQ(received->header().at("msg_type").get<std::string>(), "input_request");
     EXPECT_EQ(received->content().at("prompt").get<std::string>(), "x? ");

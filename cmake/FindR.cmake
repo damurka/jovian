@@ -61,6 +61,29 @@ if(R_COMMAND)
 
   set(R_HOME ${R_ROOT_DIR} CACHE PATH "R home directory obtained from R RHOME")
   set(R_INCLUDE_DIR "${R_HOME}/include" CACHE PATH "Path to R include directory")
+
+  # Debian/Ubuntu split R's headers: Rconfig.h stays under R_HOME/include but
+  # R.h and the rest live in /usr/share/R/include. When R.h is not where R_HOME
+  # says, ask R itself (`R CMD config --cppflags`) and add the directories it
+  # names -- R_INCLUDE_DIR then becomes a list, which include_directories()
+  # accepts as-is.
+  if(NOT EXISTS "${R_HOME}/include/R.h")
+    execute_process(COMMAND ${R_COMMAND} CMD config --cppflags
+                    OUTPUT_VARIABLE R_CPPFLAGS
+                    OUTPUT_STRIP_TRAILING_WHITESPACE
+                    ERROR_QUIET)
+    string(REGEX MATCHALL "-I[^ ]+" R_CPPFLAG_DIRS "${R_CPPFLAGS}")
+    set(R_EXTRA_INCLUDE_DIRS "")
+    foreach(flag ${R_CPPFLAG_DIRS})
+      string(SUBSTRING "${flag}" 2 -1 dir)
+      if(EXISTS "${dir}/R.h")
+        list(APPEND R_EXTRA_INCLUDE_DIRS "${dir}")
+      endif()
+    endforeach()
+    if(R_EXTRA_INCLUDE_DIRS)
+      set(R_INCLUDE_DIR "${R_HOME}/include;${R_EXTRA_INCLUDE_DIRS}" CACHE STRING "R include directories" FORCE)
+    endif()
+  endif()
 else()
   message(SEND_ERROR "FindR.cmake requires the following variables to be set: R_COMMAND")
 endif()

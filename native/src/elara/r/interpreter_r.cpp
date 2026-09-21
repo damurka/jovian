@@ -20,6 +20,11 @@
 
 #include "elara/r/rtools.hpp"
 
+#ifndef _WIN32
+#include <pthread.h>
+#include <signal.h>
+#endif
+
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -339,6 +344,15 @@ namespace elara
         }
 #endif
 
+#ifndef _WIN32
+        m_mainThread = pthread_self();
+        struct sigaction wake {};
+        wake.sa_handler = [](int) {};
+        sigemptyset(&wake.sa_mask);
+        wake.sa_flags = 0; // no SA_RESTART: the point is to interrupt the blocked call
+        sigaction(SIGUSR2, &wake, nullptr);
+#endif
+
         adrastea::registerInterpreter(this);
         p_interpreter = this;
     }
@@ -555,11 +569,27 @@ namespace elara
             explicit ExecutingScope(std::atomic<bool>& f) : flag(f) { flag = true; }
             ~ExecutingScope() { flag = false; }
         } executing(m_executing);
+        m_interruptRequested = false;
 
         SEXP code_ = PROTECT(Rf_mkString(code.c_str()));
         SEXP execution_counter_ = PROTECT(Rf_ScalarInteger(execution_count));
         SEXP silent_ = PROTECT(Rf_ScalarLogical(config.silent));
-        SEXP result = PROTECT(r::invokeHeraFn("execute", code_, execution_counter_, silent_));
+        SEXP result;
+        try {
+            result = PROTECT(r::invokeHeraFn("execute", code_, execution_counter_, silent_));
+        } catch (const std::exception&) {
+            // An interrupt that lands outside the code evaluate() guards (or
+            // while R sits in a blocking call) unwinds straight to top level
+            // and fails the whole hera call. That is the user's interrupt
+            // working, not an internal error.
+            UNPROTECT(3);
+            if (m_interruptRequested.exchange(false)) {
+                publishExecutionError("KeyboardInterrupt", "", {});
+                cb(adrastea::createErrorReply("KeyboardInterrupt", "", {}));
+                return;
+            }
+            throw;
+        }
 
         if (Rf_inherits(result, "error_reply")) {
             // Matches hera's own construction order exactly (packages/hera/R/execute.R's
@@ -697,7 +727,17 @@ namespace elara
         // flag would then linger and abort the NEXT execution, so only set
         // it while one is actually running.
         if (m_executing.load()) {
+            m_interruptRequested = true;
             r::requestRInterrupt();
+#ifndef _WIN32
+            // Setting the flag is enough for R code that keeps evaluating (a
+            // loop), but a blocking call -- Sys.sleep() -- only looks at it
+            // after the OS call returns. A signal to the R thread makes that
+            // call return early (EINTR), exactly what Ctrl-C does in a
+            // terminal. SIGUSR2 has a no-op handler (installed in the
+            // constructor), so it can never terminate the process.
+            pthread_kill(m_mainThread, SIGUSR2);
+#endif
         }
         return adrastea::createInterruptReply();
     }

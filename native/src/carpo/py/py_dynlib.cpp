@@ -229,9 +229,32 @@ namespace {
             outPath.clear();
             return nullptr;
         }
-        std::string libDir = pythonHome + "/lib";
+        // lib/ first (python.org / Homebrew / pyenv layouts), then the places
+        // distribution packages use instead: lib64/ (Fedora/RHEL) and the
+        // Debian/Ubuntu multiarch directory lib/<arch>-linux-gnu/ -- where
+        // `apt install python3` puts libpython3.N.so.
+        std::vector<std::string> libDirs = { pythonHome + "/lib", pythonHome + "/lib64" };
+        std::error_code ec;
+        for (const auto& entry : std::filesystem::directory_iterator(pythonHome + "/lib", ec)) {
+            if (ec || !entry.is_directory()) continue;
+            const std::string name = entry.path().filename().string();
+            const std::string suffix = "-linux-gnu";
+            if (name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0) {
+                libDirs.push_back(entry.path().string());
+            }
+        }
+
+        std::string libDir;
         Candidate c;
-        if (!findNewestCandidate(libDir, c)) {
+        bool found = false;
+        for (const auto& dir : libDirs) {
+            if (findNewestCandidate(dir, c)) {
+                libDir = dir;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
             outPath.clear();
             return nullptr;
         }
@@ -249,7 +272,7 @@ namespace {
         std::string reason = dlerror_msg ? std::string(dlerror_msg) : "unknown error";
         if (path.empty()) {
             return "No libpython3.*.so*/.dylib was found under '" + pythonHome +
-                   "/lib'. Is Python installed at '" + pythonHome + "'? Configure python_home to "
+                   "/lib' (or lib64/, lib/<arch>-linux-gnu/). Is Python installed at '" + pythonHome + "'? Configure python_home to "
                    "a Python installation prefix (the directory containing lib/libpython3.*), or "
                    "install Python from https://www.python.org.";
         }
