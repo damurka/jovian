@@ -1,0 +1,122 @@
+name: Bug report
+description: Something does not work, or works differently from the documentation
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. A bug is much easier to fix when it can be reproduced, so the more of this you can fill in, the better. Please look at [Troubleshooting](https://github.com/damurka/jovian/blob/main/docs/troubleshooting.md) first: it lists the real error messages and their causes.
+
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Before you post
+      options:
+        - label: I searched the open and closed issues and the troubleshooting page
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you saw, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: How to reproduce
+      description: The smallest code that shows it, as a script we can run. For a hang or a crash, what the session was doing.
+      render: typescript
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: |
+        The error and the output around it. Run with `JOVIAN_LOG_LEVEL=debug` to include the kernels' own start-up output (`[elara]` / `[carpo]` lines), which is often where the cause is.
+      render: shell
+
+  - type: input
+    id: version
+    attributes:
+      label: "@damurka/jovian version"
+      description: "`npm ls @damurka/jovian`, or the commit if you built from source."
+      placeholder: 0.1.2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you installed it
+      options:
+        - npm (prebuilt binaries)
+        - Built from source
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: "`node -p \"process.platform + '-' + process.arch\"`"
+      options:
+        - win32-x64
+        - linux-x64
+        - linux-arm64
+        - darwin-x64
+        - darwin-arm64
+        - Other (say which below)
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Ubuntu 26.04, Windows 11 24H2, macOS 15.6 ...
+
+  - type: dropdown
+    id: kernel
+    attributes:
+      label: Which kernel
+      options:
+        - R (Elara)
+        - Python (Carpo)
+        - Both
+        - Not sure / not about a kernel
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version
+      description: "`node --version`. Also say if it is a CommonJS project or ES modules, and how you run TypeScript (tsc, tsx, node)."
+      placeholder: v24.21.0
+    validations:
+      required: true
+
+  - type: input
+    id: r
+    attributes:
+      label: R version
+      description: "For R sessions: `R --version`, and where it came from (CRAN, Posit, apt, ...)."
+      placeholder: R 4.6.1, apt
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: "For Python sessions: `python3 --version`, and where it came from."
+      placeholder: Python 3.14.4, apt
+
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Things you tried, whether it worked in an earlier version, whether it always happens or only sometimes.

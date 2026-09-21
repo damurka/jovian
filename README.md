@@ -112,6 +112,6 @@ See [`tools/playground/README.md`](tools/playground/README.md).
 
 Runnable examples are in [`examples/`](examples): [`basic/simple-execute.js`](examples/basic/simple-execute.js) (one session) and [`advanced/two-sessions.js`](examples/advanced/two-sessions.js) (two concurrent sessions, one blocking), and [`interactive/ask-for-input.ts`](examples/interactive/ask-for-input.ts) (R's `readline()` and Python's `input()` answered at the terminal; see [the input guide](docs/guides/interactive-input.md)).
 
-## Status
+## Contributing
 
-Both kernels support execute, streaming output, display data, errors, completion, inspection, `is_complete`, kernel info, history, comms, interactive input, real interrupt, and session restart / crash recovery. Elara additionally has a standard Jupyter connection-file launch mode alongside the Themisto-supervised one; Carpo's kernelspec is generated too but has not been exercised against a real `jupyter lab` / `jupyter console`. Carpo supports pointing a session at a venv's `site-packages`. Interrupt was verified on Windows; its POSIX implementation (`pthread_kill` of SIGINT to the interpreter thread) is covered by the same tests but relies on CI to run them on Linux and macOS.
+Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) has the rules, and the [issue forms](https://github.com/damurka/jovian/issues/new/choose) ask for what is needed to reproduce a bug.

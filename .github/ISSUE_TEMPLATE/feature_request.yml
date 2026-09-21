@@ -1,0 +1,54 @@
+name: Feature request
+description: Suggest a new capability, option or platform
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please describe the problem before the solution: what are you trying to do that you cannot do today? Anything that changes the process model, the protocol handling or the supported platforms is worth discussing here before any code is written (see [CONTRIBUTING](https://github.com/damurka/jovian/blob/main/CONTRIBUTING.md)).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do, and why the current API or behavior does not let you.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: The behavior or API you have in mind, ideally with a short usage example.
+      render: typescript
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Workarounds you use today, or other designs.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - TypeScript API (lib/)
+        - R kernel (Elara / hera)
+        - Python kernel (Carpo)
+        - Supervisor (Themisto)
+        - A new platform
+        - Packaging / installation
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I would be willing to work on this

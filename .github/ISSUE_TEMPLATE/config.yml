@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Troubleshooting
+    url: https://github.com/damurka/jovian/blob/main/docs/troubleshooting.md
+    about: Real error messages and what causes them. Many problems are answered here.
+  - name: Report a security problem
+    url: https://github.com/damurka/jovian/security/advisories/new
+    about: Please report vulnerabilities privately, not as a public issue.
