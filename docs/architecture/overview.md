@@ -8,12 +8,11 @@ The parts are named after moons of Jupiter:
 
 | Name | Role | Where |
 |---|---|---|
-| **Jovian** | The umbrella product and npm package (`jovian`): a TypeScript client over the native binaries below | `lib/` |
+| **Jovian** | The umbrella product and npm package (`@damurka/jovian`): a TypeScript client over the native binaries below | `lib/` |
 | **Adrastea** | Language-neutral Jupyter kernel framework: wire protocol, ZMQ transport, kernel request loop, the abstract interpreter interface (`adrastea::`). Built as a **static library** shared by Elara, Carpo and Themisto | `native/src/adrastea`, `native/include/adrastea` |
-| **Elara** | The R kernel: embeds R on top of Adrastea, loading R's shared library at runtime (`elara::`, the `elara` executable) | `native/src/elara` |
+| **Elara** | The R kernel: embeds R on top of Adrastea, loading R's shared library at runtime (`elara::`, the `elara` executable). It includes **hera**, the R package loaded in every R session (execution, completion, inspection, comms) | `native/src/elara`, `packages/hera` |
 | **Carpo** | The Python kernel: embeds CPython on top of Adrastea the same way (`carpo::`, the `carpo` executable) | `native/src/carpo` |
 | **Themisto** | The kernel supervisor: spawns and monitors one kernel process per session, speaks ZMQ to each, and re-exposes sessions over HTTP + WebSocket (`themisto::`, the `themisto` executable) | `native/src/themisto` |
-| [hera](../../packages/hera) | The R companion package loaded inside every Elara session | `packages/hera` |
 
 There is no Node-API addon and no in-process engine. `lib/` talks to Themisto over plain HTTP (session lifecycle) and WebSocket (execute, requests, message streaming), and Themisto spawns one Elara or Carpo process per session. That is deliberate: a session blocked in a long call (a Shiny app, a long Python loop) cannot starve another, because they are different processes with different interpreters, and only Themisto ever links a native ZMQ binding — the process that embeds `lib/` (an Electron main process, a VS Code extension host) needs no native dependency at all.
 

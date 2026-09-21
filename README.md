@@ -25,10 +25,9 @@ The pieces are named after moons of Jupiter:
 |---|---|
 | **Jovian** | This npm package: a TypeScript client (`lib/`) over the native binaries below. |
 | **Adrastea** | Language-neutral Jupyter kernel framework — wire protocol, ZMQ transport, request loop, the abstract `Interpreter` interface (`native/`, a static library). |
-| **Elara** | The R kernel: embeds R on top of Adrastea (`elara` / `elara.exe`). |
+| **Elara** | The R kernel: embeds R on top of Adrastea (`elara` / `elara.exe`). It includes [hera](packages/hera), the R package loaded in every R session (execution, completion, inspection, comms), which is installed into R for you. |
 | **Carpo** | The Python kernel: embeds CPython on top of Adrastea the same way (`carpo` / `carpo.exe`). |
 | **Themisto** | The kernel supervisor: spawns and monitors one kernel process per session and re-exposes sessions over HTTP + WebSocket (`themisto` / `themisto.exe`). |
-| [hera](packages/hera) | The R companion package loaded inside every Elara session (execution, completion, inspection, comms). |
 
 ## Install
 
