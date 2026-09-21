@@ -1,12 +1,12 @@
 # Releasing
 
-Jovian is published to npm as four packages under the `@damurka` scope (Windows x64, Linux x64 and macOS arm64; see [Adding a platform](#adding-a-platform) for the others):
+Jovian is published to npm as six packages under the `@damurka` scope, one library and five platform packages (Windows x64, Linux x64 and arm64, macOS x64 and arm64; see [Platforms that are not supported](#platforms-that-are-not-supported)):
 
 | Package | Contents |
 |---|---|
 | `@damurka/jovian` | The compiled TypeScript library, the `hera` R package, docs. Lists the platform packages below as `optionalDependencies`. This is the one users install. |
 | `@damurka/jovian-win32-x64` | `themisto.exe`, `elara.exe`, `carpo.exe` and the DLLs they need. |
-| `@damurka/jovian-linux-x64`, `-darwin-arm64` | `themisto`, `elara`, `carpo`. |
+| `@damurka/jovian-linux-x64`, `-linux-arm64`, `-darwin-x64`, `-darwin-arm64` | `themisto`, `elara`, `carpo`. |
 
 Each platform package declares `os` and `cpu`, so npm installs only the one that matches the machine. At run time the library finds the binaries in that package (see [`lib/session/native-paths.ts`](../lib/session/native-paths.ts): `JOVIAN_NATIVE_DIR`, then the platform package, then a source checkout's `dist/native/Release`). All four packages are published at the **same version**; the main package pins the platform packages to it.
 
@@ -69,20 +69,26 @@ node scripts/release-smoke.mjs --dir dist/release/tarballs --python
 
 Nothing there publishes. Publishing by hand is `npm publish <tarball> --access public`, platform packages first.
 
+## Platforms that are not supported
+
+A platform is published only when there is a real R for it to pair with and a runner that can build and smoke-test it end to end.
+
+- **Windows on ARM (`win32-arm64`).** R for Windows on ARM64 is experimental and not on CRAN (no binary packages either), so there is no R for a native ARM64 kernel to load. People on Windows on ARM run x64 R under emulation, which would need the x64 kernel, but npm installs the x64 package only on x64 CPUs. Not supported until R for Windows on ARM64 is released.
+- **32-bit ARM Linux (`linux-armhf`).** GitHub's hosted runners cannot run 32-bit ARM code (the arm64 machines lack AArch32), so it can only be built by cross-compiling and tested under QEMU emulation, which is not set up.
+
+Their users get `jovian: there are no prebuilt kernels for <os>-<cpu>` and can build from source and set `JOVIAN_NATIVE_DIR`.
+
 ## Adding a platform
 
-Only the platforms that have been built and smoke-tested end to end are published (Windows x64, Ubuntu x64 and macOS arm64, the three the CI matrix covers). To add `linux-arm64` or `darwin-x64`:
-
 1. Add the target to `TARGETS` in `scripts/release.mjs` and to `SUPPORTED_PLATFORMS` in `lib/session/native-paths.ts` (a unit test fails if they differ).
-2. Add it to the build matrix in `.github/workflows/release.yml` (`ubuntu-24.04-arm`, `macos-15-intel`); the job `env` already sets `MACOSX_DEPLOYMENT_TARGET: '14.0'` for macOS.
+2. Add it to the build matrix in `.github/workflows/release.yml`.
 3. Run the workflow by hand (a dry run) and fix what the smoke test finds before tagging a release.
-
-Until a platform is added, its users get `jovian: there are no prebuilt kernels for <os>-<cpu>` and can build from source and set `JOVIAN_NATIVE_DIR`.
+4. A new platform is a **new package on npm**, and npm cannot stage the first version of a package: publish it by hand once (see [The first release is published by hand](#the-first-release-is-published-by-hand)) before the main package that depends on it is approved. The workflow prints a warning naming each such package and does not fail.
 
 ## Things to know
 
 - **hera upgrades.** npm resets file modification times, so the kernel's usual "is the hera source newer than the installed one" check cannot fire for an npm install. The staged `hera` `DESCRIPTION` is stamped with `Config/jovian/release: <version>`, and the kernel reinstalls `hera` when that stamp differs from the installed copy's. Users therefore get the matching `hera` after upgrading the package, once.
-- **Linux binaries and glibc.** They are built on `ubuntu-24.04` (glibc 2.39) and run on any distribution with at least that glibc. Building on an older image would widen compatibility; a `linux-arm64` build would use `ubuntu-24.04-arm`.
+- **Linux binaries and glibc.** They are built on `ubuntu-24.04` (glibc 2.39) and run on any distribution with at least that glibc. Building on an older image would widen compatibility; the `linux-arm64` build runs on `ubuntu-24.04-arm`.
 - **macOS.** The build sets `MACOSX_DEPLOYMENT_TARGET=14.0`. The binaries are not code-signed or notarized; binaries installed through npm are not quarantined by Gatekeeper, so this works, but bundling them into a downloaded `.app` would require signing.
 - **Windows.** The DLLs come from vcpkg's `x64-windows` triplet and are copied next to the executables; the binaries link the dynamic Visual C++ runtime (`MSVCP140.dll`, `VCRUNTIME140.dll`, checked with `dumpbin /dependents`), which is **not** bundled: users need the "Microsoft Visual C++ Redistributable" (x64, 2015–2022), and the README's Install section says so. Bundling the runtime DLLs into the package, or linking the runtime statically, would remove that requirement.
 - **Executable bit.** npm does not reliably preserve it; the library `chmod`s the kernels before starting them.

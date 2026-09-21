@@ -32,9 +32,12 @@ jobs:
         include:
           - { target: win32-x64,    os: windows-latest }
           - { target: linux-x64,    os: ubuntu-24.04 }
+          - { target: linux-arm64,  os: ubuntu-24.04-arm }
           - { target: darwin-arm64, os: macos-latest }
-          # Not published yet (see docs/releasing.md): linux-arm64 on ubuntu-24.04-arm,
-          # darwin-x64 on macos-15-intel.
+          - { target: darwin-x64,   os: macos-15-intel }
+          # Not supported (docs/releasing.md): win32-arm64 (R for Windows on ARM64 is
+          # experimental and not on CRAN) and linux-armhf (32-bit ARM; GitHub has no
+          # runner that can run 32-bit ARM code).
 
     steps:
       - uses: actions/checkout@v5
@@ -183,11 +186,27 @@ jobs:
           # A prerelease version (0.2.0-rc.1) must not become `latest`.
           TAG_ARGS=()
           if [[ "$VERSION" == *-* ]]; then TAG_ARGS=(--tag next); fi
-          for f in tarballs/damurka-jovian-*-*-*.tgz; do
-            npm stage publish "./$f" --access public --provenance "${TAG_ARGS[@]}"
-          done
-          for f in tarballs/damurka-jovian-[0-9]*.tgz; do
-            npm stage publish "./$f" --access public --provenance "${TAG_ARGS[@]}"
-          done
+
+          NEW_PACKAGES=()
+          stage_one() {
+            local f="$1" name out
+            name=$(tar -xzOf "$f" package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).name')
+            if out=$(npm view "$name" version 2>&1); then
+              npm stage publish "./$f" --access public --provenance "${TAG_ARGS[@]}"
+            elif grep -q E404 <<< "$out"; then
+              # npm cannot stage the first version of a package that does not exist yet.
+              echo "::warning::$name is not on npm yet, and npm cannot stage a package's first version. Publish it by hand from the tarball in this run's artifacts: npm publish ./$(basename "$f") --access public --provenance=false"
+              NEW_PACKAGES+=("$name")
+            else
+              echo "::error::could not look up $name on npm: $out"; exit 1
+            fi
+          }
+
+          for f in tarballs/damurka-jovian-*-*-*.tgz; do stage_one "$f"; done
+          for f in tarballs/damurka-jovian-[0-9]*.tgz; do stage_one "$f"; done
+
           echo "Staged. Approve each (platform packages first, the main package last) with 2FA:"
           echo "  npm stage list && npm stage approve <stage-id>   (or on npmjs.com)"
+          if [ ${#NEW_PACKAGES[@]} -gt 0 ]; then
+            echo "Publish these NEW packages by hand BEFORE approving the main package: ${NEW_PACKAGES[*]}"
+          fi

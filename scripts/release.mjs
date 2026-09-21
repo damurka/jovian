@@ -23,8 +23,12 @@ export const PACKAGE = `${SCOPE}/jovian`;
 export const TARGETS = {
     'win32-x64': { os: 'win32', cpu: 'x64' },
     'linux-x64': { os: 'linux', cpu: 'x64' },
+    'linux-arm64': { os: 'linux', cpu: 'arm64' },
+    'darwin-x64': { os: 'darwin', cpu: 'x64' },
     'darwin-arm64': { os: 'darwin', cpu: 'arm64' }
-    // linux-arm64 and darwin-x64 are not published yet; see docs/releasing.md.
+    // Not supported (see docs/releasing.md): win32-arm64, because R for Windows on
+    // ARM64 is experimental and not on CRAN; linux-armhf, which needs a 32-bit ARM
+    // build and test setup that GitHub's runners cannot provide.
 };
 
 const DIR_NAME = PACKAGE.split('/').pop();

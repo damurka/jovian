@@ -35,6 +35,8 @@ test('platformPackageName', async (t) => {
 
     await t.test('is undefined for anything else', () => {
         assert.strictEqual(platformPackageName('win32', 'arm64'), undefined);
+        assert.strictEqual(platformPackageName('linux', 'arm'), undefined);
+        assert.strictEqual(platformPackageName('linux', 'riscv64'), undefined);
         assert.strictEqual(platformPackageName('freebsd', 'x64'), undefined);
     });
 });
