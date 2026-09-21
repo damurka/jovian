@@ -1,0 +1,182 @@
+name: Release
+
+# Publishes @damurka/jovian-kernels and its per-platform packages to npm.
+# See docs/releasing.md. Push a tag `vX.Y.Z` (matching the version you want to
+# publish) to release; run it by hand (workflow_dispatch) to build and
+# smoke-test everything without publishing.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to stage for a dry run (e.g. 0.1.0). Ignored for tag pushes.'
+        required: false
+        default: '0.0.0-dryrun'
+
+env:
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.version) }}
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: win32-x64,    os: windows-latest }
+          - { target: linux-x64,    os: ubuntu-24.04 }
+          - { target: linux-arm64,  os: ubuntu-24.04-arm }
+          - { target: darwin-arm64, os: macos-latest }
+          - { target: darwin-x64,   os: macos-15-intel }
+    env:
+      # Oldest macOS the binaries run on.
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 'lts/*'
+
+      - name: Resolve the version
+        shell: bash
+        run: |
+          VERSION_NUMBER="${VERSION#v}"
+          if ! [[ "$VERSION_NUMBER" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$VERSION' is not a version tag like v0.1.0"; exit 1
+          fi
+          echo "VERSION_NUMBER=$VERSION_NUMBER" >> "$GITHUB_ENV"
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: 'release'
+          windows-path-include-rtools: false
+          windows-path-include-mingw: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.x'
+
+      # hera's own dependencies plus `remotes`, which the kernel uses to
+      # install the bundled hera on first start. hera itself is deliberately
+      # NOT installed: the smoke test has to get it from the package.
+      - name: Install the R packages the kernel needs
+        shell: Rscript {0}
+        run: |
+          install.packages(c("remotes", "cli", "evaluate", "glue", "IRdisplay", "jsonlite", "R6", "repr", "rlang"),
+                           repos = "https://cloud.r-project.org")
+
+      - name: Install libuuid (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y uuid-dev
+
+      - name: Clone and bootstrap vcpkg
+        shell: bash
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "$RUNNER_TEMP/vcpkg"
+          cd "$RUNNER_TEMP/vcpkg"
+          if [ "$RUNNER_OS" = "Windows" ]; then ./bootstrap-vcpkg.bat; else ./bootstrap-vcpkg.sh; fi
+          echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+
+      - name: Cache vcpkg archives
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/vcpkg/archives
+            ~/Library/Caches/vcpkg/archives
+            ~\AppData\Local\vcpkg\archives
+          key: vcpkg-archives-${{ matrix.target }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-archives-${{ matrix.target }}-
+
+      - name: Configure native (Release)
+        shell: bash
+        run: |
+          cmake -S . -B dist/native \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build native (elara + themisto + carpo)
+        run: cmake --build dist/native --config Release
+
+      - name: npm ci
+        run: npm ci --legacy-peer-deps
+
+      - name: Build TypeScript
+        run: npx tsc --build
+
+      - name: Stage the packages
+        shell: bash
+        run: |
+          node scripts/release.mjs platform --version "$VERSION_NUMBER" --target ${{ matrix.target }}
+          node scripts/release.mjs main --version "$VERSION_NUMBER"
+
+      - name: Pack
+        shell: bash
+        run: |
+          mkdir -p dist/release/tarballs
+          (cd dist/release/jovian-kernels-${{ matrix.target }} && npm pack --pack-destination ../tarballs)
+          (cd dist/release/jovian-kernels && npm pack --pack-destination ../tarballs)
+
+      # Installs both tarballs into an empty project and runs real R and
+      # Python kernels from them.
+      - name: Smoke test the packed packages
+        run: node scripts/release-smoke.mjs --dir dist/release/tarballs --python
+
+      # Every job packs the same main package; keep one copy.
+      - name: Keep the tarballs
+        shell: bash
+        run: |
+          mkdir -p upload
+          cp dist/release/tarballs/*-${{ matrix.target }}-*.tgz upload/
+          if [ "${{ matrix.target }}" = "linux-x64" ]; then
+            cp dist/release/tarballs/damurka-jovian-kernels-[0-9]*.tgz upload/
+          fi
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: tarballs-${{ matrix.target }}
+          path: upload/*.tgz
+          if-no-files-found: error
+
+  publish:
+    name: publish to npm
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 'lts/*'
+          registry-url: 'https://registry.npmjs.org'
+
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: tarballs-*
+          path: tarballs
+          merge-multiple: true
+
+      - name: Publish (platform packages first, then the main package)
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          ls -l tarballs
+          shopt -s nullglob
+          # A prerelease version (0.2.0-rc.1) must not become `latest`.
+          TAG_ARGS=()
+          if [[ "$VERSION" == *-* ]]; then TAG_ARGS=(--tag next); fi
+          for f in tarballs/damurka-jovian-kernels-*-*-*.tgz; do
+            npm publish "$f" --access public --provenance "${TAG_ARGS[@]}"
+          done
+          for f in tarballs/damurka-jovian-kernels-[0-9]*.tgz; do
+            npm publish "$f" --access public --provenance "${TAG_ARGS[@]}"
+          done

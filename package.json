@@ -1,8 +1,9 @@
 {
   "name": "jovian",
+  "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Unified R and Python kernels for Jupyter and Node.js with a C++ backend",
+  "description": "Development workspace for jovian-kernels (published from dist/release by scripts/release.mjs)",
   "main": "dist/lib/index.js",
   "types": "dist/lib/index.d.ts",
   "exports": {
@@ -15,26 +16,6 @@
       "types": "./dist/lib/types/index.d.ts"
     }
   },
-  "files": [
-    "dist/lib/**/*",
-    "dist/native/Release/**/*",
-    "!dist/native/Release/*_test.exe",
-    "!dist/native/Release/*_test.pdb",
-    "!dist/native/Release/dummy_process_helper.exe",
-    "!dist/native/Release/dummy_process_helper.pdb",
-    "!dist/native/Release/plain_diag.exe",
-    "!dist/native/Release/plain_diag.pdb",
-    "!dist/native/Release/gtest*.dll",
-    "!dist/native/Release/*.pdb",
-    "!dist/native/Release/*.lib",
-    "!dist/native/Release/*.exp",
-    "packages/hera/DESCRIPTION",
-    "packages/hera/NAMESPACE",
-    "packages/hera/LICENSE",
-    "packages/hera/R/**/*",
-    "packages/hera/man/**/*",
-    "README.md"
-  ],
   "scripts": {
     "clean": "node scripts/clean.js",
     "build:native": "cmake --build dist/native --config Release",
@@ -57,7 +38,7 @@
     "playground:build": "npm --prefix tools/playground run build",
     "playground:start": "npm --prefix tools/playground run start",
     "jupyter:kernelspec": "node tools/jupyter-kernelspec/generate.js",
-    "pack:install": "npm pack && cd ../../JS/vscode && npm install ../../VS/jovian/jovian-1.0.0.tgz"
+    "release:stage": "node scripts/release.mjs"
   },
   "keywords": [
     "r",
@@ -66,8 +47,8 @@
     "data-science",
     "native"
   ],
-  "author": "",
-  "license": "UNLICENSED",
+  "author": "David Kariuki",
+  "license": "MIT",
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@typescript-eslint/eslint-plugin": "^8.0.0",

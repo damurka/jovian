@@ -82,6 +82,10 @@ The `hera` R package is installed into your R library, not run from the repo: af
 6. Configure + build the native tests (`dist/native-test`, `-DJOVIAN_BUILD_TESTS=ON`) and run `ctest -C Release --output-on-failure --timeout 180`.
 7. `npm ci --legacy-peer-deps` (a known peer-dependency conflict between TypeScript 7 and the `@typescript-eslint` plugin), `npx tsc --build`, unit tests, integration tests.
 
+## Releasing
+
+The npm packages are built and published by `.github/workflows/release.yml` from a version tag; see [releasing.md](releasing.md).
+
 ## Debugging
 
 - **Kernel logs.** Everything a kernel prints (`[R Interpreter] …`, `[carpo] …`, and anything R/Python writes outside an execution) appears on the *supervisor's* stderr, which `lib/` forwards to your process's stderr, prefixed `[elara]` / `[carpo]`. That is the first place to look when a session fails to start.

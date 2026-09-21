@@ -504,6 +504,18 @@ namespace elara
                         source_mtime <- max(file.info(src_files)$mtime)
                         is_stale <- source_mtime > installed_mtime
                     }
+
+                    # An npm install has normalised (old) file mtimes, so the
+                    # check above never fires for it. The published package
+                    # stamps its hera DESCRIPTION with the release it shipped
+                    # in; a different stamp than the installed copy's means
+                    # an upgrade that brought a new hera.
+                    release_field <- "Config/jovian/release"
+                    src_release <- tryCatch(read.dcf(file.path(hera_src, "DESCRIPTION"), fields = release_field)[1, 1], error = function(e) NA_character_)
+                    if (!is.na(src_release) && file.exists(installed_desc)) {
+                        installed_release <- tryCatch(read.dcf(installed_desc, fields = release_field)[1, 1], error = function(e) NA_character_)
+                        if (!identical(installed_release, src_release)) is_stale <- TRUE
+                    }
                 }
 
                 needs_install <- has_source && (!is_installed || is_stale)

@@ -1,13 +1,13 @@
 # TypeScript API reference
 
-The `jovian` package (ES modules, `dist/lib/index.js`) exports:
+The `@damurka/jovian-kernels` package (ES modules) exports:
 
 ```typescript
 import {
     SessionManager, Session, Comm,          // classes
     type EngineOptions, type ExecutionOptions, type ExecutionResult, type JupyterMessage,
     // …every type in ./types (see types.md), plus the middleware classes
-} from 'jovian';
+} from '@damurka/jovian-kernels';
 ```
 
 | Page | Contents |
@@ -30,7 +30,7 @@ const manager = new SessionManager();
 | `stopAll(): Promise<void>` | Gracefully `stop()`s every session, then kills the supervisor. Call this before your process exits — **without it a script hangs**, because the supervisor's pipes keep Node's event loop alive. |
 | `killAll(): void` | Immediately force-closes every session and kills the supervisor. Use it as the fallback when `stopAll()` is racing a timeout (a kernel stuck inside `shiny::runApp()` cannot process a shutdown until that call returns). |
 
-The supervisor executable is looked up at `dist/native/Release/themisto[.exe]` next to the compiled library, or in `$JOVIAN_NATIVE_DIR`. If it is missing, `createSession()` rejects with `jovian: supervisor executable not found at … Run the native build (npm run build:native) before creating a session.`
+The kernel binaries are looked up in this order: `$JOVIAN_NATIVE_DIR`; the installed `@damurka/jovian-kernels-<os>-<cpu>` package (its `bin/` directory); `dist/native/Release` in a source checkout. If none has `themisto[.exe]`, `createSession()` rejects with an error naming what was expected (`jovian: the kernel binaries were not found. Expected the '@damurka/jovian-kernels-…' package …`, or, on a platform without a prebuilt package, the list of supported ones). When the library runs from an installed package and `heraSrcPath` is not given, it defaults to the copy of `hera` shipped in the package.
 
 ## Events
 

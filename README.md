@@ -5,7 +5,7 @@
 Jovian runs **R** and **Python** as supervised Jupyter kernels that you can drive from Node.js and Electron. Every session is its own operating-system process with its own embedded interpreter, so one session blocking on a long call (a Shiny app, a slow loop) never starves another, and a kernel that crashes takes only its own session with it.
 
 ```typescript
-import { SessionManager } from 'jovian';
+import { SessionManager } from '@damurka/jovian-kernels';
 
 const manager = new SessionManager();
 
@@ -30,6 +30,28 @@ The pieces are named after moons of Jupiter:
 | **Themisto** | The kernel supervisor: spawns and monitors one kernel process per session and re-exposes sessions over HTTP + WebSocket (`themisto` / `themisto.exe`). |
 | [hera](packages/hera) | The R companion package loaded inside every Elara session (execution, completion, inspection, comms). |
 
+## Install
+
+```bash
+npm install @damurka/jovian-kernels
+```
+
+The package ships **prebuilt** `themisto`, `elara` and `carpo` binaries — no compiler, CMake or vcpkg — for `win32-x64`, `linux-x64`, `linux-arm64`, `darwin-arm64` and `darwin-x64`. npm installs the matching `@damurka/jovian-kernels-<os>-<cpu>` package automatically as an optional dependency, so do not install with `--omit=optional` / `--no-optional`. Node.js ≥ 22.4 is required (ES modules; global `fetch` and `WebSocket`).
+
+What you must already have on the machine:
+
+- **R** (4.2 or newer; a build with a shared library, which the CRAN/Posit binaries and distribution packages are) for R sessions. Pass its location as `rHome` (`R RHOME` prints it). The `hera` R package that every R session needs ships inside the npm package and is installed into R on a session's first start, which needs the `remotes` package and `hera`'s CRAN dependencies (`cli`, `evaluate`, `glue`, `IRdisplay`, `jsonlite`, `R6`, `repr`, `rlang`):
+
+  ```r
+  install.packages(c("remotes", "cli", "evaluate", "glue", "IRdisplay", "jsonlite", "R6", "repr", "rlang"))
+  ```
+
+- **Python 3** with its shared library (optional, for Python sessions); pass `pythonHome` (`python3 -c "import sys; print(sys.prefix)"`).
+- **Linux:** `libuuid` (`libuuid1`, present on nearly every system) and a glibc at least as new as the one the binaries were built against (Ubuntu 24.04's, 2.39). On an older distribution, [build from source](#requirements).
+- **macOS:** 13 or newer. **Windows:** the [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist) (x64, 2015–2022) — the binaries use the dynamic C++ runtime; most machines already have it.
+
+The rest of this README is for building Jovian from source.
+
 ## Features
 
 - **Two kernels, one API.** R (Elara) and Python (Carpo), chosen per session with `kernelType`.
@@ -47,6 +69,8 @@ The pieces are named after moons of Jupiter:
 - **Standard Jupyter launch mode.** `elara` and `carpo` can also be started directly by `jupyter lab` / `jupyter console` via a generated kernelspec (`npm run jupyter:kernelspec`), no supervisor involved.
 
 ## Requirements
+
+*Building from source. To use the published package, see [Install](#install).*
 
 Jovian builds C++ (Adrastea, Elara, Carpo, Themisto) and TypeScript. R and Python are **runtime** dependencies of the kernels, not build-time ones: Elara and Carpo load R's and Python's shared libraries dynamically when a session starts, so the binaries build without either installed (R's headers are still needed to compile Elara).
 
@@ -95,7 +119,7 @@ Jovian builds C++ (Adrastea, Elara, Carpo, Themisto) and TypeScript. R and Pytho
 | `R_HOME` | runtime, tests, examples | R installation to use when `rHome` is not passed. `R RHOME` is used as a fallback by the tests and the playground. |
 | `R_PATH`, `R_LIBS` | examples, playground | Passed as `rPath` / `rLibs`. |
 | `PYTHONHOME` | runtime, tests | Python installation prefix when `pythonHome` is not passed. |
-| `JOVIAN_NATIVE_DIR` | `lib/` | Directory holding `themisto`, `elara` and `carpo`. Default: `dist/native/Release` next to the compiled library. Use it to run against a *copy* of the binaries (Windows will not let you overwrite a running `.exe`). |
+| `JOVIAN_NATIVE_DIR` | `lib/` | Directory holding `themisto`, `elara` and `carpo`. Default: the installed `@damurka/jovian-kernels-<os>-<cpu>` package, else `dist/native/Release` in a source checkout. Use it to run against a *copy* of the binaries (Windows will not let you overwrite a running `.exe`). |
 | `ELARA_HERA_SRC` | Elara | Set for you from the `heraSrcPath` option: where Elara installs `hera` from if it is missing or older than the source. |
 
 ## Building and testing
@@ -139,6 +163,7 @@ See [`tools/playground/README.md`](tools/playground/README.md).
 | Guides | [Interactive input](docs/guides/interactive-input.md) · [Interrupting](docs/guides/interrupting.md) · [Comms](docs/guides/comms.md) · [History](docs/guides/history.md) · [Session lifecycle](docs/guides/sessions-lifecycle.md) · [R and Python environments](docs/guides/environments.md) · [Playground](docs/guides/playground.md) |
 | [Kernels](docs/kernels.md) | How Elara and Carpo work, and where they differ. |
 | [Development](docs/development.md) | Repo layout, build system, test layers, CI, debugging. |
+| [Releasing](docs/releasing.md) | How the npm packages are built and published. |
 | [Troubleshooting](docs/troubleshooting.md) | Real error messages and what causes them. |
 | [C++ usage](docs/cpp-usage.md) | Using Adrastea from C++; writing a new language kernel. |
 

@@ -1,13 +1,9 @@
 import { spawn, type ChildProcess } from 'child_process';
 import { createInterface } from 'readline';
-import { existsSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { join } from 'path';
 import type { EngineOptions } from '../types/index.js';
 import { Logger } from '../utils/logger.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { bundledHeraSource, ensureExecutable, locateNativeDirectory } from './native-paths.js';
 
 export interface SessionConnectionInfo {
     sessionId: string;
@@ -35,7 +31,7 @@ export function buildSessionOptionsBody(options: Partial<EngineOptions>): Record
         rPath: options.rPath,
         rLibs: options.rLibs,
         pandocPath: options.pandocPath,
-        heraSrcPath: options.heraSrcPath,
+        heraSrcPath: options.heraSrcPath ?? bundledHeraSource(),
         pythonHome: options.pythonHome,
         pythonPath: options.pythonPath,
         venvPath: options.venvPath,
@@ -167,22 +163,13 @@ export class SupervisorClient {
     }
 }
 
-// Finds the supervisor binary (see native/CMakeLists.txt's
-// JOVIAN_BUILD_THEMISTO target and CMAKE_RUNTIME_OUTPUT_DIRECTORY =
-// dist/native/$<CONFIG>).
-//
-// JOVIAN_NATIVE_DIR overrides the directory the binaries (themisto, elara,
-// carpo) are taken from -- for running against a copy of them (e.g. while
-// the originals are being rebuilt, which Windows won't allow for an
-// executable that is running) or a packaged app that keeps them elsewhere.
+// Finds the supervisor binary: JOVIAN_NATIVE_DIR, else the installed
+// @scope/jovian-kernels-<os>-<cpu> package, else a source checkout's
+// dist/native/Release (see native-paths.ts).
 function resolveSupervisorExecutable(): string {
-    const exeName = process.platform === 'win32' ? 'themisto.exe' : 'themisto';
-    const override = process.env.JOVIAN_NATIVE_DIR;
-    const candidate = (override ? join(override, exeName) : join(__dirname, '../../native/Release', exeName))
-        .replace(/\bnode_modules\.asar\b/, 'node_modules.asar.unpacked');
-    if (!existsSync(candidate)) {
-        throw new Error(`jovian: supervisor executable not found at ${candidate}. ` +
-            `Run the native build (npm run build:native) before creating a session.`);
-    }
-    return candidate;
+    const { dir } = locateNativeDirectory();
+    // Electron keeps native files outside the asar archive.
+    const nativeDir = dir.replace(/\bnode_modules\.asar\b/, 'node_modules.asar.unpacked');
+    ensureExecutable(nativeDir);
+    return join(nativeDir, process.platform === 'win32' ? 'themisto.exe' : 'themisto');
 }
