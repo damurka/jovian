@@ -5,7 +5,7 @@
 Jovian runs **R** and **Python** as supervised Jupyter kernels that you can drive from Node.js and Electron. Every session is its own operating-system process with its own embedded interpreter, so one session blocking on a long call (a Shiny app, a slow loop) never starves another, and a kernel that crashes takes only its own session with it.
 
 ```typescript
-import { SessionManager } from '@damurka/jovian-kernels';
+import { SessionManager } from '@damurka/jovian';
 
 const manager = new SessionManager();
 
@@ -33,10 +33,10 @@ The pieces are named after moons of Jupiter:
 ## Install
 
 ```bash
-npm install @damurka/jovian-kernels
+npm install @damurka/jovian
 ```
 
-The package ships **prebuilt** `themisto`, `elara` and `carpo` binaries — no compiler, CMake or vcpkg — for `win32-x64`, `linux-x64`, `linux-arm64`, `darwin-arm64` and `darwin-x64`. npm installs the matching `@damurka/jovian-kernels-<os>-<cpu>` package automatically as an optional dependency, so do not install with `--omit=optional` / `--no-optional`. Node.js ≥ 22.4 is required (ES modules; global `fetch` and `WebSocket`).
+The package ships **prebuilt** `themisto`, `elara` and `carpo` binaries — no compiler, CMake or vcpkg — for `win32-x64`, `linux-x64`, `linux-arm64`, `darwin-arm64` and `darwin-x64`. npm installs the matching `@damurka/jovian-<os>-<cpu>` package automatically as an optional dependency, so do not install with `--omit=optional` / `--no-optional`. Node.js ≥ 22.4 is required (ES modules; global `fetch` and `WebSocket`).
 
 What you must already have on the machine:
 
@@ -119,7 +119,7 @@ Jovian builds C++ (Adrastea, Elara, Carpo, Themisto) and TypeScript. R and Pytho
 | `R_HOME` | runtime, tests, examples | R installation to use when `rHome` is not passed. `R RHOME` is used as a fallback by the tests and the playground. |
 | `R_PATH`, `R_LIBS` | examples, playground | Passed as `rPath` / `rLibs`. |
 | `PYTHONHOME` | runtime, tests | Python installation prefix when `pythonHome` is not passed. |
-| `JOVIAN_NATIVE_DIR` | `lib/` | Directory holding `themisto`, `elara` and `carpo`. Default: the installed `@damurka/jovian-kernels-<os>-<cpu>` package, else `dist/native/Release` in a source checkout. Use it to run against a *copy* of the binaries (Windows will not let you overwrite a running `.exe`). |
+| `JOVIAN_NATIVE_DIR` | `lib/` | Directory holding `themisto`, `elara` and `carpo`. Default: the installed `@damurka/jovian-<os>-<cpu>` package, else `dist/native/Release` in a source checkout. Use it to run against a *copy* of the binaries (Windows will not let you overwrite a running `.exe`). |
 | `ELARA_HERA_SRC` | Elara | Set for you from the `heraSrcPath` option: where Elara installs `hera` from if it is missing or older than the source. |
 
 ## Building and testing

@@ -1,6 +1,6 @@
 name: Release
 
-# Publishes @damurka/jovian-kernels and its per-platform packages to npm.
+# Publishes @damurka/jovian and its per-platform packages to npm.
 # See docs/releasing.md. Push a tag `vX.Y.Z` (matching the version you want to
 # publish) to release; run it by hand (workflow_dispatch) to build and
 # smoke-test everything without publishing.
@@ -120,8 +120,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist/release/tarballs
-          (cd dist/release/jovian-kernels-${{ matrix.target }} && npm pack --pack-destination ../tarballs)
-          (cd dist/release/jovian-kernels && npm pack --pack-destination ../tarballs)
+          (cd dist/release/jovian-${{ matrix.target }} && npm pack --pack-destination ../tarballs)
+          (cd dist/release/jovian && npm pack --pack-destination ../tarballs)
 
       # Installs both tarballs into an empty project and runs real R and
       # Python kernels from them.
@@ -135,7 +135,7 @@ jobs:
           mkdir -p upload
           cp dist/release/tarballs/*-${{ matrix.target }}-*.tgz upload/
           if [ "${{ matrix.target }}" = "linux-x64" ]; then
-            cp dist/release/tarballs/damurka-jovian-kernels-[0-9]*.tgz upload/
+            cp dist/release/tarballs/damurka-jovian-[0-9]*.tgz upload/
           fi
 
       - uses: actions/upload-artifact@v5
@@ -174,9 +174,9 @@ jobs:
           # A prerelease version (0.2.0-rc.1) must not become `latest`.
           TAG_ARGS=()
           if [[ "$VERSION" == *-* ]]; then TAG_ARGS=(--tag next); fi
-          for f in tarballs/damurka-jovian-kernels-*-*-*.tgz; do
+          for f in tarballs/damurka-jovian-*-*-*.tgz; do
             npm publish "$f" --access public --provenance "${TAG_ARGS[@]}"
           done
-          for f in tarballs/damurka-jovian-kernels-[0-9]*.tgz; do
+          for f in tarballs/damurka-jovian-[0-9]*.tgz; do
             npm publish "$f" --access public --provenance "${TAG_ARGS[@]}"
           done

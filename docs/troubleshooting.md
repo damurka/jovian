@@ -20,7 +20,7 @@ Messages below are quoted from the code. **First habit:** a kernel that fails to
 
 | Message | Meaning and fix |
 |---|---|
-| `jovian: the kernel binaries were not found. Expected the '@damurka/jovian-kernels-<os>-<cpu>' package …` | The platform package was not installed: it is an optional dependency, so `npm install --omit=optional` / `--no-optional` skips it (reinstall without the flag), or a lockfile made on another OS omitted it (`npm install` on this OS). In a source checkout: run `npm run build`, or set `$JOVIAN_NATIVE_DIR`. |
+| `jovian: the kernel binaries were not found. Expected the '@damurka/jovian-<os>-<cpu>' package …` | The platform package was not installed: it is an optional dependency, so `npm install --omit=optional` / `--no-optional` skips it (reinstall without the flag), or a lockfile made on another OS omitted it (`npm install` on this OS). In a source checkout: run `npm run build`, or set `$JOVIAN_NATIVE_DIR`. |
 | `jovian: there are no prebuilt kernels for <os>-<cpu> (supported: …)` | Prebuilt packages exist for `win32-x64`, `linux-x64`, `linux-arm64`, `darwin-arm64`, `darwin-x64`. Elsewhere, [build from source](../README.md#requirements) and set `$JOVIAN_NATIVE_DIR` to `dist/native/Release`. |
 | `version 'GLIBC_2.xx' not found` on Linux | The prebuilt Linux binaries need a glibc at least as new as the one they were built with (Ubuntu 24.04: 2.39). Build from source on the older system. |
 | `Supervisor process exited before it was ready (code 1)` | `themisto` refused to start — typically `[themisto] FATAL: kernel executable not found at … (pass --kernel-exe to override)`: `elara` is missing next to `themisto`. |

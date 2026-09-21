@@ -26,10 +26,10 @@ function lookup(overrides: Partial<NativeLookup> & { present?: string[]; install
 }
 
 test('platformPackageName', async (t) => {
-    await t.test('maps every supported platform to jovian-kernels-<os>-<cpu>', () => {
+    await t.test('maps every supported platform to jovian-<os>-<cpu>', () => {
         for (const key of SUPPORTED_PLATFORMS) {
             const [os, cpu] = key.split('-');
-            assert.strictEqual(platformPackageName(os, cpu), `@damurka/jovian-kernels-${key}`);
+            assert.strictEqual(platformPackageName(os, cpu), `@damurka/jovian-${key}`);
         }
     });
 
@@ -41,10 +41,10 @@ test('platformPackageName', async (t) => {
 
 test('locateNativeDirectory', async (t) => {
     await t.test('JOVIAN_NATIVE_DIR wins over an installed platform package', () => {
-        const pkg = join('nm', '@damurka/jovian-kernels-linux-x64', 'package.json');
+        const pkg = join('nm', '@damurka/jovian-linux-x64', 'package.json');
         const found = locateNativeDirectory(lookup({
             env: { JOVIAN_NATIVE_DIR: 'custom' },
-            installed: { '@damurka/jovian-kernels-linux-x64': pkg },
+            installed: { '@damurka/jovian-linux-x64': pkg },
             present: [join('custom', 'themisto'), join(dirname(pkg), 'bin', 'themisto')]
         }));
         assert.deepStrictEqual(found, { dir: 'custom', source: 'JOVIAN_NATIVE_DIR' });
@@ -58,21 +58,21 @@ test('locateNativeDirectory', async (t) => {
     });
 
     await t.test('uses the installed platform package when there is no override', () => {
-        const pkg = join('nm', '@damurka/jovian-kernels-linux-x64', 'package.json');
+        const pkg = join('nm', '@damurka/jovian-linux-x64', 'package.json');
         const bin = join(dirname(pkg), 'bin');
         const found = locateNativeDirectory(lookup({
-            installed: { '@damurka/jovian-kernels-linux-x64': pkg },
+            installed: { '@damurka/jovian-linux-x64': pkg },
             present: [join(bin, 'themisto')]
         }));
         assert.deepStrictEqual(found, { dir: bin, source: 'platform package' });
     });
 
     await t.test('looks for themisto.exe on Windows', () => {
-        const pkg = join('nm', '@damurka/jovian-kernels-win32-x64', 'package.json');
+        const pkg = join('nm', '@damurka/jovian-win32-x64', 'package.json');
         const bin = join(dirname(pkg), 'bin');
         const found = locateNativeDirectory(lookup({
             platform: 'win32',
-            installed: { '@damurka/jovian-kernels-win32-x64': pkg },
+            installed: { '@damurka/jovian-win32-x64': pkg },
             present: [join(bin, 'themisto.exe')]
         }));
         assert.strictEqual(found.dir, bin);
@@ -85,7 +85,7 @@ test('locateNativeDirectory', async (t) => {
     });
 
     await t.test('names the missing package on a supported platform', () => {
-        assert.throws(() => locateNativeDirectory(lookup()), /@damurka\/jovian-kernels-linux-x64/);
+        assert.throws(() => locateNativeDirectory(lookup()), /@damurka\/jovian-linux-x64/);
     });
 
     await t.test('lists the supported platforms on an unsupported one', () => {
@@ -97,12 +97,12 @@ test('locateNativeDirectory', async (t) => {
 });
 
 test('bundledHeraSource', async (t) => {
-    const installedDir = join('app', 'node_modules', '@damurka', 'jovian-kernels', 'dist', 'lib', 'session');
+    const installedDir = join('app', 'node_modules', '@damurka', 'jovian', 'dist', 'lib', 'session');
     const hera = join(installedDir, '..', '..', '..', 'packages', 'hera');
 
     await t.test('points at the copy shipped in the package when installed under node_modules', () => {
         const found = bundledHeraSource(installedDir, (p) => p === join(hera, 'DESCRIPTION'));
-        assert.strictEqual(found, join('app', 'node_modules', '@damurka', 'jovian-kernels', 'packages', 'hera'));
+        assert.strictEqual(found, join('app', 'node_modules', '@damurka', 'jovian', 'packages', 'hera'));
     });
 
     await t.test('is undefined in a source checkout so development controls which hera loads', () => {

@@ -164,7 +164,7 @@ export class SupervisorClient {
 }
 
 // Finds the supervisor binary: JOVIAN_NATIVE_DIR, else the installed
-// @scope/jovian-kernels-<os>-<cpu> package, else a source checkout's
+// @scope/jovian-<os>-<cpu> package, else a source checkout's
 // dist/native/Release (see native-paths.ts).
 function resolveSupervisorExecutable(): string {
     const { dir } = locateNativeDirectory();

@@ -5,11 +5,11 @@ import { fileURLToPath } from 'node:url';
 
 /** The npm scope the packages are published under (also set in scripts/release.mjs; a test keeps them in step). */
 export const PACKAGE_SCOPE = '@damurka';
-export const PACKAGE_NAME = `${PACKAGE_SCOPE}/jovian-kernels`;
+export const PACKAGE_NAME = `${PACKAGE_SCOPE}/jovian`;
 
 /**
  * The prebuilt kernels (themisto, elara, carpo) ship in one small package per
- * platform -- `@scope/jovian-kernels-<os>-<cpu>` -- that npm installs alongside
+ * platform -- `@scope/jovian-<os>-<cpu>` -- that npm installs alongside
  * the main package only where it matches (each declares `os`/`cpu`). These are
  * the platforms that get a package.
  */
@@ -62,7 +62,7 @@ function defaultLookup(): NativeLookup {
  * Where the kernels are, in order of precedence:
  *   1. JOVIAN_NATIVE_DIR -- an explicit directory (a copy of the binaries, an
  *      app that bundles them elsewhere);
- *   2. the installed `@scope/jovian-kernels-<os>-<cpu>` package for this machine;
+ *   2. the installed `@scope/jovian-<os>-<cpu>` package for this machine;
  *   3. a source checkout's dist/native/Release (development).
  */
 export function locateNativeDirectory(lookup: NativeLookup = defaultLookup()): NativeLocation {

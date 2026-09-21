@@ -4,10 +4,10 @@ Jovian is published to npm as six packages under the `@damurka` scope:
 
 | Package | Contents |
 |---|---|
-| `@damurka/jovian-kernels` | The compiled TypeScript library, the `hera` R package, docs. Lists the five below as `optionalDependencies`. This is the one users install. |
-| `@damurka/jovian-kernels-win32-x64` | `themisto.exe`, `elara.exe`, `carpo.exe` and the DLLs they need. |
-| `@damurka/jovian-kernels-linux-x64`, `-linux-arm64` | `themisto`, `elara`, `carpo`. |
-| `@damurka/jovian-kernels-darwin-arm64`, `-darwin-x64` | `themisto`, `elara`, `carpo`. |
+| `@damurka/jovian` | The compiled TypeScript library, the `hera` R package, docs. Lists the five below as `optionalDependencies`. This is the one users install. |
+| `@damurka/jovian-win32-x64` | `themisto.exe`, `elara.exe`, `carpo.exe` and the DLLs they need. |
+| `@damurka/jovian-linux-x64`, `-linux-arm64` | `themisto`, `elara`, `carpo`. |
+| `@damurka/jovian-darwin-arm64`, `-darwin-x64` | `themisto`, `elara`, `carpo`. |
 
 Each platform package declares `os` and `cpu`, so npm installs only the one that matches the machine. At run time the library finds the binaries in that package (see [`lib/session/native-paths.ts`](../lib/session/native-paths.ts): `JOVIAN_NATIVE_DIR`, then the platform package, then a source checkout's `dist/native/Release`). All six packages are published at the **same version**; the main package pins the platform packages to it.
 
@@ -47,8 +47,8 @@ npm run build                                                    # native + Type
 node scripts/release.mjs platform --version 0.1.0                # this machine's platform package
 node scripts/release.mjs main --version 0.1.0
 mkdir -p dist/release/tarballs
-(cd dist/release/jovian-kernels-win32-x64 && npm pack --pack-destination ../tarballs)   # your platform's name
-(cd dist/release/jovian-kernels && npm pack --pack-destination ../tarballs)
+(cd dist/release/jovian-win32-x64 && npm pack --pack-destination ../tarballs)   # your platform's name
+(cd dist/release/jovian && npm pack --pack-destination ../tarballs)
 node scripts/release-smoke.mjs --dir dist/release/tarballs --python
 ```
 

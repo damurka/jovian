@@ -5,8 +5,8 @@
 //   node scripts/release.mjs main     --version 0.1.0
 //   node scripts/release.mjs platform --version 0.1.0 [--target win32-x64] [--from dist/native/Release]
 //
-// `main` stages @scope/jovian-kernels (the TypeScript library + the hera R package);
-// `platform` stages @scope/jovian-kernels-<os>-<cpu> (the prebuilt kernels for one
+// `main` stages @scope/jovian (the TypeScript library + the hera R package);
+// `platform` stages @scope/jovian-<os>-<cpu> (the prebuilt kernels for one
 // platform, which the main package pulls in through optionalDependencies).
 
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -19,7 +19,7 @@ const OUT = join(ROOT, 'dist', 'release');
 // The npm scope: keep in step with PACKAGE_SCOPE in lib/session/native-paths.ts
 // (test/unit/lib/native-paths.test.ts fails if they differ).
 export const SCOPE = '@damurka';
-export const PACKAGE = `${SCOPE}/jovian-kernels`;
+export const PACKAGE = `${SCOPE}/jovian`;
 export const TARGETS = {
     'win32-x64': { os: 'win32', cpu: 'x64' },
     'linux-x64': { os: 'linux', cpu: 'x64' },
