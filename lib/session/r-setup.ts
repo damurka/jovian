@@ -61,6 +61,15 @@ if (is.na(lib)) {
     .libPaths(c(lib, .libPaths()))
 }
 
+for (lock in Sys.glob(file.path(lib, "00LOCK-*"))) {
+    # An install that was killed (Ctrl+C, a timeout) leaves its lock behind, and
+    # every later install of that package is refused until it is removed.
+    if (difftime(Sys.time(), file.info(lock)$mtime, units = "mins") > 5) {
+        say("removing a stale lock left by an interrupted install: ", lock)
+        unlink(lock, recursive = TRUE)
+    }
+}
+
 ip <- installed.packages()
 base_packages <- rownames(ip)[!is.na(ip[, "Priority"])]
 fields <- tryCatch(read.dcf(file.path(src, "DESCRIPTION"), fields = c("Depends", "Imports", "LinkingTo")), error = function(e) NULL)
