@@ -171,12 +171,13 @@ jobs:
         run: |
           ls -l tarballs
           shopt -s nullglob
+          # "./" matters: npm reads a bare tarballs/x.tgz as a GitHub user/repo shorthand.
           # A prerelease version (0.2.0-rc.1) must not become `latest`.
           TAG_ARGS=()
           if [[ "$VERSION" == *-* ]]; then TAG_ARGS=(--tag next); fi
           for f in tarballs/damurka-jovian-*-*-*.tgz; do
-            npm publish "$f" --access public --provenance "${TAG_ARGS[@]}"
+            npm publish "./$f" --access public --provenance "${TAG_ARGS[@]}"
           done
           for f in tarballs/damurka-jovian-[0-9]*.tgz; do
-            npm publish "$f" --access public --provenance "${TAG_ARGS[@]}"
+            npm publish "./$f" --access public --provenance "${TAG_ARGS[@]}"
           done
