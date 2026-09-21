@@ -23,14 +23,18 @@ jobs:
     name: build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    env:
+      # Oldest macOS the binaries run on.
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
     strategy:
       fail-fast: false
       matrix:
         include:
           - { target: win32-x64,    os: windows-latest }
           - { target: linux-x64,    os: ubuntu-24.04 }
+          - { target: darwin-arm64, os: macos-latest }
           # Not published yet (see docs/releasing.md): linux-arm64 on ubuntu-24.04-arm,
-          # darwin-arm64 on macos-latest, darwin-x64 on macos-15-intel.
+          # darwin-x64 on macos-15-intel.
 
     steps:
       - uses: actions/checkout@v5
