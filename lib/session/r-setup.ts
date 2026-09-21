@@ -92,9 +92,28 @@ if (length(missing) > 0) {
              error = function(e) fail("installing R packages failed: ", conditionMessage(e)))
     still_missing <- missing[!vapply(missing, usable, logical(1))]
     if (length(still_missing) > 0) {
+        # The warnings only say "non-zero exit status". Packages that need
+        # another one that failed fail too, so re-run the install of the ones
+        # that do not, on their own, and report what R and the compiler said.
+        needs <- tryCatch(tools::package_dependencies(still_missing, db = available, recursive = FALSE), error = function(e) list())
+        roots <- still_missing[vapply(still_missing, function(p) !any(needs[[p]] %in% still_missing), logical(1))]
+        reasons <- character()
+        for (p in utils::head(roots, 2)) {
+            why <- tryCatch({
+                tarball <- utils::download.packages(p, destdir = tempdir(), repos = getOption("repos"), type = "source", quiet = TRUE)[1, 2]
+                out <- suppressWarnings(system2(file.path(R.home("bin"), "R"), c("CMD", "INSTALL", paste0("--library=", shQuote(lib)), shQuote(tarball)), stdout = TRUE, stderr = TRUE))
+                if (is.null(attr(out, "status")) || identical(attr(out, "status"), 0L)) {
+                    "it installed when retried on its own, so the failure may be temporary: try again"
+                } else {
+                    important <- grep("error|ERROR|undefined|fatal|cannot|not found|No such file|Killed", out, value = TRUE)
+                    substr(gsub("[[:space:]]+", " ", paste(utils::tail(if (length(important)) important else out, 5), collapse = " ; ")), 1, 700)
+                }
+            }, error = function(e) conditionMessage(e))
+            reasons <- c(reasons, paste0(p, ": ", why))
+        }
         fail("could not install these R packages: ", paste(still_missing, collapse = ", "),
-             " -- on Linux they are compiled from source, which needs a compiler (Ubuntu: sudo apt install build-essential)",
-             if (length(warnings_seen)) paste0(" | ", substr(paste(unique(warnings_seen), collapse = " | "), 1, 400)) else "")
+             if (length(reasons)) paste0(" -- ", paste(reasons, collapse = " | ")) else "",
+             " (on Linux packages are compiled from source and need a compiler: sudo apt install build-essential)")
     }
 }
 
