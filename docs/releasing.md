@@ -58,7 +58,7 @@ Nothing there publishes. Publishing by hand is `npm publish <tarball> --access p
 Only the platforms that have been built and smoke-tested end to end are published (Windows x64, Ubuntu x64 and macOS arm64, the three the CI matrix covers). To add `linux-arm64` or `darwin-x64`:
 
 1. Add the target to `TARGETS` in `scripts/release.mjs` and to `SUPPORTED_PLATFORMS` in `lib/session/native-paths.ts` (a unit test fails if they differ).
-2. Add it to the build matrix in `.github/workflows/release.yml` (`ubuntu-24.04-arm`, `macos-15-intel`); the job `env` already sets `MACOSX_DEPLOYMENT_TARGET: '13.0'` for macOS.
+2. Add it to the build matrix in `.github/workflows/release.yml` (`ubuntu-24.04-arm`, `macos-15-intel`); the job `env` already sets `MACOSX_DEPLOYMENT_TARGET: '14.0'` for macOS.
 3. Run the workflow by hand (a dry run) and fix what the smoke test finds before tagging a release.
 
 Until a platform is added, its users get `jovian: there are no prebuilt kernels for <os>-<cpu>` and can build from source and set `JOVIAN_NATIVE_DIR`.
@@ -67,7 +67,7 @@ Until a platform is added, its users get `jovian: there are no prebuilt kernels 
 
 - **hera upgrades.** npm resets file modification times, so the kernel's usual "is the hera source newer than the installed one" check cannot fire for an npm install. The staged `hera` `DESCRIPTION` is stamped with `Config/jovian/release: <version>`, and the kernel reinstalls `hera` when that stamp differs from the installed copy's. Users therefore get the matching `hera` after upgrading the package, once.
 - **Linux binaries and glibc.** They are built on `ubuntu-24.04` (glibc 2.39) and run on any distribution with at least that glibc. Building on an older image would widen compatibility; a `linux-arm64` build would use `ubuntu-24.04-arm`.
-- **macOS.** The build sets `MACOSX_DEPLOYMENT_TARGET=13.0`. The binaries are not code-signed or notarized; binaries installed through npm are not quarantined by Gatekeeper, so this works, but bundling them into a downloaded `.app` would require signing.
+- **macOS.** The build sets `MACOSX_DEPLOYMENT_TARGET=14.0`. The binaries are not code-signed or notarized; binaries installed through npm are not quarantined by Gatekeeper, so this works, but bundling them into a downloaded `.app` would require signing.
 - **Windows.** The DLLs come from vcpkg's `x64-windows` triplet and are copied next to the executables; the binaries link the dynamic Visual C++ runtime (`MSVCP140.dll`, `VCRUNTIME140.dll`, checked with `dumpbin /dependents`), which is **not** bundled: users need the "Microsoft Visual C++ Redistributable" (x64, 2015–2022), and the README's Install section says so. Bundling the runtime DLLs into the package, or linking the runtime statically, would remove that requirement.
 - **Executable bit.** npm does not reliably preserve it; the library `chmod`s the kernels before starting them.
 - **Versions cannot be reused.** npm never lets a published version be republished. If a release fails half-way (say the platform packages published but the main package did not), bump the version and release again.

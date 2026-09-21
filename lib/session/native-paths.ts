@@ -133,7 +133,7 @@ export function bundledHeraSource(
     exists: (path: string) => boolean = existsSync
 ): string | undefined {
     if (!baseDir.split(sep).includes('node_modules')) return undefined;
-    // dist/lib/session -> the package root
-    const candidate = join(baseDir, '../../../packages/hera');
+    // <package>/lib/session -> <package>/packages/hera (the published layout)
+    const candidate = join(baseDir, '../../packages/hera');
     return exists(join(candidate, 'DESCRIPTION')) ? candidate : undefined;
 }

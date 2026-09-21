@@ -10,7 +10,7 @@
 // (or touching) whatever hera is already in your R library.
 
 import { execSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { currentTarget, PACKAGE } from './release.mjs';
@@ -103,5 +103,12 @@ const smoke = spawnSync(process.execPath, ['smoke.mjs'], {
     stdio: 'inherit',
     env: { ...process.env, R_LIBS: rlib, JOVIAN_NATIVE_DIR: '' }
 });
+// hera must have been installed from the package into the scratch library. Without
+// this a hera already in your own R library would let a broken bundle pass.
+let exitCode = smoke.status ?? 1;
+if (!existsSync(join(rlib, 'hera'))) {
+    console.error('FAIL hera was not installed from the package into the scratch R library');
+    exitCode = 1;
+}
 if (!process.env.JOVIAN_KEEP_SMOKE) rmSync(project, { recursive: true, force: true });
-process.exit(smoke.status ?? 1);
+process.exit(exitCode);

@@ -97,8 +97,8 @@ test('locateNativeDirectory', async (t) => {
 });
 
 test('bundledHeraSource', async (t) => {
-    const installedDir = join('app', 'node_modules', '@damurka', 'jovian', 'dist', 'lib', 'session');
-    const hera = join(installedDir, '..', '..', '..', 'packages', 'hera');
+    const installedDir = join('app', 'node_modules', '@damurka', 'jovian', 'lib', 'session');
+    const hera = join(installedDir, '..', '..', 'packages', 'hera');
 
     await t.test('points at the copy shipped in the package when installed under node_modules', () => {
         const found = bundledHeraSource(installedDir, (p) => p === join(hera, 'DESCRIPTION'));

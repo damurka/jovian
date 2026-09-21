@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 60
     env:
       # Oldest macOS the binaries run on.
-      MACOSX_DEPLOYMENT_TARGET: '13.0'
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
     strategy:
       fail-fast: false
       matrix:

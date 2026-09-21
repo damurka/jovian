@@ -48,7 +48,7 @@ What you must already have on the machine:
 
 - **Python 3** with its shared library (optional, for Python sessions); pass `pythonHome` (`python3 -c "import sys; print(sys.prefix)"`).
 - **Linux:** `libuuid` (`libuuid1`, present on nearly every system) and a glibc at least as new as the one the binaries were built against (Ubuntu 24.04's, 2.39). On an older distribution, [build from source](#requirements).
-- **macOS:** 13 or newer.
+- **macOS:** 14 or newer.
 - **Windows:** the [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist) (x64, 2015–2022) — the binaries use the dynamic C++ runtime; most machines already have it.
 
 The rest of this README is for building Jovian from source.
