@@ -164,7 +164,7 @@ See [`tools/playground/README.md`](tools/playground/README.md).
 | [Troubleshooting](docs/troubleshooting.md) | Real error messages and what causes them. |
 | [C++ usage](docs/cpp-usage.md) | Using Adrastea from C++; writing a new language kernel. |
 
-Runnable examples are in [`examples/`](examples): [`basic/simple-execute.js`](examples/basic/simple-execute.js) (one session) and [`advanced/two-sessions.js`](examples/advanced/two-sessions.js) (two concurrent sessions, one blocking).
+Runnable examples are in [`examples/`](examples): [`basic/simple-execute.js`](examples/basic/simple-execute.js) (one session) and [`advanced/two-sessions.js`](examples/advanced/two-sessions.js) (two concurrent sessions, one blocking), and [`interactive/ask-for-input.ts`](examples/interactive/ask-for-input.ts) (R's `readline()` and Python's `input()` answered at the terminal; see [the input guide](docs/guides/interactive-input.md)).
 
 ## Status
 
