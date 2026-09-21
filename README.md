@@ -9,11 +9,11 @@ import { SessionManager } from '@damurka/jovian';
 
 const manager = new SessionManager();
 
-const r = await manager.createSession({ kernelType: 'r', rHome: process.env.R_HOME, workingDirectory: '/projects/analysis' });
+const r = await manager.createSession({ kernelType: 'r', workingDirectory: '/projects/analysis' });
 const result = await r.execute('x <- 1:10; mean(x)');
 console.log(result.success, result.output);
 
-const py = await manager.createSession({ kernelType: 'python', pythonHome: '/path/to/python' });
+const py = await manager.createSession({ kernelType: 'python' });
 console.log((await py.execute('sum(range(1, 11))')).success);
 
 await manager.stopAll();
@@ -40,13 +40,13 @@ The package ships **prebuilt** `themisto`, `elara` and `carpo` binaries — no c
 
 What you must already have on the machine:
 
-- **R** (4.2 or newer; a build with a shared library, which the CRAN/Posit binaries and distribution packages are) for R sessions. Pass its location as `rHome` (`R RHOME` prints it). The `hera` R package that every R session needs ships inside the npm package and is installed into R on a session's first start, which needs the `remotes` package and `hera`'s CRAN dependencies (`cli`, `evaluate`, `glue`, `IRdisplay`, `jsonlite`, `R6`, `repr`, `rlang`):
+- **R** (4.2 or newer; a build with a shared library, which the CRAN/Posit binaries and distribution packages are) for R sessions. If `rHome` is not passed, it is found from `$R_HOME`, then `R RHOME` (R on `PATH`), then the Windows registry; pass `rHome` to choose a specific installation. The `hera` R package that every R session needs ships inside the npm package and is installed into R on a session's first start, which needs the `remotes` package and `hera`'s CRAN dependencies (`cli`, `evaluate`, `glue`, `IRdisplay`, `jsonlite`, `R6`, `repr`, `rlang`):
 
   ```r
   install.packages(c("remotes", "cli", "evaluate", "glue", "IRdisplay", "jsonlite", "R6", "repr", "rlang"))
   ```
 
-- **Python 3** with its shared library (optional, for Python sessions); pass `pythonHome` (`python3 -c "import sys; print(sys.prefix)"`).
+- **Python 3** with its shared library (optional, for Python sessions); if `pythonHome` is not passed, it is found from `$PYTHONHOME`, then the first `python3` / `python` on `PATH` (its `sys.base_prefix`); pass `pythonHome` to choose one.
 - **Linux:** `libuuid` (`libuuid1`, present on nearly every system) and a glibc at least as new as the one the binaries were built against (Ubuntu 24.04's, 2.39). On an older distribution, [build from source](#requirements).
 - **macOS:** 14 or newer.
 - **Windows:** the [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist) (x64, 2015–2022) — the binaries use the dynamic C++ runtime; most machines already have it.
@@ -117,9 +117,9 @@ Jovian builds C++ (Adrastea, Elara, Carpo, Themisto) and TypeScript. R and Pytho
 | Variable | Used by | Meaning |
 |---|---|---|
 | `VCPKG_ROOT` | build | vcpkg checkout; used by `npm run build` and the CMake presets. |
-| `R_HOME` | runtime, tests, examples | R installation to use when `rHome` is not passed. `R RHOME` is used as a fallback by the tests and the playground. |
+| `R_HOME` | runtime, tests, examples | R installation to use when `rHome` is not passed; otherwise the library asks `R RHOME`. |
 | `R_PATH`, `R_LIBS` | examples, playground | Passed as `rPath` / `rLibs`. |
-| `PYTHONHOME` | runtime, tests | Python installation prefix when `pythonHome` is not passed. |
+| `PYTHONHOME` | runtime, tests | Python installation prefix when `pythonHome` is not passed; otherwise the library asks `python3` / `python` for its `sys.base_prefix`. |
 | `JOVIAN_NATIVE_DIR` | `lib/` | Directory holding `themisto`, `elara` and `carpo`. Default: the installed `@damurka/jovian-<os>-<cpu>` package, else `dist/native/Release` in a source checkout. Use it to run against a *copy* of the binaries (Windows will not let you overwrite a running `.exe`). |
 | `ELARA_HERA_SRC` | Elara | Set for you from the `heraSrcPath` option: where Elara installs `hera` from if it is missing or older than the source. |
 

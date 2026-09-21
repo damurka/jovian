@@ -5,11 +5,13 @@
 //
 //   node scripts/release-smoke.mjs --dir dist/release/tarballs [--python]
 //
+// rHome / pythonHome are deliberately not passed: the library has to find R and
+// Python itself, as it does for a user.
 // R_LIBS is pointed at an empty scratch library, so the bundled hera is
 // installed from the package on the kernel's first start instead of using
 // (or touching) whatever hera is already in your R library.
 
-import { execSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -27,22 +29,6 @@ const platformTarball = files.find((f) => f.startsWith(`${tarballPrefix}-${targe
 const mainTarball = files.find((f) => f.startsWith(`${tarballPrefix}-`) && f.endsWith('.tgz') && !/-(win32|linux|darwin)-/.test(f));
 if (!platformTarball || !mainTarball) {
     console.error(`smoke: need both ${tarballPrefix}-<version>.tgz and ${tarballPrefix}-${target}-<version>.tgz in ${dir} (found: ${files.join(', ') || 'nothing'})`);
-    process.exit(1);
-}
-
-// The library does not go looking for R or Python itself: the caller passes
-// rHome / pythonHome, so this asks the runtimes (as the tests and playground do).
-function ask(command) {
-    try {
-        return execSync(command, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    } catch {
-        return '';
-    }
-}
-const rHome = process.env.R_HOME || ask('R RHOME');
-const pythonHome = process.env.PYTHONHOME || ask('python3 -c "import sys; print(sys.prefix)"') || ask('python -c "import sys; print(sys.prefix)"');
-if (!rHome) {
-    console.error('smoke: R not found (set R_HOME or put R on PATH)');
     process.exit(1);
 }
 
@@ -76,7 +62,7 @@ const check = (label, ok, detail) => {
 };
 
 try {
-    const r = await manager.createSession({ kernelType: 'r', rHome: ${JSON.stringify(rHome)} });
+    const r = await manager.createSession({ kernelType: 'r' });
     r.on('error', () => {});
     const sum = await r.execute('1 + 1');
     check('R: 1 + 1', sum.success && JSON.stringify(sum.output).includes('[1] 2'), JSON.stringify(sum));
@@ -86,7 +72,7 @@ try {
     check('R: complete()', Array.isArray(completion?.matches) && completion.matches.length > 0, JSON.stringify(completion));
 
     if (${withPython}) {
-        const py = await manager.createSession({ kernelType: 'python', pythonHome: ${JSON.stringify(pythonHome)} });
+        const py = await manager.createSession({ kernelType: 'python' });
         py.on('error', () => {});
         const total = await py.execute('sum(range(1, 11))');
         check('Python: sum(range(1, 11))', total.success && JSON.stringify(total.output).includes('"55"'), JSON.stringify(total));

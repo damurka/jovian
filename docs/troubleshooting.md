@@ -35,7 +35,9 @@ Messages below are quoted from the code. **First habit:** a kernel that fails to
 | Symptom | Cause / fix |
 |---|---|
 | `Could not load R.dll (…). Is R installed? Checked PATH and R_HOME=… Install R from https://cran.r-project.org, or make sure R_HOME/the R bin directory is configured correctly.` | Windows: `rHome` wrong, or `rPath` (the folder containing `R.dll`, normally `<R_HOME>\bin\x64`) is not right. |
-| `R_HOME is not set -- elara needs a working R installation to run. …` | Linux/macOS: pass `rHome` (find it with `R RHOME`). |
+| `R_HOME is not set -- elara needs a working R installation to run. …` | The library could not find R (it tries `$R_HOME`, `R RHOME`, and on Windows the registry): put R on `PATH` or pass `rHome` (`R RHOME` prints it). |
+| `No libpython3.*.so* … was found under '/lib' … Is Python installed at ''?` | The library could not find Python (it tries `$PYTHONHOME`, then `python3`/`python` on `PATH`): install Python 3 (`sudo apt install python3`) or pass `pythonHome`. |
+| `WARNING: 'hera' package could not be loaded (status: install_failed: …)` | Elara could not install the bundled `hera` R package; the text after `install_failed:` is R's own reason. Usually one of `hera`'s CRAN dependencies is missing or cannot be built (install them first: `install.packages(c("remotes", "cli", "evaluate", "glue", "IRdisplay", "jsonlite", "R6", "repr", "rlang"))`), or the R library is not writable. To see the full output run `R CMD INSTALL node_modules/@damurka/jovian/packages/hera`. |
 | `Could not load …/lib/libR.so (…). Is R installed at '…'? If this R was built from source, it needs to have been configured with --enable-R-shlib, or no libR.so exists at all` | Use a distribution/CRAN R, or rebuild R with `--enable-R-shlib`. |
 | No `libR.dylib` on macOS | Point `rHome` at the framework's `Resources` directory (what `R RHOME` prints). |
 

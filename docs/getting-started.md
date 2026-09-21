@@ -55,7 +55,7 @@ import { SessionManager } from './dist/lib/index.js';
 const manager = new SessionManager();
 const session = await manager.createSession({
     kernelType: 'r',
-    rHome: process.env.R_HOME,                // e.g. "C:/Program Files/R/R-4.6.0" or the output of `R RHOME`
+    rHome: process.env.R_HOME,                // optional: found from $R_HOME / `R RHOME` / the Windows registry when omitted
     rPath: process.env.R_PATH,                // Windows only: e.g. "C:/Program Files/R/R-4.6.0/bin/x64"
     workingDirectory: process.cwd(),          // where getwd() will point
 });
@@ -78,7 +78,7 @@ await manager.stopAll();                                  // always: it also end
 ```javascript
 const py = await manager.createSession({
     kernelType: 'python',
-    pythonHome: process.env.PYTHONHOME,       // the prefix that contains libpython — python -c "import sys; print(sys.base_prefix)"
+    pythonHome: process.env.PYTHONHOME,       // optional: found from $PYTHONHOME / python3 / python when omitted (the prefix containing libpython)
     workingDirectory: process.cwd(),
 });
 py.on('error', () => {});

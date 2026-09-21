@@ -521,14 +521,39 @@ namespace elara
                 needs_install <- has_source && (!is_installed || is_stale)
 
                 if (needs_install && requireNamespace("remotes", quietly = TRUE)) {
-                    install_ok <- tryCatch({
+                    # remotes::install_local() does not raise an error when the
+                    # package itself fails to install: it warns ("installation of
+                    # package '...hera_x.tar.gz' had non-zero exit status") and
+                    # returns normally, so failures are caught from the warnings.
+                    install_error <- NULL
+                    install_warnings <- character()
+                    install_ok <- tryCatch(withCallingHandlers({
                         remotes::install_local(hera_src, upgrade = "never", quiet = TRUE, force = TRUE)
                         TRUE
-                    }, error = function(e) FALSE)
+                    }, warning = function(w) {
+                        install_warnings <<- c(install_warnings, conditionMessage(w))
+                        invokeRestart("muffleWarning")
+                    }), error = function(e) {
+                        install_error <<- conditionMessage(e)
+                        FALSE
+                    })
+                    if (any(grepl("hera_.*non-zero exit status", install_warnings))) install_ok <- FALSE
+
                     if (install_ok && suppressWarnings(require("hera", quietly = TRUE))) {
                         status <- if (is_stale) "reinstalled_stale" else "auto_installed"
                     } else {
-                        status <- "install_failed"
+                        # Re-run the install where its output can be read: that is
+                        # where the actual reason (a missing dependency, a compile
+                        # error, a library that cannot be written to) is printed.
+                        if (is.null(install_error)) {
+                            output <- tryCatch(
+                                suppressWarnings(system2(file.path(R.home("bin"), "R"), c("CMD", "INSTALL", shQuote(hera_src)), stdout = TRUE, stderr = TRUE)),
+                                error = function(e) conditionMessage(e))
+                            important <- grep("ERROR|error|not available|cannot|denied|failed", output, value = TRUE)
+                            install_error <- paste(utils::tail(if (length(important)) important else output, 6), collapse = " | ")
+                        }
+                        reason <- if (!nzchar(install_error)) "it installed but could not be loaded" else substr(gsub("\\s+", " ", install_error), 1, 800)
+                        status <- paste0("install_failed: ", reason)
                     }
                 } else if (suppressWarnings(require("hera", quietly = TRUE))) {
                     status <- "already_loaded"

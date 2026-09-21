@@ -31,6 +31,7 @@ import { ErrorHandler } from '../handlers/error-handler.js';
 import { DisplayHandler } from '../handlers/display-handler.js';
 import { findFreePort, waitForPort } from '../utils/network.js';
 import { SupervisorClient, type SessionConnectionInfo } from './supervisor-client.js';
+import { withDiscoveredRuntime } from './runtimes.js';
 import { Comm } from './comm.js';
 
 // Reuses lib/types/engine.ts's ShinyAppHandle instead of declaring a
@@ -274,7 +275,7 @@ export class Session extends EventEmitter {
         // The supervisor replaces a session's options wholesale, so send the
         // merge -- a restart that only switches rHome must keep the
         // workingDirectory, rLibs, ... the session was created with.
-        const mergedOptions = options ? { ...this.currentOptions, ...options } : undefined;
+        const mergedOptions = options ? withDiscoveredRuntime({ ...this.currentOptions, ...options }) : undefined;
 
         // Reassigned synchronously, before awaiting anything below, so a
         // concurrent execute()/createShiny() call that reads this.readyPromise
@@ -886,7 +887,9 @@ export class SessionManager {
     private exitHandlerRegistered = false;
 
     /** Creates a new R session in its own OS process and waits for it to be ready. */
-    async createSession(options: EngineOptions = {}): Promise<Session> {
+    async createSession(requested: EngineOptions = {}): Promise<Session> {
+        // Finds R / Python when rHome / pythonHome were not given (see runtimes.ts).
+        const options = withDiscoveredRuntime(requested);
         const info = await this.supervisor.createSession(options);
         const session = new Session(info, options, this.supervisor);
         this.sessions.add(session);

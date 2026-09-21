@@ -14,6 +14,7 @@ export interface EngineOptions {
      */
     kernelType?: 'r' | 'python' | undefined;
 
+    /** R installation (`R RHOME`). Found from $R_HOME, `R RHOME` or the Windows registry when omitted. */
     rHome?: string | undefined;
     rPath?: string | undefined;
     rLibs?: string | undefined;
@@ -29,7 +30,7 @@ export interface EngineOptions {
      */
     heraSrcPath?: string | undefined;
 
-    /** Only used when kernelType is 'python' -- Carpo's equivalent of rHome. */
+    /** Only used when kernelType is 'python' -- Carpo's equivalent of rHome. Found from $PYTHONHOME or `python3`/`python` on PATH when omitted. */
     pythonHome?: string | undefined;
     /** Only used when kernelType is 'python' -- Carpo's equivalent of rPath. */
     pythonPath?: string | undefined;
