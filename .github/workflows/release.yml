@@ -164,7 +164,15 @@ jobs:
           path: tarballs
           merge-multiple: true
 
-      - name: Publish (platform packages first, then the main package)
+      # npm requires staged publishing for CI: `npm stage publish` needs no 2FA and puts
+      # each package in a queue; a maintainer then approves it with 2FA (`npm stage list`,
+      # `npm stage approve <id>`, or on npmjs.com). It only works for a package that
+      # already exists on the registry, so the very first version is published by hand
+      # (docs/releasing.md). Needs npm >= 11.15.
+      - name: Update npm
+        run: npm install -g npm@latest && npm --version
+
+      - name: Stage (platform packages first, then the main package)
         shell: bash
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -176,8 +184,10 @@ jobs:
           TAG_ARGS=()
           if [[ "$VERSION" == *-* ]]; then TAG_ARGS=(--tag next); fi
           for f in tarballs/damurka-jovian-*-*-*.tgz; do
-            npm publish "./$f" --access public --provenance "${TAG_ARGS[@]}"
+            npm stage publish "./$f" --access public --provenance "${TAG_ARGS[@]}"
           done
           for f in tarballs/damurka-jovian-[0-9]*.tgz; do
-            npm publish "./$f" --access public --provenance "${TAG_ARGS[@]}"
+            npm stage publish "./$f" --access public --provenance "${TAG_ARGS[@]}"
           done
+          echo "Staged. Approve each (platform packages first, the main package last) with 2FA:"
+          echo "  npm stage list && npm stage approve <stage-id>   (or on npmjs.com)"
