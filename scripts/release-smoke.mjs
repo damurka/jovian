@@ -89,9 +89,44 @@ const smoke = spawnSync(process.execPath, ['smoke.mjs'], {
     stdio: 'inherit',
     env: { ...process.env, R_LIBS: rlib, JOVIAN_NATIVE_DIR: '' }
 });
+// A CommonJS project can require() the package (Node 22.13+ loads the ES module).
+writeFileSync(join(project, 'cjs-check.cjs'), `
+const { SessionManager } = require('${PACKAGE}');
+if (typeof SessionManager !== 'function') { console.error('require() did not return SessionManager'); process.exit(1); }
+console.log('ok   CommonJS require()');
+`);
+const cjs = spawnSync(process.execPath, ['cjs-check.cjs'], { cwd: project, stdio: 'inherit' });
+
+// By default the library prints nothing for a normal session: no debug/trace/info
+// lines and none of the kernels' own start-up output.
+writeFileSync(join(project, 'quiet-check.mjs'), `
+import { SessionManager } from '${PACKAGE}';
+const manager = new SessionManager();
+try {
+    const r = await manager.createSession({ kernelType: 'r' });
+    r.on('error', () => {});
+    await r.execute('1 + 1');
+} finally {
+    await manager.stopAll();
+}
+`);
+const quiet = spawnSync(process.execPath, ['quiet-check.mjs'], {
+    cwd: project,
+    encoding: 'utf8',
+    env: { ...process.env, R_LIBS: rlib, JOVIAN_NATIVE_DIR: '', JOVIAN_LOG_LEVEL: '', JOVIAN_KERNEL_OUTPUT: '' }
+});
+const noise = `${quiet.stdout}${quiet.stderr}`.split(/\r?\n/).filter((line) => /\[(trace|debug|info)\]|\[elara\]|\[carpo\]|\[themisto\]/.test(line));
+if (quiet.status === 0 && noise.length === 0) {
+    console.log('ok   quiet by default');
+} else {
+    console.error(`FAIL quiet by default (exit ${quiet.status}); noisy lines:\n${noise.slice(0, 5).join('\n')}\n${quiet.status === 0 ? '' : `${quiet.stdout}${quiet.stderr}`.slice(-600)}`);
+}
+
 // hera must have been installed from the package into the scratch library. Without
 // this a hera already in your own R library would let a broken bundle pass.
 let exitCode = smoke.status ?? 1;
+if (cjs.status !== 0) exitCode = 1;
+if (quiet.status !== 0 || noise.length > 0) exitCode = 1;
 if (!existsSync(join(rlib, 'hera'))) {
     console.error('FAIL hera was not installed from the package into the scratch R library');
     exitCode = 1;

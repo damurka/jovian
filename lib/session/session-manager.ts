@@ -14,12 +14,15 @@ import type {
     KernelHistoryOptions,
     KernelInfoReplyContent,
     LogLevel,
+    LoggerFunction,
+    LogThreshold,
+    SessionManagerOptions,
     SessionStatusInfo,
     ShinyAppHandle,
     ShinyAppOptions
 } from '../types/index.js';
 import type { ExecutionState, JupyterMessage } from '../types/messages.js';
-import { Logger } from '../utils/logger.js';
+import { Logger, defaultLogLevel } from '../utils/logger.js';
 import { MessageRouter } from '../messaging/message-router.js';
 import { ExecutionQueue } from '../execution/execution-queue.js';
 import { MiddlewareChain } from '../middleware/middleware-chain.js';
@@ -139,12 +142,17 @@ export class Session extends EventEmitter {
     private readonly executionHistoryByMsgId = new Map<string, ExecutionHistoryEntry>();
     private readonly historyStreamChars = new WeakMap<ExecutionHistoryEntry, number>();
 
-    constructor(info: SessionConnectionInfo, options: EngineOptions, supervisor: SupervisorClient) {
+    constructor(
+        info: SessionConnectionInfo,
+        options: EngineOptions,
+        supervisor: SupervisorClient,
+        logging: { level?: LogThreshold | undefined; logger?: LoggerFunction | undefined } = {}
+    ) {
         super();
         this.info = info;
         this.currentOptions = options;
         this.supervisor = supervisor;
-        this.logger = new Logger(options.logger);
+        this.logger = new Logger(options.logger ?? logging.logger, logging.level);
         this.on('message', (message: JupyterMessage) => {
             this.recordExecutionHistory(message);
             this.settleRequest(message);
@@ -885,10 +893,26 @@ export class Session extends EventEmitter {
 }
 
 export class SessionManager {
-    private readonly logger = new Logger();
-    private readonly supervisor = new SupervisorClient(this.logger);
+    private readonly logLevel: LogThreshold;
+    private readonly customLogger: LoggerFunction | undefined;
+    private readonly logger: Logger;
+    private readonly supervisor: SupervisorClient;
     private readonly sessions = new Set<Session>();
     private exitHandlerRegistered = false;
+
+    /**
+     * Quiet by default: only one-time setup notices, warnings and errors are
+     * printed. See SessionManagerOptions for `logLevel`, `logger` and
+     * `kernelOutput` (and the JOVIAN_LOG_LEVEL / JOVIAN_KERNEL_OUTPUT variables).
+     */
+    constructor(options: SessionManagerOptions = {}) {
+        this.logLevel = options.logLevel ?? defaultLogLevel();
+        this.customLogger = options.logger;
+        this.logger = new Logger(this.customLogger, this.logLevel);
+        const verbose = this.logLevel === 'trace' || this.logLevel === 'debug';
+        const forwardKernelOutput = options.kernelOutput ?? (Boolean(process.env.JOVIAN_KERNEL_OUTPUT) || verbose);
+        this.supervisor = new SupervisorClient(this.logger, { forwardKernelOutput });
+    }
 
     /** Creates a new R session in its own OS process and waits for it to be ready. */
     async createSession(requested: EngineOptions = {}): Promise<Session> {
@@ -898,7 +922,7 @@ export class SessionManager {
         // First R session only: installs hera and what it needs (see r-setup.ts).
         await ensureRPackages(options, this.logger);
         const info = await this.supervisor.createSession(options);
-        const session = new Session(info, options, this.supervisor);
+        const session = new Session(info, options, this.supervisor, { level: this.logLevel, logger: this.customLogger });
         this.sessions.add(session);
         this.registerExitHandler();
 
@@ -916,7 +940,7 @@ export class SessionManager {
     async stopAll(): Promise<void> {
         await Promise.all([...this.sessions].map((session) => session.stop()));
         this.sessions.clear();
-        this.supervisor.kill();
+        this.supervisor.kill(true);
     }
 
     /**

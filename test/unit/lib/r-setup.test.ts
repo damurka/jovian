@@ -3,7 +3,7 @@ import * as assert from 'node:assert';
 import { join } from 'node:path';
 import { R_SETUP_SCRIPT, ensureRPackages, rscriptPath, type SetupDeps } from '../../../dist/lib/session/r-setup.js';
 
-const logger = { debug: () => {}, info: () => {} };
+const logger = { debug: () => {}, info: () => {}, notice: () => {} };
 
 interface Fake extends SetupDeps {
     runs: Array<{ rscript: string; args: string[]; env: NodeJS.ProcessEnv }>;

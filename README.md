@@ -36,7 +36,7 @@ The pieces are named after moons of Jupiter:
 npm install @damurka/jovian
 ```
 
-The package ships **prebuilt** `themisto`, `elara` and `carpo` binaries — no compiler, CMake or vcpkg — for **Windows x64** (`win32-x64`), **Linux x64** (`linux-x64`) and **macOS on Apple Silicon** (`darwin-arm64`); Intel Macs and Linux on ARM are not published yet, so build from source there and point `JOVIAN_NATIVE_DIR` at `dist/native/Release`. npm installs the matching `@damurka/jovian-<os>-<cpu>` package automatically as an optional dependency, so do not install with `--omit=optional` / `--no-optional`. Node.js ≥ 22.4 is required (ES modules; global `fetch` and `WebSocket`).
+The package ships **prebuilt** `themisto`, `elara` and `carpo` binaries — no compiler, CMake or vcpkg — for **Windows x64** (`win32-x64`), **Linux x64** (`linux-x64`) and **macOS on Apple Silicon** (`darwin-arm64`); Intel Macs and Linux on ARM are not published yet, so build from source there and point `JOVIAN_NATIVE_DIR` at `dist/native/Release`. npm installs the matching `@damurka/jovian-<os>-<cpu>` package automatically as an optional dependency, so do not install with `--omit=optional` / `--no-optional`. Node.js ≥ 22.13 is required. The package is an ES module: use `import` (in a project with `"type": "module"`, or `.mjs`/`.mts` files), or `require()` it from CommonJS on Node 22.13+.
 
 What you must already have on the machine:
 

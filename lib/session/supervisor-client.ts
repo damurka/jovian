@@ -49,9 +49,29 @@ export class SupervisorClient {
     private child: ChildProcess | undefined;
     private readyPromise: Promise<{ httpPort: number; wsPort: number }> | undefined;
     private readonly logger: Logger;
+    private readonly forwardKernelOutput: boolean;
+    // The supervisor's stderr is where every kernel's start-up output ends up
+    // ([elara] ..., [carpo] ...). It is kept, not printed, unless asked for,
+    // and attached to the error when a kernel fails to start.
+    private readonly recentOutput: string[] = [];
 
-    constructor(logger: Logger) {
+    constructor(logger: Logger, options: { forwardKernelOutput?: boolean } = {}) {
         this.logger = logger;
+        this.forwardKernelOutput = options.forwardKernelOutput ?? false;
+    }
+
+    private rememberOutput(line: string): void {
+        if (!line.trim()) return;
+        this.recentOutput.push(line);
+        if (this.recentOutput.length > 200) this.recentOutput.shift();
+    }
+
+    /** The message plus what the kernels said just before, when that was not already printed. */
+    private withKernelOutput(message: string): string {
+        if (this.forwardKernelOutput || this.recentOutput.length === 0) return message;
+        const notable = this.recentOutput.filter((line) => /error|fatal|warning|failed|cannot|not found|no such/i.test(line));
+        const lines = (notable.length > 0 ? notable : this.recentOutput).slice(-8);
+        return `${message}\nKernel output:\n  ${lines.join('\n  ')}`;
     }
 
     private ensureStarted(): Promise<{ httpPort: number; wsPort: number }> {
@@ -69,7 +89,10 @@ export class SupervisorClient {
             const child = spawn(exePath, [], { stdio: ['ignore', 'pipe', 'pipe'] });
             this.child = child;
 
-            child.stderr?.on('data', (chunk: Buffer) => process.stderr.write(chunk));
+            createInterface({ input: child.stderr! }).on('line', (line) => {
+                this.rememberOutput(line);
+                if (this.forwardKernelOutput) process.stderr.write(`${line}\n`);
+            });
 
             const rl = createInterface({ input: child.stdout! });
             const onLine = (line: string) => {
@@ -112,7 +135,7 @@ export class SupervisorClient {
 
         const body = await res.json() as CreateSessionResponse;
         if (!res.ok || !body.sessionId) {
-            throw new Error(body.error ?? `Supervisor failed to create session (HTTP ${res.status})`);
+            throw new Error(this.withKernelOutput(body.error ?? `Supervisor failed to create session (HTTP ${res.status})`));
         }
 
         return { sessionId: body.sessionId, httpBase, wsBase: `ws://127.0.0.1:${wsPort}` };
@@ -154,10 +177,16 @@ export class SupervisorClient {
         }
     }
 
-    /** Skips graceful per-session shutdown -- only for cleanup on the way out. */
-    kill(): void {
+    /**
+     * Skips graceful per-session shutdown -- only for cleanup on the way out.
+     * `expected` is the normal end of stopAll(), after every session was
+     * stopped: not worth a warning.
+     */
+    kill(expected = false): void {
         if (this.child && !this.child.killed) {
-            this.logger.warn(`Force-killing supervisor process (pid ${this.child.pid})`);
+            const message = `Force-killing supervisor process (pid ${this.child.pid})`;
+            if (expected) this.logger.debug(message);
+            else this.logger.warn(message);
             this.child.kill();
         }
     }

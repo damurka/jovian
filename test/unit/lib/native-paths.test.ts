@@ -115,6 +115,22 @@ test('bundledHeraSource', async (t) => {
     });
 });
 
+test('the published package.json', async (t) => {
+    const manifest = release.mainManifest('1.2.3');
+
+    await t.test('can be require()d from CommonJS: every entry has a default condition', () => {
+        for (const [entry, conditions] of Object.entries(manifest.exports)) {
+            if (typeof conditions === 'string') continue;
+            assert.ok(conditions.default, `${entry} has no default condition`);
+            assert.strictEqual(conditions.default, conditions.import);
+        }
+    });
+
+    await t.test('requires a Node that can require() an ES module without a warning (22.13)', () => {
+        assert.strictEqual(manifest.engines.node, '>=22.13.0');
+    });
+});
+
 test('the runtime and the release script agree', async (t) => {
     await t.test('on the main package name', () => {
         assert.strictEqual(release.PACKAGE, PACKAGE_NAME);

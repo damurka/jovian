@@ -1,6 +1,32 @@
 import type { JupyterMessage } from './messages.js';
 
-export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error';
+/**
+ * 'notice' is for the few things a user should be told even when the library
+ * is otherwise quiet (e.g. the one-time install of the R packages, which takes
+ * a while); it sits between 'info' and 'warn'.
+ */
+export type LogLevel = 'trace' | 'debug' | 'info' | 'notice' | 'warn' | 'error';
+
+/** What the built-in console logger prints: this level and above; 'silent' prints nothing. */
+export type LogThreshold = LogLevel | 'silent';
+
+export interface SessionManagerOptions {
+    /**
+     * How much the library prints to the console (default 'notice': one-time
+     * setup messages, warnings and errors; env JOVIAN_LOG_LEVEL sets the
+     * default). Ignored for messages sent to `logger`, which receives all of them.
+     */
+    logLevel?: LogThreshold | undefined;
+    /** Receives every log message instead of the console. */
+    logger?: LoggerFunction | undefined;
+    /**
+     * Print the kernels' own start-up output (the `[elara]` / `[carpo]` lines)
+     * to stderr as it happens. Off by default -- it is included in the error
+     * when a kernel fails to start -- and on when logLevel is 'debug' or
+     * 'trace' or env JOVIAN_KERNEL_OUTPUT is set.
+     */
+    kernelOutput?: boolean | undefined;
+}
 
 export type LoggerFunction = (level: LogLevel, message: string, data?: any) => void;
 

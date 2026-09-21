@@ -70,12 +70,15 @@ export function mainManifest(version) {
         type: 'module',
         main: './lib/index.js',
         types: './lib/index.d.ts',
+        // ES modules only, but `default` lets a CommonJS project require() them:
+        // Node 22.13+ loads an ES module that has no top-level await
+        // synchronously through require(), without a warning.
         exports: {
-            '.': { types: './lib/index.d.ts', import: './lib/index.js' },
-            './types': { types: './lib/types/index.d.ts', import: './lib/types/index.js' },
+            '.': { types: './lib/index.d.ts', import: './lib/index.js', default: './lib/index.js' },
+            './types': { types: './lib/types/index.d.ts', import: './lib/types/index.js', default: './lib/types/index.js' },
             './package.json': './package.json'
         },
-        engines: { node: '>=22.4.0' },
+        engines: { node: '>=22.13.0' },
         files: ['lib', 'packages/hera', 'docs', 'README.md', 'LICENSE'],
         optionalDependencies
     };

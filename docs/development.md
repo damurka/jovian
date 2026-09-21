@@ -88,8 +88,8 @@ The npm packages are built and published by `.github/workflows/release.yml` from
 
 ## Debugging
 
-- **Kernel logs.** Everything a kernel prints (`[R Interpreter] …`, `[carpo] …`, and anything R/Python writes outside an execution) appears on the *supervisor's* stderr, which `lib/` forwards to your process's stderr, prefixed `[elara]` / `[carpo]`. That is the first place to look when a session fails to start.
-- **Library logs.** Pass `logger` to `createSession()` (or read the default console output): `trace` shows queueing, request ids and timeouts.
+- **Kernel logs.** Everything a kernel prints (`[R Interpreter] …`, `[carpo] …`, and anything R/Python writes outside an execution) appears on the *supervisor's* stderr, prefixed `[elara]` / `[carpo]`. `lib/` keeps it quiet by default (and puts the relevant lines in the error when a kernel fails to start); set `JOVIAN_LOG_LEVEL=debug` (or `JOVIAN_KERNEL_OUTPUT=1`, or `new SessionManager({ kernelOutput: true })`) to forward it to your stderr. That is the first place to look when a session fails to start.
+- **Library logs.** Quiet by default; `JOVIAN_LOG_LEVEL=trace` (or `new SessionManager({ logLevel: 'trace' })`) shows queueing, request ids and timeouts, and `logger` receives every message.
 - **Run a kernel by hand.** Generate a kernelspec (`npm run jupyter:kernelspec`) and start it from `jupyter console --kernel elara`, or run `elara -f <connection-file> --r-home …` yourself — no supervisor involved.
 - **Talk to the supervisor directly.** Start `themisto` (it prints `{"type":"supervisorReady","httpPort":…,"wsPort":…}`) and use `curl` against [its HTTP API](protocol.md#2-themistos-http-api) and any WebSocket client against `ws://127.0.0.1:<wsPort>/sessions/<id>/messages`.
 - **One native test.** `dist/native/Release/session_registry_test.exe --gtest_filter=*Interrupt*` (kernel log noise goes to the same stdout; filter with `grep -v "^\[elara\]"`).

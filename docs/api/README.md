@@ -21,8 +21,17 @@ import {
 Creates sessions and owns the one shared supervisor process (`themisto`) they all talk to. The supervisor is spawned lazily on the first `createSession()` and killed by `stopAll()` / `killAll()` (and, as a safety net, when the Node process exits).
 
 ```typescript
-const manager = new SessionManager();
+const manager = new SessionManager();                          // quiet
+const verbose = new SessionManager({ logLevel: 'debug' });     // everything, plus the kernels' own output
 ```
+
+**Logging.** The library is quiet by default: it prints only one-time setup notices (the install of the R packages on the first R session), warnings and errors. A kernel that fails to start reports its own error in the exception's message (`Kernel output: …`). To see more:
+
+| Option / variable | Effect |
+|---|---|
+| `logLevel: 'trace' \| 'debug' \| 'info' \| 'notice' \| 'warn' \| 'error' \| 'silent'` (or env `JOVIAN_LOG_LEVEL`) | What the built-in console logger prints: this level and above. Default `'notice'`. `'debug'` and `'trace'` also print the kernels' start-up output. |
+| `logger: (level, message, data?) => void` | Receives **every** message (do your own filtering) instead of the console. A session's own `logger` option takes precedence for that session. |
+| `kernelOutput: boolean` (or env `JOVIAN_KERNEL_OUTPUT=1`) | Print the kernels' own `[elara]` / `[carpo]` start-up output to stderr as it happens. Default off (on for `debug`/`trace`). |
 
 | Member | Description |
 |---|---|

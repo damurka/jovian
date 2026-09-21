@@ -26,6 +26,7 @@ import type { EngineOptions } from '../types/index.js';
 export const R_SETUP_SCRIPT = String.raw`
 src <- commandArgs(trailingOnly = TRUE)[1]
 say <- function(...) cat("JOVIAN_R_SETUP: ", ..., "\n", sep = "")
+note <- function(...) cat("JOVIAN_R_SETUP_INFO: ", ..., "\n", sep = "")
 fail <- function(...) {
     cat("JOVIAN_R_SETUP_ERROR: ", ..., "\n", sep = "")
     quit(save = "no", status = 1)
@@ -43,7 +44,7 @@ hera_current <- function() {
     suppressWarnings(suppressMessages(requireNamespace("hera", quietly = TRUE)))
 }
 if (hera_current()) {
-    say("hera is already installed")
+    note("hera is already installed")
     quit(save = "no", status = 0)
 }
 
@@ -143,6 +144,7 @@ say("done")
 export interface SetupLogger {
     debug(message: string): void;
     info(message: string): void;
+    notice(message: string): void;
 }
 
 export interface SetupProcessOutcome {
@@ -240,7 +242,8 @@ async function setUp(rscript: string, heraSrcPath: string, rLibs: string | undef
         const otherOutput: string[] = [];
         const onLine = (line: string) => {
             if (line.startsWith('JOVIAN_R_SETUP_ERROR: ')) failure = line.slice('JOVIAN_R_SETUP_ERROR: '.length);
-            else if (line.startsWith('JOVIAN_R_SETUP: ')) logger.info(`R setup: ${line.slice('JOVIAN_R_SETUP: '.length)}`);
+            else if (line.startsWith('JOVIAN_R_SETUP: ')) logger.notice(`R setup: ${line.slice('JOVIAN_R_SETUP: '.length)}`);
+            else if (line.startsWith('JOVIAN_R_SETUP_INFO: ')) logger.info(`R setup: ${line.slice('JOVIAN_R_SETUP_INFO: '.length)}`);
             else if (line.trim()) otherOutput.push(line.trim());
         };
 

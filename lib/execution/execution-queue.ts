@@ -177,7 +177,7 @@ export class ExecutionQueue {
 
             case 'error':
                 pending.output.push(message);
-                this.logger?.error(`Execution ${message.parentMsgId} reported an R error`, { evalue: message.content?.evalue });
+                this.logger?.debug(`Execution ${message.parentMsgId} reported an R error`, { evalue: message.content?.evalue });
                 if (pending.stopOnError) {
                     this.abortQueued();
                 }
