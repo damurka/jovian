@@ -138,6 +138,7 @@ test('Session', async (t) => {
                 type: 'message', channel: 'shell', topic: 'execute_reply',
                 msg_type: 'execute_reply', parent_msg_id: id, content: { status: 'ok', execution_count: 1 }
             });
+            ws.receive({ type: 'message', channel: 'iopub', topic: 'status', msg_type: 'status', parent_msg_id: id, content: { execution_state: 'idle' } });
 
             const result = await resultPromise;
             assert.strictEqual(result.success, true);
@@ -194,6 +195,8 @@ test('Session', async (t) => {
                 type: 'message', channel: 'shell', topic: 'execute_reply',
                 msg_type: 'execute_reply', parent_msg_id: id, content: { status: 'ok', execution_count: 1 }
             });
+
+            ws.receive({ type: 'message', channel: 'iopub', topic: 'status', msg_type: 'status', parent_msg_id: id, content: { execution_state: 'idle' } });
             const result = await resultPromise;
             assert.strictEqual(result.success, true);
         });
@@ -220,6 +223,7 @@ test('Session', async (t) => {
                 type: 'message', channel: 'shell', topic: 'execute_reply',
                 msg_type: 'execute_reply', parent_msg_id: id, content: { status: 'ok', execution_count: 1 }
             });
+            ws.receive({ type: 'message', channel: 'iopub', topic: 'status', msg_type: 'status', parent_msg_id: id, content: { execution_state: 'idle' } });
             await resultPromise;
 
             assert.deepStrictEqual(stdout, ['hello\n']);
@@ -315,6 +319,7 @@ test('Session', async (t) => {
                 type: 'message', channel: 'shell', topic: 'execute_reply',
                 msg_type: 'execute_reply', parent_msg_id: id, content: { status: 'ok', execution_count: 1 }
             });
+            ws.receive({ type: 'message', channel: 'iopub', topic: 'status', msg_type: 'status', parent_msg_id: id, content: { execution_state: 'idle' } });
             await resultPromise;
 
             const history = session.getHistory();
@@ -323,7 +328,7 @@ test('Session', async (t) => {
             assert.strictEqual(history[0].executionCount, 1);
             assert.deepStrictEqual(
                 history[0].messages.map((m) => m.msgType),
-                ['stream', 'execute_reply']
+                ['stream', 'execute_reply', 'status']
             );
         });
     });
@@ -647,6 +652,7 @@ test('Session', async (t) => {
 
             const userExpressions = { double: { status: 'ok', data: { 'text/plain': '[1] 42' }, metadata: {} } };
             reply(ws, 'execute_reply', frame.id, { status: 'ok', execution_count: 1, user_expressions: userExpressions });
+            reply(ws, 'status', frame.id, { execution_state: 'idle' });
 
             const result = await resultPromise;
             assert.strictEqual(result.success, true);
@@ -700,6 +706,7 @@ test('Session', async (t) => {
 
             const secondId = ws.lastSentId('execute');
             reply(ws, 'execute_reply', secondId, { status: 'ok', execution_count: 2 });
+            reply(ws, 'status', secondId, { execution_state: 'idle' });
             assert.strictEqual((await second).success, true);
             assert.strictEqual(ws.sentFrames('execute').length, 2);
         });
@@ -732,6 +739,7 @@ test('Session', async (t) => {
             reply(ws, 'update_display_data', id, { data: { 'text/plain': 'b' }, metadata: {}, transient: { display_id: 'd1' } }, 'iopub');
             reply(ws, 'clear_output', id, { wait: true }, 'iopub');
             reply(ws, 'execute_reply', id, { status: 'ok', execution_count: 1 });
+            reply(ws, 'status', id, { execution_state: 'idle' });
 
             const result = await promise;
             assert.deepStrictEqual(result.output.map((m) => m.msgType), ['display_data', 'update_display_data', 'clear_output']);

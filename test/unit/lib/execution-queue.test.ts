@@ -20,6 +20,7 @@ test('ExecutionQueue', async (t) => {
 
         emitter.emit('message', message('stream', 'msg-1', { name: 'stdout', text: 'hello\n' }));
         emitter.emit('message', message('execute_reply', 'msg-1', { status: 'ok', execution_count: 1 }));
+        emitter.emit('message', message('status', 'msg-1', { execution_state: 'idle' }));
 
         const result = await resultPromise;
         assert.strictEqual(result.success, true);
@@ -28,64 +29,104 @@ test('ExecutionQueue', async (t) => {
         assert.strictEqual(result.output[0].content.text, 'hello\n');
     });
 
-    await t.test('should still collect output that arrives just after an ok execute_reply', async () => {
-        // Regression test for a real, confirmed-via-CI flake: iopub
-        // (execute_result) and shell (execute_reply) are separate channels
-        // with no cross-channel delivery-order guarantee, so a passing
-        // execute_reply can arrive at this client before the iopub message
-        // it depends on, even though the kernel always publishes iopub
-        // content first. See handleMessage()'s 'execute_reply' case.
+    await t.test('finishes on the reply plus the kernel\'s idle, so output delivered after the reply is still collected', async () => {
+        // Regression test for output going missing on slower machines (macOS
+        // CI runners): iopub (stream/execute_result) and shell (execute_reply)
+        // are separate sockets with no cross-channel delivery-order guarantee,
+        // so the reply can be seen before output the kernel published before
+        // it. What is guaranteed is that `status: idle` follows all of that
+        // output on iopub. See handleMessage()'s 'execute_reply' case.
         const emitter = new EventEmitter();
-        const mockAddon = { execute: () => 'msg-race' };
+        const queue = new ExecutionQueue({ execute: () => 'msg-race' }, emitter);
+        const resultPromise = queue.execute('for (i in 1:3) print(i)');
 
-        const queue = new ExecutionQueue(mockAddon, emitter);
-        const resultPromise = queue.execute('2');
-
-        // execute_reply arrives first, with nothing collected yet...
+        emitter.emit('message', message('stream', 'msg-race', { name: 'stdout', text: 'first\n' }));
+        // The reply overtakes the rest of the output...
         emitter.emit('message', message('execute_reply', 'msg-race', { status: 'ok', execution_count: 1 }));
-        // ...then the execute_result iopub message arrives microseconds later.
+        // ...which still arrives, followed by the idle that closes the request.
+        emitter.emit('message', message('stream', 'msg-race', { name: 'stdout', text: 'last\n' }));
         emitter.emit('message', message('execute_result', 'msg-race', { data: { 'text/plain': '2' } }));
+        emitter.emit('message', message('status', 'msg-race', { execution_state: 'idle' }));
+
+        const result = await resultPromise;
+        assert.strictEqual(result.success, true);
+        assert.deepStrictEqual(result.output.map((m: any) => m.msgType), ['stream', 'stream', 'execute_result']);
+        assert.strictEqual(result.output[1].content.text, 'last\n');
+    });
+
+    await t.test('does not wait when the idle arrived before the reply', async () => {
+        const emitter = new EventEmitter();
+        const queue = new ExecutionQueue({ execute: () => 'msg-early-idle' }, emitter, 100, undefined, undefined, 60_000);
+        const resultPromise = queue.execute('1');
+
+        emitter.emit('message', message('execute_result', 'msg-early-idle', { data: { 'text/plain': '1' } }));
+        emitter.emit('message', message('status', 'msg-early-idle', { execution_state: 'idle' }));
+        emitter.emit('message', message('execute_reply', 'msg-early-idle', { status: 'ok', execution_count: 1 }));
+
+        const result = await resultPromise; // a 60 s wait would time the test out
+        assert.strictEqual(result.output.length, 1);
+    });
+
+    await t.test('ignores the busy status', async () => {
+        const emitter = new EventEmitter();
+        const queue = new ExecutionQueue({ execute: () => 'msg-busy' }, emitter, 100, undefined, undefined, 40);
+        const resultPromise = queue.execute('1');
+
+        emitter.emit('message', message('status', 'msg-busy', { execution_state: 'busy' }));
+        emitter.emit('message', message('execute_reply', 'msg-busy', { status: 'ok', execution_count: 1 }));
+        const started = Date.now();
+        await resultPromise;
+        assert.ok(Date.now() - started >= 30, 'finished on a busy status instead of waiting for idle');
+    });
+
+    await t.test('a kernel that never publishes idle still finishes, after the wait rather than never', async () => {
+        const emitter = new EventEmitter();
+        const queue = new ExecutionQueue({ execute: () => 'msg-no-idle' }, emitter, 100, undefined, undefined, 30);
+        const resultPromise = queue.execute('1');
+
+        emitter.emit('message', message('stream', 'msg-no-idle', { name: 'stdout', text: 'x\n' }));
+        emitter.emit('message', message('execute_reply', 'msg-no-idle', { status: 'ok', execution_count: 1 }));
 
         const result = await resultPromise;
         assert.strictEqual(result.success, true);
         assert.strictEqual(result.output.length, 1);
-        assert.strictEqual(result.output[0].content.data['text/plain'], '2');
     });
 
-    await t.test('should resolve promptly with empty output when nothing ever arrives after an ok reply', async () => {
-        // The grace period added for the race above must not turn a
-        // genuinely-empty-output execution (e.g. a bare assignment) into a
-        // slow one it isn't already -- it should still resolve once the
-        // grace period elapses, not hang.
+    await t.test('an aborted reply finishes at once: the request never ran, so no idle follows', async () => {
         const emitter = new EventEmitter();
-        const mockAddon = { execute: () => 'msg-empty' };
+        const queue = new ExecutionQueue({ execute: () => 'msg-aborted' }, emitter, 100, undefined, undefined, 60_000);
+        const resultPromise = queue.execute('1');
+        emitter.emit('message', message('execute_reply', 'msg-aborted', { status: 'aborted' }));
 
-        const queue = new ExecutionQueue(mockAddon, emitter);
+        const result = await resultPromise; // a 60 s wait would time the test out
+        assert.strictEqual(result.aborted, true);
+    });
+
+    await t.test('should resolve with empty output once the idle arrives for a bare assignment', async () => {
+        const emitter = new EventEmitter();
+        const queue = new ExecutionQueue({ execute: () => 'msg-empty' }, emitter);
         const resultPromise = queue.execute('x <- 1');
         emitter.emit('message', message('execute_reply', 'msg-empty', { status: 'ok', execution_count: 1 }));
+        emitter.emit('message', message('status', 'msg-empty', { execution_state: 'idle' }));
 
         const result = await resultPromise;
         assert.strictEqual(result.success, true);
         assert.strictEqual(result.output.length, 0);
     });
 
-    await t.test('should not double-resolve if the queue is cleared during the post-reply grace period', async () => {
+    await t.test('should not double-resolve if the queue is cleared while waiting for the idle', async () => {
         const emitter = new EventEmitter();
-        const mockAddon = { execute: () => 'msg-cleared' };
-
-        const queue = new ExecutionQueue(mockAddon, emitter);
+        const queue = new ExecutionQueue({ execute: () => 'msg-cleared' }, emitter, 100, undefined, undefined, 20);
         const resultPromise = queue.execute('1');
         emitter.emit('message', message('execute_reply', 'msg-cleared', { status: 'ok', execution_count: 1 }));
 
-        // Cleared while the grace-period timer is still pending -- must
-        // reject (from clear()), not later also resolve once the timer fires.
+        // Cleared while the wait for idle is still pending -- must reject (from
+        // clear()), not later also resolve once the wait elapses or the idle arrives.
         queue.clear();
         await assert.rejects(resultPromise, /Queue cleared/);
 
-        // Let the grace-period timer actually elapse to confirm it's a
-        // harmless no-op (an already-settled promise can't change outcome
-        // either way, but this exercises the has()-guard path directly).
         await new Promise((resolve) => setTimeout(resolve, 60));
+        emitter.emit('message', message('status', 'msg-cleared', { execution_state: 'idle' })); // must be a harmless no-op
     });
 
     await t.test('should reject when kernel reports an error', async () => {
@@ -120,6 +161,7 @@ test('ExecutionQueue', async (t) => {
         const queue = new ExecutionQueue(mockAddon, emitter);
         const resultPromise = queue.execute('input("x?")', { allowStdin: true, silent: true });
         emitter.emit('message', message('execute_reply', 'msg-opts', { status: 'ok' }));
+        emitter.emit('message', message('status', 'msg-opts', { execution_state: 'idle' }));
         await resultPromise;
 
         assert.deepStrictEqual(receivedOptions, { allowStdin: true, silent: true });
@@ -145,10 +187,13 @@ test('ExecutionQueue', async (t) => {
         assert.deepStrictEqual(executed, ['code1']);
 
         emitter.emit('message', message('execute_reply', 'msg-1', { status: 'ok' }));
+
+        emitter.emit('message', message('status', 'msg-1', { execution_state: 'idle' }));
         await p1;
 
         assert.deepStrictEqual(executed, ['code1', 'code2']);
         emitter.emit('message', message('execute_reply', 'msg-2', { status: 'ok' }));
+        emitter.emit('message', message('status', 'msg-2', { execution_state: 'idle' }));
         await p2;
     });
 
@@ -180,6 +225,7 @@ test('ExecutionQueue', async (t) => {
         // Long past the 20ms timeout that would otherwise have fired.
         await new Promise((resolve) => setTimeout(resolve, 60));
         emitter.emit('message', message('execute_reply', 'msg-input', { status: 'ok', execution_count: 1 }));
+        emitter.emit('message', message('status', 'msg-input', { execution_state: 'idle' }));
 
         const result = await resultPromise;
         assert.strictEqual(result.success, true);

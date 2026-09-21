@@ -17,9 +17,18 @@ interface PendingExecution {
     timer: ReturnType<typeof setTimeout> | undefined;
     finish: (result: ExecutionResult) => void;
     reject: (error: Error) => void;
+    // The kernel's `status: idle` for this request has arrived.
+    idle: boolean;
+    // Set once execute_reply has arrived while `idle` has not: finishes the
+    // execution as soon as it does.
+    finishWhenIdle: (() => void) | undefined;
 }
 
 const DEFAULT_TIMEOUT_MS = 30000;
+// How long after execute_reply to wait for the kernel's `status: idle`, if it
+// has not come yet. A kernel publishes it right after the reply, so this only
+// matters for one that never does; it must not make such a kernel hang.
+const DEFAULT_IDLE_WAIT_MS = 2000;
 const ABORTED_MESSAGE = 'Execution aborted: an earlier execution failed with stopOnError';
 
 export class ExecutionQueue {
@@ -30,15 +39,17 @@ export class ExecutionQueue {
     private pending: Map<string, PendingExecution> = new Map();
     private logger?: Logger;
     private onTimeout?: (msgId: string) => void;
+    private idleWaitMs: number;
 
     // `onTimeout` is called when an execution times out (unless that
     // execution opted out with interruptOnTimeout: false), so the owner can
     // interrupt the kernel -- otherwise the kernel keeps running code nobody
     // is waiting for, and everything queued behind it (and every complete/
     // inspect request) is stuck behind it.
-    constructor(addon: any, emitter: EventEmitter, maxSize: number = 100, logger?: Logger, onTimeout?: (msgId: string) => void) {
+    constructor(addon: any, emitter: EventEmitter, maxSize: number = 100, logger?: Logger, onTimeout?: (msgId: string) => void, idleWaitMs: number = DEFAULT_IDLE_WAIT_MS) {
         this.addon = addon;
         this.onTimeout = onTimeout;
+        this.idleWaitMs = idleWaitMs;
         this.maxSize = maxSize;
         this.logger = logger;
         emitter.on('message', (message: JupyterMessage) => this.handleMessage(message));
@@ -126,6 +137,8 @@ export class ExecutionQueue {
         this.pending.set(msgId, {
             stopOnError: item.options.stopOnError === true,
             output: [],
+            idle: false,
+            finishWhenIdle: undefined,
             timer,
             finish: (result) => {
                 clearTimeout(timer);
@@ -175,6 +188,16 @@ export class ExecutionQueue {
                 pending.output.push(message);
                 break;
 
+            case 'status':
+                // The kernel publishes this after everything else it published
+                // for the request, on the same iopub socket, so once it has
+                // arrived so has all of the output.
+                if (message.content?.execution_state === 'idle') {
+                    pending.idle = true;
+                    pending.finishWhenIdle?.();
+                }
+                break;
+
             case 'error':
                 pending.output.push(message);
                 this.logger?.debug(`Execution ${message.parentMsgId} reported an R error`, { evalue: message.content?.evalue });
@@ -192,7 +215,10 @@ export class ExecutionQueue {
             case 'execute_reply': {
                 const executionCount = message.content?.execution_count;
                 const replyStatus = message.content?.status as 'ok' | 'error' | 'aborted' | undefined;
+                let idleFallback: ReturnType<typeof setTimeout> | undefined;
                 const finishNow = () => {
+                    clearTimeout(idleFallback);
+                    pending.finishWhenIdle = undefined;
                     if (replyStatus !== 'ok' && pending.stopOnError) {
                         this.abortQueued();
                     }
@@ -213,31 +239,33 @@ export class ExecutionQueue {
                     pending.finish(result);
                 };
 
-                // iopub (stream/execute_result/display_data) and shell
-                // (execute_reply) are separate ZMQ channels/sockets with no
-                // cross-channel delivery-order guarantee -- the kernel
-                // publishes iopub content before sending the shell reply
-                // (confirmed directly: RInterpreter/PyInterpreter's own
-                // executeRequestImpl always calls publishExecutionResult()
-                // before invoking the reply callback), but nothing enforces
-                // that this client *observes* them in that same order once
-                // they've gone through themisto's relay. Confirmed as a
-                // real, if rare, flake via CI (a passing execute_reply
-                // resolving with empty output, the execute_result iopub
-                // message arriving microseconds later, too late to matter).
-                // Only a short, bounded wait for output that should exist --
-                // an actually-empty-output execution (e.g. a bare
-                // assignment) still resolves immediately, since this only
-                // triggers on the narrow "ok but nothing collected yet"
-                // case, not on every execution.
-                if (pending.output.length === 0 && message.content?.status === 'ok') {
-                    setTimeout(() => {
-                        if (this.pending.has(message.parentMsgId)) {
+                // iopub (stream/execute_result/display_data/error) and shell
+                // (execute_reply) are separate ZMQ sockets with no cross-channel
+                // delivery-order guarantee: this client can see the reply
+                // before output the kernel published *before* it -- the tail of
+                // a flood of print() calls, an input prompt's echo, the error
+                // of an interrupted call. Confirmed on macOS CI runners, where
+                // those went missing from the result.
+                //
+                // What the protocol does guarantee is that the kernel then
+                // publishes `status: idle` on iopub, after all of the request's
+                // output and on the same socket, so the execution is finished
+                // once both the reply and that idle have arrived. A kernel that
+                // never sends the idle costs idleWaitMs, not a hang.
+                //
+                // An aborted request (stop_on_error) never ran: the kernel sends
+                // its reply and nothing else, no output and no idle.
+                if (pending.idle || replyStatus === 'aborted') {
+                    finishNow();
+                } else {
+                    pending.finishWhenIdle = finishNow;
+                    idleFallback = setTimeout(() => {
+                        if (this.pending.get(message.parentMsgId) === pending) {
+                            this.logger?.warn(`Execution ${message.parentMsgId}: no idle status within ${this.idleWaitMs}ms of the reply; finishing without it`);
                             finishNow();
                         }
-                    }, 50);
-                } else {
-                    finishNow();
+                    }, this.idleWaitMs);
+                    idleFallback.unref?.();
                 }
                 break;
             }
