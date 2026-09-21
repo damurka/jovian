@@ -32,6 +32,8 @@ import { DisplayHandler } from '../handlers/display-handler.js';
 import { findFreePort, waitForPort } from '../utils/network.js';
 import { SupervisorClient, type SessionConnectionInfo } from './supervisor-client.js';
 import { withDiscoveredRuntime } from './runtimes.js';
+import { ensureRPackages } from './r-setup.js';
+import { bundledHeraSource } from './native-paths.js';
 import { Comm } from './comm.js';
 
 // Reuses lib/types/engine.ts's ShinyAppHandle instead of declaring a
@@ -285,6 +287,7 @@ export class Session extends EventEmitter {
         const shutdownReply = this.watchFor('shutdown_reply');
         this.readyPromise = (async () => {
             try {
+                if (mergedOptions) await ensureRPackages(mergedOptions, this.logger);
                 await this.supervisor.restartSession(this.info, mergedOptions);
                 if (mergedOptions) {
                     this.currentOptions = mergedOptions;
@@ -882,14 +885,18 @@ export class Session extends EventEmitter {
 }
 
 export class SessionManager {
-    private readonly supervisor = new SupervisorClient(new Logger());
+    private readonly logger = new Logger();
+    private readonly supervisor = new SupervisorClient(this.logger);
     private readonly sessions = new Set<Session>();
     private exitHandlerRegistered = false;
 
     /** Creates a new R session in its own OS process and waits for it to be ready. */
     async createSession(requested: EngineOptions = {}): Promise<Session> {
         // Finds R / Python when rHome / pythonHome were not given (see runtimes.ts).
-        const options = withDiscoveredRuntime(requested);
+        // An installed package brings its own copy of hera (none in a source checkout).
+        const options = withDiscoveredRuntime(requested.heraSrcPath ? requested : { ...requested, heraSrcPath: bundledHeraSource() });
+        // First R session only: installs hera and what it needs (see r-setup.ts).
+        await ensureRPackages(options, this.logger);
         const info = await this.supervisor.createSession(options);
         const session = new Session(info, options, this.supervisor);
         this.sessions.add(session);

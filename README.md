@@ -40,13 +40,7 @@ The package ships **prebuilt** `themisto`, `elara` and `carpo` binaries — no c
 
 What you must already have on the machine:
 
-- **R** (4.2 or newer; a build with a shared library, which the CRAN/Posit binaries and distribution packages are) for R sessions. If `rHome` is not passed, it is found from `$R_HOME`, then `R RHOME` (R on `PATH`), then the Windows registry; pass `rHome` to choose a specific installation. The `hera` R package that every R session needs ships inside the npm package and is installed into R on a session's first start, which needs the `remotes` package and `hera`'s CRAN dependencies (`cli`, `evaluate`, `glue`, `IRdisplay`, `jsonlite`, `R6`, `repr`, `rlang`):
-
-  ```r
-  install.packages(c("remotes", "cli", "evaluate", "glue", "IRdisplay", "jsonlite", "R6", "repr", "rlang"))
-  ```
-
-  Install these before the first session. On Debian/Ubuntu, R packages installed with `apt` (`r-cran-*`) can be built for an older R and fail to load with `undefined symbol: SETLENGTH`; see [Troubleshooting](docs/troubleshooting.md#creating-a-session) for how to reinstall them from CRAN.
+- **R** (4.2 or newer; a build with a shared library, which the CRAN/Posit binaries and distribution packages are) for R sessions. If `rHome` is not passed, it is found from `$R_HOME`, then `R RHOME` (R on `PATH`), then the Windows registry; pass `rHome` to choose a specific installation. You do not need to install any R packages yourself. The `hera` R package every R session needs ships inside the npm package, and before the **first** R session the library installs it, together with its CRAN dependencies (`cli`, `evaluate`, `glue`, `IRdisplay`, `jsonlite`, `R6`, `repr`, `rlang` and what they need), into your R library. Nothing else (not even `remotes`) has to be installed first. This needs an internet connection, takes about 20 seconds where CRAN has binaries (Windows, macOS) and a few minutes on Linux, where packages are compiled from source and need a compiler (Ubuntu: `sudo apt install build-essential`). It happens once; later sessions start straight away. A package that is installed but cannot be loaded (Debian/Ubuntu `r-cran-*` packages built for an older R fail with `undefined symbol: SETLENGTH`) is reinstalled from CRAN into your own library. If it cannot finish, `createSession()` rejects with R's own reason. Set `JOVIAN_SKIP_R_SETUP=1` to skip this step and manage the packages yourself.
 
 - **Python 3** with its shared library (optional, for Python sessions); if `pythonHome` is not passed, it is found from `$PYTHONHOME`, then the first `python3` / `python` on `PATH` (its `sys.base_prefix`); pass `pythonHome` to choose one.
 - **Linux:** `libuuid` (`libuuid1`, present on nearly every system) and a glibc at least as new as the one the binaries were built against (Ubuntu 24.04's, 2.39). On an older distribution, [build from source](#requirements).
