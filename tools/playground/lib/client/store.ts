@@ -2,7 +2,7 @@
 // session lifecycle -- live messages, hydration after a refresh, run/finish
 // bookkeeping -- can be unit-tested without a browser.
 import {
-    answerInput, applyMessage, clearCells, emptyTranscript, endCell, pushOutput, setCellNumber, startCell,
+    answerInput, applyMessage, applyMessages, clearCells, emptyTranscript, endCell, pushOutput, setCellNumber, startCell,
     type OutputClass, type Transcript
 } from '../transcript.ts';
 import type { HistoryRecord, KernelType, SessionConfig, SessionStatus, WireMessage } from '../types.ts';
@@ -41,6 +41,8 @@ export type Action =
     | { type: 'select'; id: string | null }
     | { type: 'patch'; id: string; patch: Partial<Omit<SessionView, 'transcript'>> }
     | { type: 'message'; id: string; message: WireMessage }
+    // Several messages at once, applied in order in one pass (frame-batcher.ts).
+    | { type: 'messages'; id: string; messages: WireMessage[] }
     | { type: 'runStarted'; id: string; key: string; code: string; time: number }
     | { type: 'runFinished'; id: string; key: string; executionCount?: number; failure?: string }
     | { type: 'notice'; id: string; cls: OutputClass; text: string }
@@ -87,6 +89,12 @@ export function reducer(state: State, action: Action): State {
         case 'message':
             return update(state, action.id, (s) => {
                 const transcript = applyMessage(s.transcript, action.message);
+                return transcript === s.transcript ? s : { ...s, transcript };
+            });
+
+        case 'messages':
+            return update(state, action.id, (s) => {
+                const transcript = applyMessages(s.transcript, action.messages);
                 return transcript === s.transcript ? s : { ...s, transcript };
             });
 
@@ -145,7 +153,7 @@ export function reducer(state: State, action: Action): State {
                     const inNum = typeof record.executionCount === 'number' ? record.executionCount : ++execCount;
                     execCount = Math.max(execCount, inNum);
                     t = startCell(t, { key: `history-${i}`, inNum, code: record.code, time: record.time });
-                    for (const message of record.messages) t = applyMessage(t, message);
+                    t = applyMessages(t, record.messages);
                 });
                 return { ...s, execCount, transcript: endCell(t) };
             });

@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { api, type NewSessionRequest } from '@/lib/client/api';
+import { createFrameBatcher, type FrameBatcher } from '@/lib/client/frame-batcher';
 import { canRun, initialState, newSessionView, reducer } from '@/lib/client/store';
 import { useInspect } from '@/lib/client/use-inspect';
-import type { Defaults, StreamEvent } from '@/lib/types';
+import { waitsForRunningCell, type Defaults, type StreamEvent, type WireMessage } from '@/lib/types';
 import { ConsoleView, kernelLabel } from './ConsoleView';
 import { InputDock } from './InputDock';
 import { InspectorPanel } from './InspectorPanel';
@@ -21,6 +22,11 @@ export function Playground() {
     const [draft, setDraft] = useState('');
 
     const sources = useRef(new Map<string, EventSource>());
+    // Kernel messages wait here and are applied once per frame (frame-batcher.ts).
+    const batchers = useRef(new Map<string, FrameBatcher<WireMessage>>());
+    // Applies a session's waiting messages now: output that arrived before a
+    // run starts, finishes or is cleared belongs before it.
+    const flushMessages = (id: string) => batchers.current.get(id)?.flush();
     const loaded = useRef(false);
     // Async callbacks need the latest state, not the render they closed over.
     const stateRef = useRef(state);
@@ -57,10 +63,13 @@ export function Playground() {
     // -- live event stream ------------------------------------------------
 
     const handleStreamEvent = useCallback((id: string, payload: StreamEvent) => {
+        if (payload.event === 'message') {
+            batchers.current.get(id)?.push(payload.message);
+            return;
+        }
+        // Everything else is applied after the messages that came before it.
+        flushMessages(id);
         switch (payload.event) {
-            case 'message':
-                dispatch({ type: 'message', id, message: payload.message });
-                break;
             case 'exit':
                 dispatch({ type: 'patch', id, patch: { status: 'crashed', running: false } });
                 break;
@@ -86,6 +95,7 @@ export function Playground() {
     useEffect(() => {
         for (const id of state.order) {
             if (sources.current.has(id)) continue;
+            batchers.current.set(id, createFrameBatcher((messages) => dispatch({ type: 'messages', id, messages })));
             const es = new EventSource(`/api/sessions/${id}/stream`);
             es.onmessage = (event) => {
                 try {
@@ -102,15 +112,20 @@ export function Playground() {
             if (!state.order.includes(id)) {
                 es.close();
                 sources.current.delete(id);
+                batchers.current.get(id)?.dispose();
+                batchers.current.delete(id);
             }
         }
     }, [state.order, handleStreamEvent]);
 
     useEffect(() => {
         const current = sources.current;
+        const pending = batchers.current;
         return () => {
             for (const es of current.values()) es.close();
             current.clear();
+            for (const batcher of pending.values()) batcher.dispose();
+            pending.clear();
         };
     }, []);
 
@@ -171,15 +186,18 @@ export function Playground() {
     const runCode = useCallback(async (id: string, code: string, timeout?: number) => {
         if (!code.trim() || !stateRef.current.sessions[id]) return;
         const key = crypto.randomUUID();
+        flushMessages(id);
         dispatch({ type: 'runStarted', id, key, code, time: Date.now() });
         try {
             const result = await api.execute(id, code, timeout);
+            flushMessages(id);
             dispatch({
                 type: 'runFinished', id, key,
                 executionCount: result.executionCount,
                 failure: result.success ? undefined : (result.error ?? '')
             });
         } catch (error) {
+            flushMessages(id);
             dispatch({ type: 'runFinished', id, key });
             dispatch({ type: 'notice', id, cls: 'error', text: `Request failed: ${(error as Error).message}` });
         }
@@ -301,7 +319,7 @@ export function Playground() {
                         </div>
                         <div className="kernel-controls">
                             <button className="btn-secondary" id="btnClearConsole" disabled={!active}
-                                onClick={() => active && dispatch({ type: 'clearOutput', id: active.id })}>
+                                onClick={() => { if (!active) return; flushMessages(active.id); dispatch({ type: 'clearOutput', id: active.id }); }}>
                                 <span>&#9003;</span> Clear Output
                             </button>
                         </div>
@@ -316,7 +334,7 @@ export function Playground() {
                             void api.sendInput(active.id, value).catch((e) =>
                                 dispatch({ type: 'notice', id: active.id, cls: 'error', text: `Failed to send input reply: ${e.message}` }));
                         }}
-                        onInspect={(token, x, y) => void inspector.inspect(token, token, token.length, { kind: 'point', x, y }, { kernelBusy: active?.running })}
+                        onInspect={(token, x, y) => void inspector.inspect(token, token, token.length, { kind: 'point', x, y }, { kernelBusy: Boolean(active?.running) && waitsForRunningCell(active!.kernelType, 'inspect_request') })}
                         onHoverInspect={(token, x, y) => {
                             cancelHoverClose();
                             void inspector.inspect(token, token, token.length, { kind: 'point', x, y }, { hover: true });
@@ -332,7 +350,7 @@ export function Playground() {
                             onChange={setDraft}
                             onRun={runDraft}
                             onInterrupt={() => void interrupt(active.id)}
-                            onClear={() => dispatch({ type: 'clearOutput', id: active.id })}
+                            onClear={() => { flushMessages(active.id); dispatch({ type: 'clearOutput', id: active.id }); }}
                             onInspect={(title, code, cursor, anchor, options) => {
                                 if (options?.hover) cancelHoverClose();
                                 void inspector.inspect(title, code, cursor, anchor, options);

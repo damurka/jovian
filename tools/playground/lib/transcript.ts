@@ -215,3 +215,65 @@ export function applyMessage(t: Transcript, msg: WireMessage): Transcript {
             return t;
     }
 }
+
+/**
+ * Applies several messages in order: the same transcript as applyMessage on
+ * each (up to where a truncated block's kept tail starts). A flood of stream
+ * messages -- stdout and stderr taking turns, as a loop of cat() and
+ * message() makes -- is applied to one copy of the cell's outputs instead of
+ * copying them once per message, and each block is capped once, not once per
+ * chunk; one message at a time that is quadratic in the cell's output.
+ */
+export function applyMessages(t: Transcript, msgs: readonly WireMessage[]): Transcript {
+    let i = 0;
+    while (i < msgs.length) {
+        if (msgs[i].msgType !== 'stream') {
+            t = applyMessage(t, msgs[i++]);
+            continue;
+        }
+        let end = i;
+        while (end < msgs.length && msgs[end].msgType === 'stream') end++;
+        t = applyStreams(t, msgs, i, end);
+        i = end;
+    }
+    return t;
+}
+
+/** applyMessage for the stream messages msgs[from..to), in one pass. */
+function applyStreams(t: Transcript, msgs: readonly WireMessage[], from: number, to: number): Transcript {
+    const cell = t.cells.find((c) => c.key === t.currentKey);
+    if (!cell) return t;
+    const outputs = cell.clearOnNext ? [] : cell.outputs.slice();
+    let nextOutputId = t.nextOutputId;
+    // The block being appended to: its text grows as a rope and is capped
+    // when the block is done.
+    let open = -1;
+    let text = '';
+    const close = () => {
+        if (open < 0) return;
+        const last = outputs[open] as Extract<Output, { kind: 'text' }>;
+        const capped = capText(text);
+        outputs[open] = { ...last, text: capped.text, truncated: last.truncated || capped.truncated };
+        open = -1;
+    };
+    for (let i = from; i < to; i++) {
+        const content = msgs[i].content ?? {};
+        const cls: OutputClass = content.name === 'stderr' ? 'stderr' : '';
+        const chunk: string = content.text ?? '';
+        const last = outputs.at(-1);
+        if (last && last.kind === 'text' && last.cls === cls && !last.displayId) {
+            if (open < 0) {
+                open = outputs.length - 1;
+                text = last.text;
+            }
+            text += chunk;
+            continue;
+        }
+        close();
+        outputs.push({ id: nextOutputId++, kind: 'text', cls, text: '' });
+        open = outputs.length - 1;
+        text = chunk;
+    }
+    close();
+    return { ...mapCell(t, cell.key, (c) => ({ ...c, clearOnNext: false, outputs })), nextOutputId };
+}

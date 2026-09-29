@@ -88,3 +88,23 @@ test('an execution that ends with an empty failure (an interrupt) is labelled as
     assert.ok(last && last.kind === 'text');
     assert.strictEqual(last.text, 'Execution interrupted');
 });
+
+test('a batch of messages gives the same transcript as applying them one by one', () => {
+    let one = withSession();
+    one = reducer(one, { type: 'runStarted', id: 's1', key: 'k1', code: 'x', time: 0 });
+    let batched = one;
+    const messages = [
+        msg('stream', { name: 'stdout', text: 'a\n' }),
+        msg('stream', { name: 'stderr', text: 'warn\n' }),
+        msg('stream', { name: 'stdout', text: 'b\n' }),
+        msg('execute_result', { data: { 'text/plain': '[1] 2' }, execution_count: 1 })
+    ];
+    for (const message of messages) one = reducer(one, { type: 'message', id: 's1', message });
+    batched = reducer(batched, { type: 'messages', id: 's1', messages });
+    assert.deepStrictEqual(batched.sessions.s1.transcript, one.sessions.s1.transcript);
+});
+
+test('a batch that changes nothing keeps the same state object', () => {
+    const s = withSession();
+    assert.strictEqual(reducer(s, { type: 'messages', id: 's1', messages: [] }), s);
+});

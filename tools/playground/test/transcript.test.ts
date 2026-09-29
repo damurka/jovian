@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert';
 import {
-    MAX_OUTPUT_CHARS, answerInput, applyMessage, emptyTranscript, formatMimeData, hasPendingInput, startCell
+    MAX_OUTPUT_CHARS, answerInput, applyMessage, applyMessages, emptyTranscript, formatMimeData, hasPendingInput, startCell
 } from '../lib/transcript.ts';
 import type { WireMessage } from '../lib/types.ts';
 
@@ -121,4 +121,50 @@ test('a flood of stream text keeps only the tail of the block and says so', () =
 test('short output is never marked truncated', () => {
     const t = applyMessage(withCell(), msg('stream', { name: 'stdout', text: 'small\n' }));
     assert.ok(!(t.cells[0].outputs[0] as { truncated?: boolean }).truncated);
+});
+
+test('applyMessages gives the transcript applyMessage gives one message at a time', () => {
+    const stream = (name: string, text: string): WireMessage =>
+        ({ topic: 'stream', msgType: 'stream', channel: 'iopub', parentMsgId: 'p', content: { name, text } });
+    const other = (msgType: string, content: unknown): WireMessage =>
+        ({ topic: msgType, msgType, channel: 'iopub', parentMsgId: 'p', content });
+    const messages: WireMessage[] = [
+        stream('stdout', 'a'), stream('stdout', 'b\n'), stream('stderr', 'w1\n'), stream('stdout', 'c\n'),
+        other('display_data', { data: { 'text/plain': 'shown' }, transient: { display_id: 'd' } }),
+        stream('stdout', 'after display\n'),
+        other('clear_output', { wait: true }), stream('stderr', 'fresh\n'), stream('stderr', 'more\n'),
+        other('update_display_data', { data: { 'text/plain': 'updated' }, transient: { display_id: 'd' } }),
+        other('status', { execution_state: 'idle' })
+    ];
+    for (const prefix of [[], [stream('stdout', 'earlier\n')]]) {
+        let start = startCell(emptyTranscript(), { key: 'k', inNum: 1, code: 'x', time: 0 });
+        start = applyMessages(start, prefix);
+        let one = start;
+        for (const m of messages) one = applyMessage(one, m);
+        assert.deepStrictEqual(applyMessages(start, messages), one);
+    }
+});
+
+test('applyMessages takes an interleaved stdout/stderr flood in linear time', () => {
+    const N = 50_000;
+    const messages: WireMessage[] = Array.from({ length: N }, (_, i) => ({
+        topic: 'stream', msgType: 'stream', channel: 'iopub', parentMsgId: 'p',
+        content: { name: i % 2 ? 'stderr' : 'stdout', text: `line ${i}\n` }
+    }));
+    const t0 = performance.now();
+    const t = applyMessages(startCell(emptyTranscript(), { key: 'k', inNum: 1, code: 'x', time: 0 }), messages);
+    assert.ok(performance.now() - t0 < 2000, 'batched flood is not quadratic');
+    assert.strictEqual(t.cells[0].outputs.length, N);
+    assert.strictEqual(t.nextOutputId, N + 1);
+});
+
+test('applyMessages caps a one-stream flood and marks it truncated', () => {
+    const messages: WireMessage[] = Array.from({ length: 40_000 }, (_, i) => ({
+        topic: 'stream', msgType: 'stream', channel: 'iopub', parentMsgId: 'p', content: { name: 'stdout', text: `line ${i}\n` }
+    }));
+    const t = applyMessages(startCell(emptyTranscript(), { key: 'k', inNum: 1, code: 'x', time: 0 }), messages);
+    const out = t.cells[0].outputs;
+    assert.strictEqual(out.length, 1);
+    assert.ok(out[0].kind === 'text' && out[0].truncated && out[0].text.length <= MAX_OUTPUT_CHARS);
+    assert.ok(out[0].kind === 'text' && out[0].text.endsWith('line 39999\n') && out[0].text.startsWith('line '));
 });
