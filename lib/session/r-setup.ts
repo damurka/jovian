@@ -203,14 +203,14 @@ const inFlight = new Map<string, Promise<void>>();
 /**
  * Makes sure hera and its dependencies are installed for this R (see the
  * comment on R_SETUP_SCRIPT). Resolves immediately when there is nothing to
- * do: a Python session, no bundled hera (a source checkout), no R found, or
+ * do: not an R session, no bundled hera (a source checkout), no R found, or
  * JOVIAN_SKIP_R_SETUP set. Concurrent calls for the same R share one run, and
  * a run that succeeded is not repeated by this process. Rejects with R's own
  * explanation when the packages could not be installed.
  */
 export function ensureRPackages(options: EngineOptions, logger: SetupLogger, deps: SetupDeps = defaultDeps()): Promise<void> {
     const { rHome, heraSrcPath } = options;
-    if (options.kernelType === 'python' || !rHome || !heraSrcPath) return Promise.resolve();
+    if ((options.kernelType ?? 'r') !== 'r' || !rHome || !heraSrcPath) return Promise.resolve();
     if (deps.env.JOVIAN_SKIP_R_SETUP) return Promise.resolve();
 
     const rscript = rscriptPath(rHome, deps);

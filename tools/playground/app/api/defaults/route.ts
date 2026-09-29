@@ -4,8 +4,8 @@ import { json } from '@/lib/server/http';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// The R/Python installs detected on this machine, to pre-fill the
+// The R/Python/Stata installs detected on this machine, to pre-fill the
 // new-session dialog (see lib/env.mjs).
-export function GET() {
-    return json(defaultEnvironment());
+export async function GET() {
+    return json(await defaultEnvironment());
 }

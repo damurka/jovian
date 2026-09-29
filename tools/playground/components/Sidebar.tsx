@@ -16,7 +16,9 @@ export function statusLabel(status: string): string {
 }
 
 export function kernelBadgeClass(kernelType: string): string {
-    return kernelType === 'python' ? 'badge-python' : 'badge-r';
+    if (kernelType === 'python') return 'badge-python';
+    if (kernelType === 'stata') return 'badge-stata';
+    return 'badge-r';
 }
 
 interface Props {

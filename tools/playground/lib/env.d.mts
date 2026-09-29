@@ -1,17 +1,15 @@
-export function compareVersions(a: string, b: string): number;
-export function looksLikeRHome(dir: string): boolean;
-export function discoverRHome(): string;
+import type { Installation } from './types.ts';
+
 export function discoverRPath(rHome: string): string;
-export function defaultREnv(): { rHome: string; rPath: string; rLibs: string };
-export function discoverPythonHome(): string;
-export function defaultPythonEnv(): { pythonHome: string; pythonPath: string; venvPath: string };
-export function defaultEnvironment(): {
+export function defaultEnvironment(): Promise<{
     rHome: string;
     rPath: string;
     rLibs: string;
     pythonHome: string;
     pythonPath: string;
     venvPath: string;
+    stataHome: string;
+    installations: { r: Installation[]; python: Installation[]; stata: Installation[] };
     platform: string;
     homeDirectory: string;
-};
+}>;

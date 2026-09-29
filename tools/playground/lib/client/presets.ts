@@ -36,4 +36,20 @@ export const PYTHON_PRESETS: Preset[] = [
     { label: 'Crash kernel (os._exit — ~60s detection)', kind: 'kind-crash', code: `import os\nos._exit(1)` }
 ];
 
-export const presetsFor = (kernelType: KernelType): Preset[] => (kernelType === 'python' ? PYTHON_PRESETS : R_PRESETS);
+export const STATA_PRESETS: Preset[] = [
+    { label: 'Hello world', code: 'display "Hello from the playground!"' },
+    { label: 'Load data', code: 'sysuse auto, clear\ndescribe, short' },
+    { label: 'Summary', code: 'sysuse auto, clear\nsummarize price mpg weight' },
+    { label: 'Regression', code: 'sysuse auto, clear\nregress price mpg weight' },
+    { label: 'Graph (display_data)', code: 'sysuse auto, clear\nscatter price mpg' },
+    { label: 'Streaming loop', code: 'forvalues i = 1/5 {\n    display "tick `i\'"\n    sleep 400\n}' },
+    { label: 'Locals persist across cells', code: 'local greeting "set in an earlier cell"\ndisplay "`greeting\'"' },
+    { label: 'Working directory', code: 'pwd' },
+    { label: 'Stata error (r(111))', kind: 'kind-error', code: 'sysuse auto, clear\nregress price nosuchvar' },
+    { label: 'Unknown command (r(199))', kind: 'kind-error', code: 'displayy 1' },
+    { label: 'Timeout (3s cap)', kind: 'kind-error', code: 'sleep 30000', timeout: 3000 }
+];
+
+const PRESETS: Record<KernelType, Preset[]> = { r: R_PRESETS, python: PYTHON_PRESETS, stata: STATA_PRESETS };
+
+export const presetsFor = (kernelType: KernelType): Preset[] => PRESETS[kernelType] ?? R_PRESETS;

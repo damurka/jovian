@@ -51,6 +51,12 @@ test('ensureRPackages does nothing when there is nothing to set up', async (t) =
         assert.strictEqual(deps.runs.length, 0);
     });
 
+    await t.test('for a Stata session', async () => {
+        const deps = fake('/r/stata');
+        await ensureRPackages({ kernelType: 'stata', rHome: '/r/stata', heraSrcPath: '/hera' }, logger, deps);
+        assert.strictEqual(deps.runs.length, 0);
+    });
+
     await t.test('without a bundled hera (a source checkout)', async () => {
         const deps = fake('/r/nohera');
         await ensureRPackages({ rHome: '/r/nohera' }, logger, deps);

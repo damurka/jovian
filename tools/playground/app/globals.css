@@ -11,6 +11,8 @@
   --accent-python-light: #5ba3df;
   --accent-r: #226b9f;
   --accent-r-light: #449ad6;
+  --accent-stata: #1a5f91;
+  --accent-stata-light: #6fb3e0;
   --status-running: #2ea043;
   --status-busy: #d29922;
   --status-stopped: #f85149;
@@ -139,6 +141,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .kernel-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-family: var(--font-mono); font-weight: bold; flex-shrink: 0; }
 .badge-python { background: rgba(55, 118, 171, 0.25); color: var(--accent-python-light); border: 1px solid rgba(55, 118, 171, 0.4); }
 .badge-r { background: rgba(34, 107, 159, 0.25); color: var(--accent-r-light); border: 1px solid rgba(34, 107, 159, 0.4); }
+.badge-stata { background: rgba(26, 95, 145, 0.25); color: var(--accent-stata-light); border: 1px solid rgba(26, 95, 145, 0.4); }
 
 .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .status-running { background-color: var(--status-running); box-shadow: 0 0 6px rgba(46, 160, 67, 0.6); }
@@ -449,7 +452,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   justify-content: flex-end;
   gap: 8px;
 }
-.modal-error { color: #ff7b72; font-size: 12px; display: none; }
+.modal-error { color: #ff7b72; font-size: 12px; display: none; white-space: pre-wrap; overflow-wrap: anywhere; }
 .modal-error.show { display: block; }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -476,6 +479,10 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 
 .field .hint { color: var(--text-muted); font-size: 10.5px; margin-top: 3px; line-height: 1.4; }
+.field .path-hint { font-family: var(--font-mono); overflow-wrap: anywhere; }
+.field .static-value { font-size: 13px; padding: 6px 0; }
+.field-warning { color: var(--status-busy); font-size: 11px; line-height: 1.4; margin: -4px 0 10px; }
+.field select + input { margin-top: 6px; }
 
 /* Completion popup (Tab in the input) -------------------------------------- */
 

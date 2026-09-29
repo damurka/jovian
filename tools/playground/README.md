@@ -1,10 +1,10 @@
 # jovian playground
 
-A browser UI for driving **real** R and Python kernel sessions through jovian's public `Session` API — every session is an actual `elara` / `carpo` process spawned by `themisto`, not a mock. Built with Next.js (App Router), React and TypeScript.
+A browser UI for driving **real** R, Python and Stata kernel sessions through jovian's public `Session` API — every session is an actual `elara` / `carpo` / `callisto` process spawned by `themisto`, not a mock. Built with Next.js (App Router), React and TypeScript.
 
 ## Run it
 
-Prerequisites: the repo's native binaries and library are built (`npm run build` in the repo root — see the main README's *Requirements*), and R and/or Python are installed.
+Prerequisites: the repo's native binaries and library are built (`npm run build` in the repo root — see the main README's *Requirements*), and R, Python and/or Stata (17+, licensed) are installed.
 
 ```sh
 # from the repo root
@@ -22,14 +22,15 @@ The playground has its own `package.json` / `node_modules`; the repo's CI never 
 | `PLAYGROUND_PORT` | Port to listen on (default `4173`). The server binds to `127.0.0.1` only — it executes arbitrary code in real kernels, so it must not be reachable from other machines. |
 | `R_HOME`, `R_PATH`, `R_LIBS` | Override the detected R installation. |
 | `PYTHONHOME`, `PYTHONPATH`, `VIRTUAL_ENV` | Override the detected Python installation. |
-| `JOVIAN_NATIVE_DIR` | Directory holding `themisto`, `elara` and `carpo` (default `<repo>/dist/native/Release`). Handy for running against a copy while the originals are being rebuilt — Windows will not let you overwrite a running executable. |
+| `STATA_HOME` | Override the detected Stata installation. |
+| `JOVIAN_NATIVE_DIR` | Directory holding `themisto`, `elara`, `carpo` and `callisto` (default `<repo>/dist/native/Release`). Handy for running against a copy while the originals are being rebuilt — Windows will not let you overwrite a running executable. |
 | `JOVIAN_DIST_DIR` | Where the built jovian library lives (default `<repo>/dist/lib`). |
 
-R and Python are found the same way on every platform (`lib/env.mjs`): the environment variable, then `R RHOME` / `python3 -c ...`, then the Windows registry and the usual install locations (Program Files, `/Library/Frameworks/R.framework`, Homebrew, `/opt/R/<version>`, `/usr/lib/R`, …). The new-session dialog is pre-filled with whatever was found.
+R, Python and Stata are found by the library itself (`discoverRHome()` / `discoverPythonHome()` / `discoverStataHome()` in `lib/session/runtimes.ts`, loaded from `dist/lib` by `lib/env.mjs`), exactly as `SessionManager` finds them: the environment variable, then `R RHOME` / `python3 -c ...`, the Windows registry and the usual install locations for R; for Stata the standard install locations, the Windows installer's registry entries and `PATH`, preferring a licensed install. The new-session dialog is pre-filled with whatever was found.
 
 ## What it does
 
-- Sessions sidebar (R and Python side by side) with live PID and memory, kernel version (from a real `kernel_info_request`), and the working directory each kernel started in.
+- Sessions sidebar (R, Python and Stata side by side) with live PID and memory, kernel version (from a real `kernel_info_request`), and the working directory each kernel started in.
 - Run code (`Shift+Enter`), interactive `input()` / `readline()`, plots, streaming output, errors with tracebacks, `clear_output` / `update_display_data`.
 - **Restart / Stop / Interrupt / Remove** — the lifecycle controls call the real protocol paths. There is no separate Kill: Stop already shuts the kernel down gracefully and force-kills it if it does not exit, and it also releases a crashed session.
 - **Heartbeat readout** in the KERNEL LIFECYCLE header (`HEARTBEAT 0.7ms`): the round trip of the kernel's heartbeat ping, polled every second together with PID and memory (`/api/sessions/:id/info`, the supervisor's session JSON). Green under 100 ms, amber under 1 s, red for no reply or a crashed kernel, grey when idle/unknown. The kernel answers from its own thread, so it stays live while a cell runs.
@@ -53,7 +54,7 @@ app/                 Next.js App Router
   api/…              route handlers (sessions, execute, complete, inspect, stream (SSE), …)
 components/          React components (Playground, Sidebar, ConsoleView, InputDock, …)
 lib/
-  env.mjs            cross-platform R / Python discovery
+  env.mjs            cross-platform R / Python / Stata discovery
   transcript.ts      the console transcript as pure functions over plain data
   client/store.ts    the whole client state as one pure reducer
   server/registry.ts the server-side session registry (a globalThis singleton)

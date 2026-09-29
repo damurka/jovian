@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 
 import { defaultEnvironment } from '../env.mjs';
 import type { Session, SessionManager } from '../../../../dist/lib/index.js';
-import type { SessionConfig, SessionStatus, SessionSummary, StreamEvent, WireMessage, KernelType } from '../types.ts';
+import type { SessionConfig, SessionStatus, SessionSummary, StreamEvent, WireMessage, KernelType, StataEdition } from '../types.ts';
 
 type JovianModule = typeof import('../../../../dist/lib/index.js');
 
@@ -32,6 +32,9 @@ interface Registry {
     manager: SessionManager;
     sessions: Map<string, Entry>;
 }
+
+/** The library's KERNEL_BUSY: set in a reply's metadata when a cell was running and the request did not wait for it. */
+export const KERNEL_BUSY = 'jovian/busy';
 
 const KEY = '__jovianPlayground';
 type GlobalWithRegistry = typeof globalThis & { [KEY]?: Promise<Registry> };
@@ -91,8 +94,14 @@ export interface CreateOptions {
     pythonHome?: string;
     pythonPath?: string;
     venvPath?: string;
+    stataHome?: string;
+    stataEdition?: StataEdition;
     workingDirectory?: string;
 }
+
+const KERNEL_TYPES: KernelType[] = ['r', 'python', 'stata'];
+const EDITIONS: StataEdition[] = ['mp', 'se', 'be'];
+const DEFAULT_NAMES: Record<KernelType, string> = { r: 'R session', python: 'Python session', stata: 'Stata session' };
 
 const empty = (v: string | undefined) => (v && v.trim() !== '' ? v : undefined);
 
@@ -118,12 +127,17 @@ export async function createPlaygroundSession(options: CreateOptions): Promise<E
     // The lib assigns its own internal session id, which its public API does
     // not expose, so this tool keys everything on a separate one.
     const id = randomUUID();
-    const kernelType: KernelType = options.kernelType === 'python' ? 'python' : 'r';
+    const kernelType: KernelType = KERNEL_TYPES.includes(options.kernelType) ? options.kernelType : 'r';
     const entryRef: { current?: Entry } = {};
 
     // Anything the caller left out falls back to what this machine has.
-    const env = defaultEnvironment();
-    const resolved = kernelType === 'python'
+    const env = await defaultEnvironment();
+    const resolved: SessionConfig = kernelType === 'stata'
+        ? {
+            stataHome: empty(options.stataHome) ?? empty(env.stataHome),
+            stataEdition: options.stataEdition && EDITIONS.includes(options.stataEdition) ? options.stataEdition : undefined
+        }
+        : kernelType === 'python'
         ? {
             pythonHome: empty(options.pythonHome) ?? empty(env.pythonHome),
             pythonPath: empty(options.pythonPath),
@@ -147,7 +161,7 @@ export async function createPlaygroundSession(options: CreateOptions): Promise<E
 
     const entry: Entry = {
         id,
-        name: empty(options.name) ?? (kernelType === 'python' ? 'Python session' : 'R session'),
+        name: empty(options.name) ?? DEFAULT_NAMES[kernelType],
         session,
         kernelType,
         status: 'ready',
