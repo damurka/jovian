@@ -81,7 +81,6 @@ namespace carpo
         const char* kBootstrapSource = R"PY(
 import ast
 import codeop
-import contextlib
 import inspect as _carpo_inspect_mod
 import os
 import re
@@ -92,6 +91,9 @@ import traceback
 
 
 class _CarpoStream:
+    encoding = "utf-8"
+    errors = "replace"
+
     def __init__(self, native_write):
         self._native_write = native_write
 
@@ -105,6 +107,16 @@ class _CarpoStream:
 
     def isatty(self):
         return False
+
+    def writable(self):
+        return True
+
+
+# The streams stay replaced for the life of the kernel, not only while a cell
+# runs: a thread (or an asyncio task) still printing after its cell has
+# finished reaches the client too, as part of the latest request.
+sys.stdout = _CarpoStream(__carpo_native_write_stdout)
+sys.stderr = _CarpoStream(__carpo_native_write_stderr)
 
 
 # venv "activation" for an embedded interpreter: PYTHONHOME still points at
@@ -122,6 +134,46 @@ if _carpo_venv:
     ):
         if os.path.isdir(_carpo_site) and _carpo_site not in sys.path:
             sys.path.insert(0, _carpo_site)
+
+
+# Embedded, sys.executable is the kernel (carpo.exe), and anything that starts
+# "another Python" with it -- multiprocessing's spawn/forkserver workers,
+# concurrent.futures.ProcessPoolExecutor, subprocess.run([sys.executable,
+# "-m", "pip", ...]) -- would start a second kernel instead. Point it at the
+# real interpreter: the venv's when there is one (its packages), else the
+# base installation's.
+def _carpo_find_python():
+    ver = "%d.%d" % (sys.version_info.major, sys.version_info.minor)
+    def first(*paths):
+        for p in paths:
+            if os.path.isfile(p):
+                return p
+        return None
+    homes = [h for h in (os.environ.get("PYTHONHOME", ""), sys.base_prefix, sys.base_exec_prefix) if h]
+    base = None
+    for home in homes:
+        base = first(os.path.join(home, "python.exe"),
+                     os.path.join(home, "bin", "python" + ver),
+                     os.path.join(home, "bin", "python3"),
+                     os.path.join(home, "bin", "python"))
+        if base:
+            break
+    venv = None
+    if _carpo_venv:
+        venv = first(os.path.join(_carpo_venv, "Scripts", "python.exe"),
+                     os.path.join(_carpo_venv, "bin", "python" + ver),
+                     os.path.join(_carpo_venv, "bin", "python3"),
+                     os.path.join(_carpo_venv, "bin", "python"))
+    return venv or base, base
+
+
+_carpo_python, _carpo_base_python = _carpo_find_python()
+if _carpo_python:
+    sys.executable = _carpo_python
+    if _carpo_base_python:
+        sys._base_executable = _carpo_base_python
+    if "multiprocessing" in sys.modules:
+        sys.modules["multiprocessing"].set_executable(_carpo_python)
 
 
 # Routes every input() call -- from user code AND from anything the standard
@@ -153,6 +205,46 @@ except (ValueError, OSError):
     pass
 
 
+# One event loop for the whole session, created on first use. A cell with a
+# top-level `await` runs on it (as in IPython), and between cells
+# __carpo_idle() lets it run the tasks those cells left behind, so a task
+# started with asyncio.create_task() keeps going after its cell. A cell that
+# calls asyncio.run() itself still gets its own, separate loop.
+_carpo_loop = None
+
+
+def _carpo_event_loop():
+    global _carpo_loop
+    import asyncio
+    if _carpo_loop is None or _carpo_loop.is_closed():
+        _carpo_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(_carpo_loop)
+    return _carpo_loop
+
+
+def _carpo_evaluate(compiled, g):
+    # Compiled with PyCF_ALLOW_TOP_LEVEL_AWAIT: code that awaits comes back
+    # as a coroutine, run to completion on the session's loop.
+    if compiled.co_flags & _carpo_inspect_mod.CO_COROUTINE:
+        return _carpo_event_loop().run_until_complete(eval(compiled, g))
+    return eval(compiled, g)
+
+
+def __carpo_idle():
+    loop = _carpo_loop
+    if loop is None or loop.is_closed() or loop.is_running():
+        return
+    if not (getattr(loop, "_ready", None) or getattr(loop, "_scheduled", None)):
+        return
+    # One pass: run what is ready and the timers that are due, without
+    # waiting for the next one.
+    loop.call_soon(loop.stop)
+    try:
+        loop.run_forever()
+    except BaseException:
+        traceback.print_exc()
+
+
 def __carpo_run(code, g):
     status = "ok"
     ename = ""
@@ -160,24 +252,26 @@ def __carpo_run(code, g):
     tb_lines = []
     has_result = 0
     result_repr = ""
-    stdout_stream = _CarpoStream(__carpo_native_write_stdout)
-    stderr_stream = _CarpoStream(__carpo_native_write_stderr)
+    flags = ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
     try:
+        # The session's loop is the current one in every cell -- also after
+        # a cell's asyncio.run() unset it -- so asyncio.get_event_loop()
+        # .create_task(...) schedules onto the loop __carpo_idle() runs.
+        _carpo_event_loop()
         tree = ast.parse(code, mode="exec")
         trailing_expr = None
         if tree.body and isinstance(tree.body[-1], ast.Expr):
             trailing_expr = tree.body.pop()
-        with contextlib.redirect_stdout(stdout_stream), contextlib.redirect_stderr(stderr_stream):
-            if tree.body:
-                exec(compile(tree, "<carpo>", "exec"), g)
-            if trailing_expr is not None:
-                value_expr = ast.Expression(trailing_expr.value)
-                ast.copy_location(value_expr, trailing_expr.value)
-                ast.fix_missing_locations(value_expr)
-                result = eval(compile(value_expr, "<carpo>", "eval"), g)
-                if result is not None:
-                    has_result = 1
-                    result_repr = repr(result)
+        if tree.body:
+            _carpo_evaluate(compile(tree, "<carpo>", "exec", flags=flags), g)
+        if trailing_expr is not None:
+            value_expr = ast.Expression(trailing_expr.value)
+            ast.copy_location(value_expr, trailing_expr.value)
+            ast.fix_missing_locations(value_expr)
+            result = _carpo_evaluate(compile(value_expr, "<carpo>", "eval", flags=flags), g)
+            if result is not None:
+                has_result = 1
+                result_repr = repr(result)
     except BaseException as e:
         status = "error"
         ename = type(e).__name__
@@ -315,13 +409,26 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
             return context + ": " + ename + ": " + evalue;
         }
 
+        // Holds the GIL for one scope, from whichever thread: the kernel
+        // thread between requests has released it (see the constructor), so
+        // Python threads run while the kernel waits, and every call into
+        // Python takes it here first.
+        struct Gil
+        {
+            PyGILState_STATE state;
+            Gil() : state(PyGILState_Ensure()) {}
+            ~Gil() { PyGILState_Release(state); }
+            Gil(const Gil&) = delete;
+            Gil& operator=(const Gil&) = delete;
+        };
+
         // Native callbacks exposed to the bootstrap source as
         // __carpo_native_write_stdout/__carpo_native_write_stderr (see this
-        // file's header comment) -- called synchronously from Python's own
-        // write() dispatch, on the same single thread this whole interpreter
-        // ever runs on (matching elara::WriteConsoleEx's threading model
-        // exactly), so no GIL considerations beyond what's already implicit
-        // in that single-threaded embedding.
+        // file's header comment) -- called from Python's own write()
+        // dispatch with the GIL held, on whichever thread wrote: the kernel
+        // thread during a cell, or a thread / asyncio task of the user's at
+        // any time (sys.stdout stays replaced). publishStream() is
+        // thread-safe and attributes the text to the latest request.
         PyObject* carpoNativeWrite(const char* streamName, PyObject* args)
         {
             std::string text = pyUnicodeToStdString(PyTuple_GetItem(args, 0));
@@ -362,17 +469,27 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
         PyObject* carpoNativeInput(PyObject* /*self*/, PyObject* args)
         {
             std::string prompt = pyUnicodeToStdString(PyTuple_GetItem(args, 0));
+            std::string value;
+            std::string error;
+            // The user may take minutes to answer: other Python threads keep
+            // running meanwhile.
+            PyThreadState* saved = PyEval_SaveThread();
             try
             {
-                std::string value = adrastea::blockingInputRequest(
-                    prompt, false, p_interpreter && p_interpreter->allowsStdin());
-                return PyUnicode_FromString(value.c_str());
+                value = adrastea::blockingInputRequest(prompt, false, p_interpreter && p_interpreter->allowsStdin());
             }
             catch (const std::exception& e)
             {
-                PyErr_SetString(PyExc_RuntimeError, e.what());
+                error = e.what();
+                if (error.empty()) error = "input request failed";
+            }
+            PyEval_RestoreThread(saved);
+            if (!error.empty())
+            {
+                PyErr_SetString(PyExc_RuntimeError, error.c_str());
                 return nullptr;
             }
+            return PyUnicode_FromString(value.c_str());
         }
 
         PyMethodDef kInputDef = { "__carpo_native_input", carpoNativeInput, CARPO_PY_METH_VARARGS, nullptr };
@@ -417,7 +534,13 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
         if (m_ownsInterpreter)
         {
             Py_Initialize();
+            // Py_Initialize() leaves this thread holding the GIL. Give it up
+            // for good: while the kernel waits for requests, Python threads
+            // the user started must run, and each call into Python below and
+            // in the request handlers takes it for just that call (Gil).
+            m_mainThreadState = PyEval_SaveThread();
         }
+        Gil gil;
 
         PyObject* mainModule = PyImport_AddModule("__main__");
         if (!mainModule)
@@ -456,8 +579,9 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
         PyObject* completeFn = PyDict_GetItemString(bootstrapGlobals.get(), "__carpo_complete");
         PyObject* inspectFn = PyDict_GetItemString(bootstrapGlobals.get(), "__carpo_inspect");
         PyObject* evalExprFn = PyDict_GetItemString(bootstrapGlobals.get(), "__carpo_eval_expr");
+        PyObject* idleFn = PyDict_GetItemString(bootstrapGlobals.get(), "__carpo_idle");
         PyObject* versionObj = PyDict_GetItemString(bootstrapGlobals.get(), "__carpo_version");
-        if (!runFn || !isCompleteFn || !completeFn || !inspectFn || !evalExprFn || !versionObj)
+        if (!runFn || !isCompleteFn || !completeFn || !inspectFn || !evalExprFn || !idleFn || !versionObj)
         {
             throw std::runtime_error(
                 "Carpo's internal Python bootstrap runtime did not define the expected functions -- "
@@ -469,11 +593,13 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
         Py_IncRef(completeFn);
         Py_IncRef(inspectFn);
         Py_IncRef(evalExprFn);
+        Py_IncRef(idleFn);
         m_bootstrapRunFn = runFn;
         m_bootstrapIsCompleteFn = isCompleteFn;
         m_bootstrapCompleteFn = completeFn;
         m_bootstrapInspectFn = inspectFn;
         m_bootstrapEvalExprFn = evalExprFn;
+        m_bootstrapIdleFn = idleFn;
         m_languageVersion = pyUnicodeToStdString(versionObj);
 
         adrastea::registerInterpreter(this);
@@ -489,10 +615,28 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
     {
         if (m_finalized) return;
 
+        // Py_FinalizeEx() must run on the thread that initialized Python,
+        // holding the GIL with that thread's own state -- take it back the
+        // way the constructor gave it up. Without ownership, just the GIL.
+        std::unique_ptr<Gil> gil;
+        if (m_ownsInterpreter)
+        {
+            PyEval_RestoreThread(static_cast<PyThreadState*>(m_mainThreadState));
+        }
+        else
+        {
+            gil = std::make_unique<Gil>();
+        }
+
         // Release our own references before finalizing -- Py_FinalizeEx()
         // reclaims everything regardless, but doing this unconditionally
         // keeps this function's shape the same whether or not
         // m_ownsInterpreter ends up true below, and costs nothing.
+        if (m_bootstrapIdleFn)
+        {
+            Py_DecRef(static_cast<PyObject*>(m_bootstrapIdleFn));
+            m_bootstrapIdleFn = nullptr;
+        }
         if (m_bootstrapRunFn)
         {
             Py_DecRef(static_cast<PyObject*>(m_bootstrapRunFn));
@@ -545,6 +689,19 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
             ~ExecutingScope() { flag = false; }
         } executing(m_executing);
 
+        // Everything that touches Python runs holding the GIL; the reply is
+        // sent after it has been released, so sending it (and aborting what
+        // is queued behind a failure) does not hold up the user's threads.
+        adrastea::json reply;
+        {
+            Gil gil;
+            reply = runCell(execution_count, code, std::move(user_expressions));
+        }
+        cb(std::move(reply));
+    }
+
+    adrastea::json PyInterpreter::runCell(int execution_count, const std::string& code, adrastea::json user_expressions)
+    {
         py::Ref args(PyTuple_New(2));
         PyTuple_SetItem(args.get(), 0, PyUnicode_FromString(code.c_str())); // steals the new ref
         Py_IncRef(static_cast<PyObject*>(m_userGlobals)); // PyTuple_SetItem steals; m_userGlobals is only borrowed
@@ -558,8 +715,7 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
             // every exception the user's own code can raise internally).
             std::string message = describePythonError("Carpo's internal Python bootstrap runtime failed");
             publishExecutionError("CarpoInternalError", message, {});
-            cb(adrastea::createErrorReply("CarpoInternalError", message, {}));
-            return;
+            return adrastea::createErrorReply("CarpoInternalError", message, {});
         }
 
         std::string status = pyUnicodeToStdString(PyTuple_GetItem(result.get(), 0));
@@ -582,8 +738,7 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
         if (status == "error")
         {
             publishExecutionError(ename, evalue, traceBack);
-            cb(adrastea::createErrorReply(ename, evalue, std::move(traceBack)));
-            return;
+            return adrastea::createErrorReply(ename, evalue, std::move(traceBack));
         }
 
         if (hasResult)
@@ -630,11 +785,32 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
                 }
             }
         }
-        cb(adrastea::createSuccessfulReply(adrastea::json::array(), userExpressionResults));
+        return adrastea::createSuccessfulReply(adrastea::json::array(), userExpressionResults);
+    }
+
+    bool PyInterpreter::answersWhileBusyImpl(const std::string& msg_type) const
+    {
+        // Answered from another thread while a cell runs: they only need the
+        // GIL, which the running cell gives up every few milliseconds (and
+        // for as long as it waits on I/O or sleeps). Code holding the GIL in
+        // a long native call delays the answer until it returns.
+        return msg_type == "complete_request" || msg_type == "inspect_request" || msg_type == "is_complete_request";
+    }
+
+    void PyInterpreter::idleImpl()
+    {
+        // Advances the session's asyncio loop (tasks left running by earlier
+        // cells) -- see __carpo_idle in kBootstrapSource.
+        if (m_finalized || !m_bootstrapIdleFn) return;
+        Gil gil;
+        py::Ref result(PyObject_CallObject(static_cast<PyObject*>(m_bootstrapIdleFn), nullptr));
+        if (!result) PyErr_Clear();
     }
 
     adrastea::json PyInterpreter::completeRequestImpl(const std::string& code, int cursor_pos)
     {
+        if (m_finalized) return adrastea::createCompleteReply(adrastea::json::array(), cursor_pos, cursor_pos);
+        Gil gil;
         py::Ref args(PyTuple_New(3));
         PyTuple_SetItem(args.get(), 0, PyUnicode_FromString(code.c_str()));
         PyTuple_SetItem(args.get(), 1, PyLong_FromLong(cursor_pos));
@@ -663,6 +839,8 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
 
     adrastea::json PyInterpreter::inspectRequestImpl(const std::string& code, int cursor_pos, int /*detail_level*/)
     {
+        if (m_finalized) return adrastea::createInspectReply(false);
+        Gil gil;
         py::Ref args(PyTuple_New(3));
         PyTuple_SetItem(args.get(), 0, PyUnicode_FromString(code.c_str()));
         PyTuple_SetItem(args.get(), 1, PyLong_FromLong(cursor_pos));
@@ -688,6 +866,8 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
 
     adrastea::json PyInterpreter::isCompleteRequestImpl(const std::string& code)
     {
+        if (m_finalized) return adrastea::createIsCompleteReply("unknown");
+        Gil gil;
         py::Ref args(PyTuple_New(1));
         PyTuple_SetItem(args.get(), 0, PyUnicode_FromString(code.c_str()));
 

@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -136,6 +137,16 @@ namespace adrastea
         return kernelInfoRequestImpl();
     }
 
+    bool Interpreter::answersWhileBusy(const std::string& msg_type) const
+    {
+        return answersWhileBusyImpl(msg_type);
+    }
+
+    void Interpreter::idle()
+    {
+        idleImpl();
+    }
+
     json Interpreter::shutdownRequest(bool restart)
     {
         return shutdownRequestImpl(restart);
@@ -158,8 +169,21 @@ namespace adrastea
 
     namespace
     {
-        constexpr auto kStreamFlushInterval = std::chrono::milliseconds(50);
-        constexpr std::size_t kStreamFlushBytes = 16 * 1024;
+        // How long text may wait, and how much may pile up, before it goes
+        // out as one stream message. Tunable (read once) through
+        // JOVIAN_STREAM_FLUSH_MS and JOVIAN_STREAM_FLUSH_BYTES, for measuring
+        // the trade-off; the defaults are what the kernels ship with.
+        long streamSetting(const char* name, long fallback, long minimum)
+        {
+            const char* value = std::getenv(name);
+            if (!value || !*value) return fallback;
+            char* end = nullptr;
+            long parsed = std::strtol(value, &end, 10);
+            return end && *end == '\0' && parsed >= minimum ? parsed : fallback;
+        }
+
+        const auto kStreamFlushInterval = std::chrono::milliseconds(streamSetting("JOVIAN_STREAM_FLUSH_MS", 50, 0));
+        const std::size_t kStreamFlushBytes = static_cast<std::size_t>(streamSetting("JOVIAN_STREAM_FLUSH_BYTES", 16 * 1024, 1));
     }
 
     void Interpreter::publishStream(const std::string& name, const std::string& text)

@@ -751,8 +751,43 @@ namespace elara
 
     adrastea::json RInterpreter::shutdownRequestImpl(bool restart)
     {
+        m_rEnded = true;
         Rf_endEmbeddedR(0);
         return adrastea::createShutdownReply(restart);
+    }
+
+    void RInterpreter::idleImpl()
+    {
+        // R's own console runs the `later` event loop whenever R waits for
+        // input; an embedded R never waits for input, so without this,
+        // callbacks scheduled with later::later() -- and everything built on
+        // them: promises, httpuv servers (Shiny, plumber) -- would only run
+        // when something called later::run_now(). Running what is due while
+        // the kernel is idle lets them progress in the background between
+        // cells, as they do at RStudio's console. Output from the callbacks
+        // goes to the latest request.
+        //
+        // Cheap when later is unused: a namespace lookup every idle slice.
+        // R_tryEval() catches an error from a callback (R prints it, through
+        // the console hook) so it cannot unwind past this frame.
+        if (m_rEnded) return;
+        if (!m_idleExpression) {
+            SEXP code = PROTECT(Rf_mkString(
+                "if (isNamespaceLoaded('later') && !later::loop_empty()) later::run_now(0)"));
+            ParseStatus status;
+            SEXP parsed = PROTECT(R_ParseVector(code, -1, &status, R_NilValue));
+            if (status != PARSE_OK || Rf_length(parsed) < 1) {
+                UNPROTECT(2);
+                m_rEnded = true; // never retry a broken expression
+                return;
+            }
+            SEXP expression = VECTOR_ELT(parsed, 0);
+            R_PreserveObject(expression);
+            m_idleExpression = expression;
+            UNPROTECT(2);
+        }
+        int error_occurred = 0;
+        R_tryEval(static_cast<SEXP>(m_idleExpression), R_GlobalEnv, &error_occurred);
     }
 
     adrastea::json RInterpreter::interruptRequestImpl()

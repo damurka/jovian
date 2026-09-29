@@ -130,6 +130,15 @@ extern "C" {
     };
 
     using PyCFunction_NewEx_t = PyObject* (*)(PyMethodDef*, PyObject*, PyObject*);
+
+    // The GIL. Opaque like PyObject; PyGILState_STATE is a C enum, an int
+    // on every ABI this project targets.
+    typedef struct _ts PyThreadState;
+    using PyGILState_STATE = int;
+    using PyEval_SaveThread_t = PyThreadState* (*)(void);
+    using PyEval_RestoreThread_t = void (*)(PyThreadState*);
+    using PyGILState_Ensure_t = PyGILState_STATE (*)(void);
+    using PyGILState_Release_t = void (*)(PyGILState_STATE);
 }
 
 namespace carpo { namespace py { namespace api {
@@ -174,6 +183,11 @@ namespace carpo { namespace py { namespace api {
     extern PyRun_String_t p_PyRun_String;
 
     extern PyCFunction_NewEx_t p_PyCFunction_NewEx;
+
+    extern PyEval_SaveThread_t p_PyEval_SaveThread;
+    extern PyEval_RestoreThread_t p_PyEval_RestoreThread;
+    extern PyGILState_Ensure_t p_PyGILState_Ensure;
+    extern PyGILState_Release_t p_PyGILState_Release;
 
     // A DATA symbol (the actual singleton PyObject struct, not a function),
     // resolved once at load time -- see py_dynlib.cpp's comment on why this
@@ -233,6 +247,11 @@ namespace carpo { namespace py { namespace api {
 #define PyRun_String (*::carpo::py::api::p_PyRun_String)
 
 #define PyCFunction_NewEx (*::carpo::py::api::p_PyCFunction_NewEx)
+
+#define PyEval_SaveThread (*::carpo::py::api::p_PyEval_SaveThread)
+#define PyEval_RestoreThread (*::carpo::py::api::p_PyEval_RestoreThread)
+#define PyGILState_Ensure (*::carpo::py::api::p_PyGILState_Ensure)
+#define PyGILState_Release (*::carpo::py::api::p_PyGILState_Release)
 
 // Py_None is a plain extern variable holding the resolved singleton's
 // address (unlike R_GlobalEnv/R_NilValue in r_dynlib.hpp, which are

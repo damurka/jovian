@@ -57,6 +57,11 @@ namespace api {
 
     PyCFunction_NewEx_t p_PyCFunction_NewEx = nullptr;
 
+    PyEval_SaveThread_t p_PyEval_SaveThread = nullptr;
+    PyEval_RestoreThread_t p_PyEval_RestoreThread = nullptr;
+    PyGILState_Ensure_t p_PyGILState_Ensure = nullptr;
+    PyGILState_Release_t p_PyGILState_Release = nullptr;
+
     PyObject* p_Py_None = nullptr;
     PyObject** p_PyExc_RuntimeError = nullptr;
 }
@@ -351,6 +356,11 @@ void loadPyApi(const std::string& pythonHome) {
     resolve(handle, "PyRun_String", p_PyRun_String, libPath);
 
     resolve(handle, "PyCFunction_NewEx", p_PyCFunction_NewEx, libPath);
+
+    resolve(handle, "PyEval_SaveThread", p_PyEval_SaveThread, libPath);
+    resolve(handle, "PyEval_RestoreThread", p_PyEval_RestoreThread, libPath);
+    resolve(handle, "PyGILState_Ensure", p_PyGILState_Ensure, libPath);
+    resolve(handle, "PyGILState_Release", p_PyGILState_Release, libPath);
 
     // A DATA symbol, not a function -- "_Py_NoneStruct" is the actual
     // exported singleton object; Python's own headers only ever expose it

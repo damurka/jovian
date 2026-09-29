@@ -33,6 +33,7 @@ namespace adrastea
         initSocket(m_controller, kernel_config.m_transport, kernel_config.m_ip, kernel_config.m_controlPort);
         initSocket(m_stdin, kernel_config.m_transport, kernel_config.m_ip, kernel_config.m_stdinPort);
         m_publisherPub.set(zmq::sockopt::linger, getSocketLinger());
+        m_publisherPub.set(zmq::sockopt::sndhwm, 0); // never drop output (see publisher.cpp)
         m_publisherPub.connect(getPublisherEndPoint());
 
         m_publisherController.set(zmq::sockopt::linger, getSocketLinger());
@@ -66,11 +67,52 @@ namespace adrastea
         {
             m_watchThread.join();
         }
+        {
+            std::lock_guard<std::mutex> lock(m_busyMutex);
+            m_busyQuit = true;
+        }
+        m_busyCv.notify_all();
+        if (m_busyThread.joinable())
+        {
+            m_busyThread.join();
+        }
     }
 
     void ServerZmqImpl::setInterruptHandler(listener handler)
     {
         m_interruptHandler = std::move(handler);
+    }
+
+    void ServerZmqImpl::setBusyShellHandler(busy_filter accepts, listener handler)
+    {
+        m_busyShellFilter = std::move(accepts);
+        m_busyShellHandler = std::move(handler);
+    }
+
+    void ServerZmqImpl::answerBusyRequests()
+    {
+        for (;;)
+        {
+            Message msg;
+            {
+                std::unique_lock<std::mutex> lock(m_busyMutex);
+                m_busyCv.wait(lock, [this] { return m_busyQuit || !m_busyQueue.empty(); });
+                if (m_busyQuit)
+                {
+                    return;
+                }
+                msg = std::move(m_busyQueue.front());
+                m_busyQueue.pop_front();
+            }
+            try
+            {
+                m_busyShellHandler(std::move(msg));
+            }
+            catch (std::exception& e)
+            {
+                std::cerr << e.what() << std::endl;
+            }
+        }
     }
 
     void ServerZmqImpl::beginExecution()
@@ -120,9 +162,50 @@ namespace adrastea
                 if (isWatching())
                 {
                     pollControlOnce();
+                    pollShellOnce();
                 }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+
+    void ServerZmqImpl::pollShellOnce()
+    {
+        if (!m_busyShellHandler)
+        {
+            return;
+        }
+        try
+        {
+            zmq::multipart_t wire_msg;
+            if (!wire_msg.recv(m_shell, ZMQ_DONTWAIT))
+            {
+                return;
+            }
+            Message msg = ZmqSerializer::deserialize(wire_msg, *p_auth);
+            const std::string msg_type = msg.header().value("msg_type", "");
+            // Once anything had to wait, everything behind it waits too:
+            // replies to one client stay in the order it asked.
+            if (m_deferredShell.empty() && m_busyShellFilter && m_busyShellFilter(msg_type))
+            {
+                {
+                    std::lock_guard<std::mutex> lock(m_busyMutex);
+                    if (!m_busyThread.joinable())
+                    {
+                        m_busyThread = std::thread(&ServerZmqImpl::answerBusyRequests, this);
+                    }
+                    m_busyQueue.push_back(std::move(msg));
+                }
+                m_busyCv.notify_one();
+            }
+            else
+            {
+                m_deferredShell.push_back(std::move(msg));
+            }
+        }
+        catch (std::exception& e)
+        {
+            std::cerr << e.what() << std::endl;
         }
     }
 
@@ -187,15 +270,23 @@ namespace adrastea
 
     auto ServerZmqImpl::pollChannels(long timeout) -> std::optional<message_channel>
     {
+        // Held for the whole poll: a busy-shell reply still being sent from
+        // the busy thread (sendShell()) must not use the shell socket at the
+        // same time. That is why callers poll with a bounded timeout.
+        std::lock_guard<std::recursive_mutex> control(m_controlMutex);
+
+        // Messages the watcher set aside during an execution, control first.
+        if (!m_deferredControl.empty())
         {
-            // Control messages the watcher set aside during an execution.
-            std::lock_guard<std::recursive_mutex> control(m_controlMutex);
-            if (!m_deferredControl.empty())
-            {
-                Message msg = std::move(m_deferredControl.front());
-                m_deferredControl.pop_front();
-                return { std::make_pair(std::move(msg), channel::CONTROL) };
-            }
+            Message msg = std::move(m_deferredControl.front());
+            m_deferredControl.pop_front();
+            return { std::make_pair(std::move(msg), channel::CONTROL) };
+        }
+        if (!m_requestStop && !m_deferredShell.empty())
+        {
+            Message msg = std::move(m_deferredShell.front());
+            m_deferredShell.pop_front();
+            return { std::make_pair(std::move(msg), channel::SHELL) };
         }
 
         zmq::pollitem_t items[]
@@ -237,6 +328,7 @@ namespace adrastea
     void ServerZmqImpl::sendShell(Message message)
     {
         zmq::multipart_t wire_msg = ZmqSerializer::serialize(std::move(message), *p_auth, m_errorHandler);
+        std::lock_guard<std::recursive_mutex> control(m_controlMutex);
         wire_msg.send(m_shell);
     }
 
@@ -274,10 +366,30 @@ namespace adrastea
 
     void ServerZmqImpl::abortQueue(const listener& l, long polling_interval)
     {
+        // What the watcher already read and set aside is queued too.
+        for (;;)
+        {
+            Message deferred;
+            {
+                std::lock_guard<std::recursive_mutex> control(m_controlMutex);
+                if (m_deferredShell.empty())
+                {
+                    break;
+                }
+                deferred = std::move(m_deferredShell.front());
+                m_deferredShell.pop_front();
+            }
+            l(std::move(deferred));
+        }
+
         while (true)
         {
             zmq::multipart_t wire_msg;
-            bool msg = wire_msg.recv(m_shell, ZMQ_NOBLOCK);
+            bool msg = false;
+            {
+                std::lock_guard<std::recursive_mutex> control(m_controlMutex);
+                msg = wire_msg.recv(m_shell, ZMQ_NOBLOCK);
+            }
             if (!msg)
             {
                 return;

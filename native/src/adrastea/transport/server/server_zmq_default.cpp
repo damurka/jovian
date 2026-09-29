@@ -16,9 +16,14 @@ namespace adrastea
 
         publish(std::move(msg), channel::SHELL);
 
+        // Short polls rather than one that blocks until a request comes: in
+        // between, the interpreter runs its own idle work (R's later event
+        // loop -- see Interpreter::idle()), and a reply the busy-shell thread
+        // is sending gets the shell socket (see ServerZmqImpl::pollChannels()).
+        constexpr long kIdleSliceMs = 20;
         while (!isStopped())
         {
-            auto msg = pollChannels(-1);
+            auto msg = pollChannels(kIdleSliceMs);
             if (msg)
             {
                 if (msg.value().second == channel::SHELL)
@@ -29,6 +34,10 @@ namespace adrastea
                 {
                     notifyControlListener(std::move(msg.value().first));
                 }
+            }
+            else if (!isStopped())
+            {
+                notifyIdle();
             }
         }
 

@@ -50,7 +50,15 @@ namespace elara
 
         adrastea::json interruptRequestImpl() override;
 
+        void idleImpl() override;
+
     private:
+
+        // The parsed idle expression (see idleImpl()), preserved from R's
+        // garbage collector; null until first needed.
+        void* m_idleExpression = nullptr;
+        // Set once R has been shut down: nothing may call into it after.
+        bool m_rEnded = false;
 
         // True while executeRequestImpl() is running; read from the control
         // thread by interruptRequestImpl().

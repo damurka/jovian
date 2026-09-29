@@ -50,6 +50,10 @@ namespace adrastea
         p_server->registerControlListener(std::bind(&KernelCore::dispatchControl, this, _1));
         p_server->registerStdinListener(std::bind(&KernelCore::dispatchStdin, this, _1));
         p_server->registerInternalListener(std::bind(&KernelCore::dispatchInternal, this, _1));
+        p_server->registerBusyShellFilter([this](const std::string& msg_type) {
+            return p_interpreter->answersWhileBusy(msg_type);
+        });
+        p_server->registerIdleListener([this]() { p_interpreter->idle(); });
 
         // Interpreter bindings
         p_interpreter->registerPublisher([this](RequestContext RequestContext,

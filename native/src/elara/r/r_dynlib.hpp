@@ -116,6 +116,7 @@ extern "C" {
     using Rf_mkChar_t = SEXP (*)(const char*);
     using Rf_eval_t = SEXP (*)(SEXP, SEXP);
     using R_tryEval_t = SEXP (*)(SEXP, SEXP, int*);
+    using R_PreserveObject_t = void (*)(SEXP);
     using R_curErrorBuf_t = const char* (*)(void);
     using Rf_classgets_t = SEXP (*)(SEXP, SEXP);
     using Rf_namesgets_t = SEXP (*)(SEXP, SEXP);
@@ -214,6 +215,7 @@ namespace elara { namespace r { namespace api {
     extern Rf_mkChar_t p_Rf_mkChar;
     extern Rf_eval_t p_Rf_eval;
     extern R_tryEval_t p_R_tryEval;
+    extern R_PreserveObject_t p_R_PreserveObject;
     extern R_curErrorBuf_t p_R_curErrorBuf;
     extern Rf_classgets_t p_Rf_classgets;
     extern Rf_namesgets_t p_Rf_namesgets;
@@ -281,6 +283,7 @@ namespace elara { namespace r { namespace api {
 #define Rf_mkChar (*::elara::r::api::p_Rf_mkChar)
 #define Rf_eval (*::elara::r::api::p_Rf_eval)
 #define R_tryEval (*::elara::r::api::p_R_tryEval)
+#define R_PreserveObject (*::elara::r::api::p_R_PreserveObject)
 #define R_curErrorBuf (*::elara::r::api::p_R_curErrorBuf)
 #define Rf_classgets (*::elara::r::api::p_Rf_classgets)
 #define Rf_namesgets (*::elara::r::api::p_Rf_namesgets)

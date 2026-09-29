@@ -50,7 +50,16 @@ namespace adrastea
         // handler right away (on the watcher thread), anything else (e.g.
         // shutdown_request) is queued and delivered by pollChannels() once
         // the execution is over, exactly as before.
+        //
+        // With a busy-shell handler set, the watcher reads the shell socket
+        // too: a request the filter accepts (e.g. complete_request, for a
+        // language that can answer it while code runs) is handed to the
+        // handler right away, on the watcher thread; any other shell message
+        // is queued and delivered by pollChannels() after the execution, in
+        // the order it arrived and before anything newer.
         void setInterruptHandler(listener handler);
+        using busy_filter = std::function<bool(const std::string&)>;
+        void setBusyShellHandler(busy_filter accepts, listener handler);
         void beginExecution();
         void endExecution();
 
@@ -102,23 +111,41 @@ namespace adrastea
 
         void watchControl();
         void pollControlOnce();
+        void pollShellOnce();
         bool isWatching();
 
         // Recursive: the interrupt handler, running on the watcher thread
-        // with this held, replies through sendControl(), which takes it too.
+        // with this held, replies through sendControl(), which takes it too
+        // (and a busy-shell reply through sendShell()). While an execution
+        // runs it also guards the shell socket, which the watcher then reads
+        // and the execution thread still writes (execute_reply) and drains
+        // (abortQueue()).
         std::recursive_mutex m_controlMutex;
         // Serializes iopub publishing: the watcher thread's status/interrupt
         // messages and the execution thread's stream output share one PUB
         // socket, which must not be used from two threads at once.
         std::mutex m_publishMutex;
         std::deque<Message> m_deferredControl; // guarded by m_controlMutex
+        std::deque<Message> m_deferredShell;   // guarded by m_controlMutex
         listener m_interruptHandler;
+        busy_filter m_busyShellFilter;
+        listener m_busyShellHandler;
 
         std::mutex m_watchMutex;
         std::condition_variable m_watchCv;
         bool m_watching = false;
         bool m_watchQuit = false;
         std::thread m_watchThread;
+
+        // Busy-shell requests accepted by the watcher are answered here, one
+        // at a time, not on the watcher itself: answering can wait (Python's
+        // GIL), and an interrupt must never wait behind it.
+        void answerBusyRequests();
+        std::mutex m_busyMutex;
+        std::condition_variable m_busyCv;
+        std::deque<Message> m_busyQueue; // guarded by m_busyMutex
+        bool m_busyQuit = false;         // guarded by m_busyMutex
+        std::thread m_busyThread;
     };
 }
 

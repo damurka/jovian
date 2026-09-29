@@ -18,6 +18,12 @@ namespace adrastea
         // code is running (see ServerZmqImpl::beginExecution()); it goes
         // through the same control listener as any other control message.
         p_impl->setInterruptHandler([this](Message msg) { notifyControlListener(std::move(msg)); });
+        // The shell requests the interpreter can answer while code runs (see
+        // Server::registerBusyShellFilter()) go through the ordinary shell
+        // listener, on a thread of their own.
+        p_impl->setBusyShellHandler(
+            [this](const std::string& msg_type) { return answersWhileBusy(msg_type); },
+            [this](Message msg) { notifyShellListener(std::move(msg)); });
     }
 
     // Has to be in the cpp because incomplete

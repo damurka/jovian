@@ -79,6 +79,28 @@ namespace adrastea
         m_internalListener = l;
     }
 
+    void Server::registerBusyShellFilter(const busy_filter& f)
+    {
+        m_busyFilter = f;
+    }
+
+    bool Server::answersWhileBusy(const std::string& msg_type) const
+    {
+        return m_busyFilter && m_busyFilter(msg_type);
+    }
+
+    void Server::registerIdleListener(const idle_listener& l)
+    {
+        m_idleListener = l;
+    }
+
+    void Server::notifyIdle()
+    {
+        if (m_idleListener) {
+            m_idleListener();
+        }
+    }
+
     void Server::notifyShellListener(Message msg)
     {
         if (m_shellListener) {

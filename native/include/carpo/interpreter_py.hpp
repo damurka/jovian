@@ -23,7 +23,7 @@ namespace carpo
     // executeRequestImpl, isCompleteRequestImpl, completeRequestImpl, and
     // inspectRequestImpl are all real, backed by a small Python-side
     // bootstrap module (interpreter_py.cpp's kBootstrapSource) using only
-    // the standard library (ast/contextlib/traceback/codeop/rlcompleter/
+    // the standard library (ast/asyncio/traceback/codeop/rlcompleter/
     // inspect) -- no third-party dependency (no jedi) needed.
     class ADRASTEA_API PyInterpreter : public adrastea::Interpreter
     {
@@ -62,7 +62,15 @@ namespace carpo
 
         adrastea::json interruptRequestImpl() override;
 
+        bool answersWhileBusyImpl(const std::string& msg_type) const override;
+
+        void idleImpl() override;
+
     private:
+        // executeRequestImpl()'s work, called holding the GIL; returns the
+        // execute_reply content.
+        adrastea::json runCell(int execution_count, const std::string& code, adrastea::json user_expressions);
+
         // Releases this instance's own references to the bootstrap
         // functions and, if this instance is the one that called
         // Py_Initialize() in the first place, finalizes the interpreter.
@@ -81,8 +89,12 @@ namespace carpo
         void* m_bootstrapCompleteFn;   // owned (one strong ref), null after finalizeIfOwned()
         void* m_bootstrapInspectFn;    // owned (one strong ref), null after finalizeIfOwned()
         void* m_bootstrapEvalExprFn;   // owned (one strong ref), null after finalizeIfOwned()
+        void* m_bootstrapIdleFn = nullptr; // owned (one strong ref), null after finalizeIfOwned()
         std::string m_languageVersion;
         bool m_ownsInterpreter;
+        // PyThreadState* of the thread that initialized Python, saved when
+        // it gave up the GIL (constructor) and restored to finalize.
+        void* m_mainThreadState = nullptr;
 
         // The thread Python was initialized on (the kernel's main thread,
         // where all code runs): KeyboardInterrupt is only ever raised
@@ -92,7 +104,9 @@ namespace carpo
         // True while executeRequestImpl() runs; read from the control
         // thread by interruptRequestImpl().
         std::atomic<bool> m_executing{ false };
-        bool m_finalized;
+        // Atomic: requests answered while busy (answersWhileBusyImpl()) read it
+        // from another thread.
+        std::atomic<bool> m_finalized;
     };
 
     PyInterpreter* getPyInterpreter();

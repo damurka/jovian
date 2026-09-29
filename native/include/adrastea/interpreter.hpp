@@ -63,6 +63,19 @@ namespace adrastea
 
         json internalRequest(const json& message);
 
+        // Whether a request of this msg_type (complete_request, ...) can be
+        // answered WHILE an execution is running, from another thread. An
+        // interpreter that says yes promises its handler for that request is
+        // safe to call concurrently with executeRequestImpl() and with any
+        // other request. Default: none -- they wait for the execution.
+        bool answersWhileBusy(const std::string& msg_type) const;
+
+        // Called on the kernel thread every few milliseconds while it is
+        // idle (no request waiting): where an interpreter runs its own event
+        // loop so timers and callbacks progress between requests. Output it
+        // produces is published as part of the last request. Default: none.
+        void idle();
+
         // publish(msg_type, metadata, content)
         using publisher_type = std::function<void(RequestContext, const std::string&, json, json, buffer_sequence)>;
         void registerPublisher(const publisher_type& publisher);
@@ -149,6 +162,9 @@ namespace adrastea
         virtual json interruptRequestImpl() = 0;
 
         virtual json internalRequestImpl(const json& message);
+
+        virtual bool answersWhileBusyImpl(const std::string& /*msg_type*/) const { return false; }
+        virtual void idleImpl() {}
 
         json buildDisplayContent(json data, json metadata, json transient);
 

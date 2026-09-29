@@ -54,10 +54,27 @@ namespace adrastea
         void registerStdinListener(const listener& l);
         void registerInternalListener(const internal_listener& l);
 
+        // Which shell requests (by msg_type) may be answered WHILE code runs,
+        // on the thread that services the control channel then, instead of
+        // waiting for the execution to finish -- see
+        // Interpreter::answersWhileBusy(). Without a filter, none are. A
+        // server that cannot read the shell channel during an execution
+        // ignores it.
+        using busy_filter = std::function<bool(const std::string&)>;
+        void registerBusyShellFilter(const busy_filter& f);
+        bool answersWhileBusy(const std::string& msg_type) const;
+
+        // Called on the kernel thread, every few milliseconds, while no
+        // request is waiting -- the interpreter's chance to run its own event
+        // loop between requests (Interpreter::idle()).
+        using idle_listener = std::function<void()>;
+        void registerIdleListener(const idle_listener& l);
+
     protected:
 
         Server() = default;
 
+        void notifyIdle();
         void notifyShellListener(Message msg);
         void notifyControlListener(Message msg);
         void notifyStdinListener(Message msg);
@@ -84,6 +101,8 @@ namespace adrastea
         listener m_controlListener;
         listener m_stdinListener;
         internal_listener m_internalListener;
+        busy_filter m_busyFilter;
+        idle_listener m_idleListener;
     };
 }
 

@@ -21,6 +21,7 @@ namespace api {
     Rf_mkChar_t p_Rf_mkChar = nullptr;
     Rf_eval_t p_Rf_eval = nullptr;
     R_tryEval_t p_R_tryEval = nullptr;
+    R_PreserveObject_t p_R_PreserveObject = nullptr;
     R_curErrorBuf_t p_R_curErrorBuf = nullptr;
     Rf_classgets_t p_Rf_classgets = nullptr;
     Rf_namesgets_t p_Rf_namesgets = nullptr;
@@ -256,6 +257,7 @@ void loadRApi() {
     resolve(handle, "Rf_mkChar", p_Rf_mkChar, libPath);
     resolve(handle, "Rf_eval", p_Rf_eval, libPath);
     resolve(handle, "R_tryEval", p_R_tryEval, libPath);
+    resolve(handle, "R_PreserveObject", p_R_PreserveObject, libPath);
     resolve(handle, "R_curErrorBuf", p_R_curErrorBuf, libPath);
     resolve(handle, "Rf_classgets", p_Rf_classgets, libPath);
     resolve(handle, "Rf_namesgets", p_Rf_namesgets, libPath);

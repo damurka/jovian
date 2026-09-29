@@ -13,9 +13,11 @@
 // cycle within the same process, which is all this sequential (never
 // concurrent) construct-then-destruct pattern relies on.
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -381,4 +383,105 @@ TEST(CarpoTest, UserExpressionsAreNotEvaluatedWhenTheCodeFails)
 
     EXPECT_EQ(reply.at("status").get<std::string>(), "error");
     EXPECT_FALSE(reply.contains("user_expressions"));
+}
+
+namespace
+{
+    // The value of one expression, as its repr(), after running `code`.
+    std::string valueAfter(carpo::PyInterpreter& interpreter, const std::string& code, const std::string& expr)
+    {
+        json reply = runCodeWithExpressions(interpreter, code, { { "value", expr } });
+        EXPECT_EQ(reply.value("status", ""), "ok") << reply.dump();
+        if (!reply.contains("user_expressions")) return std::string();
+        return reply.at("user_expressions").at("value").at("data").at("text/plain").get<std::string>();
+    }
+}
+
+TEST(CarpoTest, PythonThreadsKeepRunningWhileTheKernelIsIdle)
+{
+    // The kernel thread gives up the GIL between requests: a thread started
+    // by a cell must not freeze until the next one.
+    SKIP_IF_NO_PYTHON();
+    carpo::PyInterpreter interpreter(0, nullptr);
+
+    runCode(interpreter,
+        "import threading, time\n"
+        "ticks = []\n"
+        "def tick():\n"
+        "    while len(ticks) < 1000:\n"
+        "        ticks.append(1)\n"
+        "        time.sleep(0.01)\n"
+        "threading.Thread(target=tick, daemon=True).start()\n");
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    int ticks = std::stoi(valueAfter(interpreter, "", "len(ticks)"));
+    EXPECT_GT(ticks, 10) << "the thread barely ran while the kernel was idle";
+}
+
+TEST(CarpoTest, SysExecutableIsARealPythonNotTheKernel)
+{
+    // multiprocessing and subprocess.run([sys.executable, ...]) start it.
+    SKIP_IF_NO_PYTHON();
+    carpo::PyInterpreter interpreter(0, nullptr);
+
+    EXPECT_EQ(valueAfter(interpreter, "import os, sys",
+        "os.path.isfile(sys.executable) and os.path.basename(sys.executable).lower().startswith('python')"), "True");
+}
+
+TEST(CarpoTest, TopLevelAwaitRunsOnTheSessionsEventLoop)
+{
+    SKIP_IF_NO_PYTHON();
+    carpo::PyInterpreter interpreter(0, nullptr);
+
+    EXPECT_EQ(valueAfter(interpreter, "import asyncio\nx = await asyncio.sleep(0, result=5)", "x"), "5");
+    // A trailing awaited expression is the cell's value, as in IPython.
+    json reply = runCode(interpreter, "await asyncio.sleep(0, result=6)");
+    EXPECT_EQ(reply.at("status").get<std::string>(), "ok");
+    // asyncio.run() still works in a cell that does not await.
+    EXPECT_EQ(valueAfter(interpreter, "async def f():\n    return 7\ny = asyncio.run(f())", "y"), "7");
+}
+
+TEST(CarpoTest, AsyncioTasksKeepRunningBetweenCellsWhenTheKernelIsIdle)
+{
+    SKIP_IF_NO_PYTHON();
+    carpo::PyInterpreter interpreter(0, nullptr);
+
+    runCode(interpreter,
+        "import asyncio\n"
+        "done = []\n"
+        "async def work():\n"
+        "    for i in range(3):\n"
+        "        await asyncio.sleep(0.01)\n"
+        "        done.append(i)\n"
+        "asyncio.get_event_loop().create_task(work())\n");
+    for (int i = 0; i < 50; ++i)
+    {
+        interpreter.idle();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    EXPECT_EQ(valueAfter(interpreter, "", "done"), "[0, 1, 2]");
+}
+
+TEST(CarpoTest, CompletionIsAnsweredWhileACellRuns)
+{
+    SKIP_IF_NO_PYTHON();
+    carpo::PyInterpreter interpreter(0, nullptr);
+    EXPECT_TRUE(interpreter.answersWhileBusy("complete_request"));
+    EXPECT_TRUE(interpreter.answersWhileBusy("inspect_request"));
+    EXPECT_TRUE(interpreter.answersWhileBusy("is_complete_request"));
+    EXPECT_FALSE(interpreter.answersWhileBusy("execute_request"));
+
+    std::thread cell([&]() { runCode(interpreter, "import time\ntime.sleep(1.5)"); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    auto started = std::chrono::steady_clock::now();
+    std::string code = "impo";
+    json reply = interpreter.completeRequest(code, static_cast<int>(code.size()));
+    auto took = std::chrono::steady_clock::now() - started;
+    cell.join();
+
+    auto matches = reply.at("matches").get<std::vector<std::string>>();
+    EXPECT_NE(std::find(matches.begin(), matches.end(), "import "), matches.end());
+    EXPECT_LT(std::chrono::duration_cast<std::chrono::milliseconds>(took).count(), 800)
+        << "completion waited for the running cell";
 }
