@@ -8,6 +8,7 @@ import { tokenAtPoint } from '@/lib/client/textarea-hit';
 import { tokenAt } from '@/lib/cursor';
 import type { Anchor, InspectOptions } from '@/lib/client/use-inspect';
 import type { SessionView } from '@/lib/client/store';
+import { waitsForRunningCell } from '@/lib/types';
 
 interface Popup {
     items: string[];
@@ -50,6 +51,10 @@ const NAVIGATION_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Hom
  * All of them are real complete_request / inspect_request round trips.
  */
 export function InputDock({ session, canRun, value, onChange, onRun, onInterrupt, onClear, onInspect, onHoverEnd }: Props) {
+    // Whether a completion / inspection asked now would wait for the running
+    // cell (R, Stata) or be answered straight away (Python answers mid-run).
+    const completionQueued = session.running && waitsForRunningCell(session.kernelType, 'complete_request');
+    const inspectQueued = session.running && waitsForRunningCell(session.kernelType, 'inspect_request');
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const areaRef = useRef<HTMLDivElement>(null);
     const [popup, setPopup] = useState<Popup | null>(null);
@@ -117,7 +122,7 @@ export function InputDock({ session, canRun, value, onChange, onRun, onInterrupt
         const code = opts.code ?? value;
         const mine = ++requestSeq.current;
 
-        if (!auto) showHint(session.running ? 'Kernel is running code — completing when it finishes…' : 'Completing…', session.running);
+        if (!auto) showHint(completionQueued ? 'Kernel is running code — completing when it finishes…' : 'Completing…', completionQueued);
         let result;
         try {
             result = await api.complete(session.id, code, cursor, undefined, auto);
@@ -181,7 +186,7 @@ export function InputDock({ session, canRun, value, onChange, onRun, onInterrupt
             kind: 'above',
             left: rect.left,
             bottom: window.innerHeight - rect.top + 8
-        }, { kernelBusy: session.running });
+        }, { kernelBusy: inspectQueued });
     };
 
     // -- automatic inspect: the pointer or the caret resting on a word --------
@@ -225,7 +230,7 @@ export function InputDock({ session, canRun, value, onChange, onRun, onInterrupt
     // a click) -- not while typing, where completion is what helps.
     const scheduleCaretInspect = () => {
         const ta = textareaRef.current;
-        if (!ta || !areaRef.current || !canRun || session.running) return;
+        if (!ta || !areaRef.current || !canRun || inspectQueued) return;
         const t = tokenAt(value, ta.selectionStart);
         if (!isInspectableToken(t.token) || ta.selectionStart !== ta.selectionEnd) {
             if (hoveredToken.current) {
@@ -238,7 +243,7 @@ export function InputDock({ session, canRun, value, onChange, onRun, onInterrupt
         scheduleHoverInspect(t.token, t.start, { kind: 'above', left: rect.left, bottom: window.innerHeight - rect.top + 8 });
     };
 
-    const indent = () => (session.kernelType === 'python' ? '    ' : '  ');
+    const indent = () => (session.kernelType === 'r' ? '  ' : '    ');
 
     const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         const plainTab = e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
@@ -315,7 +320,7 @@ export function InputDock({ session, canRun, value, onChange, onRun, onInterrupt
 
         clearTimeout(autoTimer.current);
         // Deleting is editing, not asking for help; only typed/pasted text triggers completion.
-        if (canRun && !session.running && !inputType.startsWith('delete') && shouldAutoComplete(next, caret)) {
+        if (canRun && !completionQueued && !inputType.startsWith('delete') && shouldAutoComplete(next, caret)) {
             autoTimer.current = setTimeout(() => void requestCompletion({ auto: true, code: next, cursor: caret }), AUTO_COMPLETE_DELAY_MS);
         }
     };

@@ -1,15 +1,17 @@
 import { toCodePointIndex, toUtf16Index } from '@/lib/cursor';
 import { errorMessage, json, readJson, withEntry, type RouteContext } from '@/lib/server/http';
+import { KERNEL_BUSY } from '@/lib/server/registry';
 import type { CompletionResult } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// A kernel only answers requests between executions (it handles them on the
-// one thread that runs code), so a completion asked mid-run queues behind the
-// run and is answered when it finishes: wait for it (the client says so and
-// drops the answer if the user has typed on meanwhile) instead of failing.
-// An idle kernel answers in milliseconds, so a short cap is enough there.
+// While a cell runs, Python answers a completion at once and R through its
+// helper process (Session.complete()); Stata answers only between executions,
+// so one asked mid-run queues behind the run and is answered when it finishes:
+// wait for it (the client says so and drops the answer if the user has typed
+// on meanwhile) instead of failing. An idle kernel answers in milliseconds, so
+// a short cap is enough there.
 const IDLE_TIMEOUT_MS = 2000;
 const BUSY_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -23,15 +25,17 @@ export function POST(req: Request, ctx: RouteContext) {
         }
 
         // Automatic requests (as-you-type completion, hover inspect) must never
-        // sit behind a running cell: answer "busy" at once and let the UI stay quiet.
-        if (noWait && entry.running > 0) {
-            return json({ ok: false, busy: true } satisfies CompletionResult);
-        }
-
+        // sit behind a running cell (waitForCell: false): the session answers
+        // at once -- from Python itself, or from R's helper process -- or says
+        // it is busy, and the UI stays quiet.
         try {
-            const reply = await entry.session.request<{
-                matches?: string[]; cursor_start?: number; cursor_end?: number;
-            }>('complete_request', { code, cursor_pos: toCodePointIndex(code, cursorPos) }, { timeout: entry.running > 0 ? BUSY_TIMEOUT_MS : IDLE_TIMEOUT_MS });
+            const reply = await entry.session.complete(code, toCodePointIndex(code, cursorPos), {
+                waitForCell: !noWait,
+                timeout: entry.running > 0 ? BUSY_TIMEOUT_MS : IDLE_TIMEOUT_MS
+            });
+            if (reply.metadata?.[KERNEL_BUSY]) {
+                return json({ ok: false, busy: true } satisfies CompletionResult);
+            }
 
             const result: CompletionResult = {
                 ok: true,

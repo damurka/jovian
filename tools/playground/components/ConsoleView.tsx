@@ -6,9 +6,12 @@ import type { SessionView } from '@/lib/client/store';
 import { MAX_OUTPUT_CHARS, type Output } from '@/lib/transcript';
 import { inspectableToken, isInspectableToken } from '@/lib/client/autotrigger';
 import { tokenAtDomPoint } from '@/lib/client/textarea-hit';
+import { waitsForRunningCell } from '@/lib/types';
 
 export function kernelLabel(kernelType: string): string {
-    return kernelType === 'python' ? 'Python (Carpo)' : 'R (Elara)';
+    if (kernelType === 'python') return 'Python (Carpo)';
+    if (kernelType === 'stata') return 'Stata (Callisto)';
+    return 'R (Elara)';
 }
 
 function InputRequest({ output, disabled, onSubmit }: {
@@ -83,7 +86,7 @@ export function ConsoleView({ session, hasSessions, onAnswerInput, onInspect, on
     // Resting the pointer on a word of echoed code inspects it. (Output text is
     // deliberately excluded: it is data, not code.)
     const onMouseMove = (e: React.MouseEvent) => {
-        if (!session || session.running) return;
+        if (!session || (session.running && waitsForRunningCell(session.kernelType, 'inspect_request'))) return;
         const now = performance.now();
         if (now - lastMove.current < 60) return;
         lastMove.current = now;
@@ -150,7 +153,7 @@ export function ConsoleView({ session, hasSessions, onAnswerInput, onInspect, on
                 <div className="empty-state">
                     {hasSessions
                         ? 'Select a session from the sidebar to see its console.'
-                        : <>No sessions yet. Click <strong>+ New Kernel Session</strong> above to spawn a real R or Python kernel process.</>}
+                        : <>No sessions yet. Click <strong>+ New Kernel Session</strong> above to spawn a real R, Python or Stata kernel process.</>}
                 </div>
             </div>
         );

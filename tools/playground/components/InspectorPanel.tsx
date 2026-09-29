@@ -17,8 +17,10 @@ export function InspectorPanel({ session, onRunPreset }: Props) {
     const [tab, setTab] = useState<'presets' | 'env'>('presets');
     const runnable = session ? canRun(session.status) : false;
 
-    const configLabel = session?.kernelType === 'python' ? 'PYTHONHOME' : 'R_HOME';
-    const configValue = session?.kernelType === 'python' ? session.config.pythonHome : session?.config.rHome;
+    const configLabel = session?.kernelType === 'python' ? 'PYTHONHOME' : session?.kernelType === 'stata' ? 'STATA_HOME' : 'R_HOME';
+    const configValue = session?.kernelType === 'python' ? session.config.pythonHome
+        : session?.kernelType === 'stata' ? session.config.stataHome
+        : session?.config.rHome;
 
     return (
         <aside className="inspector-panel">
@@ -62,6 +64,9 @@ export function InspectorPanel({ session, onRunPreset }: Props) {
                                     <div><b>Execution Count:</b> <span className="val">{session.execCount}</span></div>
                                     <div><b>Working Directory:</b> <span className="val">{session.workingDirectory || 'supervisor default'}</span></div>
                                     <div><b>{configLabel}:</b> <span className="val">{configValue}</span></div>
+                                    {session.kernelType === 'stata' && (
+                                        <div><b>Edition:</b> <span className="val">{session.config.stataEdition?.toUpperCase() || 'first installed'}</span></div>
+                                    )}
                                 </>
                             )}
                         </div>

@@ -318,6 +318,11 @@ export class ExecutionQueue {
     get size(): number {
         return this.queue.length;
     }
+
+    /** Whether an execution has been sent to the kernel and has not finished yet. */
+    get busy(): boolean {
+        return this.executing;
+    }
 }
 
 function previewCode(code: string, maxLength: number = 200): string {

@@ -1,6 +1,6 @@
 // Typed wrappers over the playground's route handlers (app/api/**).
 import type {
-    CompletionResult, Defaults, HistoryRecord, InspectResult, KernelInfo, KernelType, SessionSummary
+    CompletionResult, Defaults, HistoryRecord, InspectResult, KernelInfo, KernelType, SessionSummary, StataEdition
 } from '../types.ts';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -24,6 +24,8 @@ export interface NewSessionRequest {
     pythonHome?: string;
     pythonPath?: string;
     venvPath?: string;
+    stataHome?: string;
+    stataEdition?: StataEdition;
     workingDirectory?: string;
 }
 
