@@ -1,5 +1,7 @@
 #include "zmq_serializer.hpp"
 #include "adrastea/json.hpp"
+#include <stdexcept>
+#include <string>
 
 namespace adrastea
 {
@@ -86,6 +88,13 @@ namespace adrastea
         std::tuple<json, json, json, json, buffer_sequence>  deserializeMessageBase(zmq::multipart_t& wire_msg,
             const Authentication& auth)
         {
+            // Popping an empty multipart hands back an invalid message that
+            // ZeroMQ asserts on (aborting the process) the moment it is read.
+            if (wire_msg.size() < 5)
+            {
+                throw std::runtime_error("malformed message: " + std::to_string(wire_msg.size()) +
+                                         " frames after the delimiter, 5 needed");
+            }
             zmq::message_t signature = wire_msg.pop();
             zmq::message_t header = wire_msg.pop();
             zmq::message_t parent_header = wire_msg.pop();
@@ -131,12 +140,28 @@ namespace adrastea
             wire_msg.add(zmq::message_t(DELIMITER.begin(), DELIMITER.end()));
         }
 
+        // The frames before <IDS|MSG>: zero or more (the Jupyter spec allows
+        // any number of topic frames; Adrastea's kernels send one, Ark sends
+        // none on some messages). The topic is the first, "" when there is
+        // none; the delimiter is consumed.
         std::string deserializeTopic(zmq::multipart_t& wire_msg)
         {
-            zmq::message_t topic_msg = wire_msg.pop();
-            std::string topic = std::string(topic_msg.data<const char>(), topic_msg.size());
-            wire_msg.pop();
-            return topic;
+            std::string topic;
+            bool first = true;
+            while (!wire_msg.empty())
+            {
+                zmq::message_t frame = wire_msg.pop();
+                if (isDelimiter(frame))
+                {
+                    return topic;
+                }
+                if (first)
+                {
+                    topic.assign(frame.data<const char>(), frame.size());
+                    first = false;
+                }
+            }
+            throw std::runtime_error("malformed message: no <IDS|MSG> delimiter");
         }
     }
 

@@ -36,6 +36,18 @@ test('buildSessionOptionsBody', async (t) => {
         assert.strictEqual(body.venvPath, '/home/user/.venv');
     });
 
+    await t.test('carries kernelType and the Stata fields for a stata session', () => {
+        const body = buildSessionOptionsBody({
+            kernelType: 'stata',
+            stataHome: '/usr/local/stata19',
+            stataEdition: 'se'
+        });
+
+        assert.strictEqual(body.kernelType, 'stata');
+        assert.strictEqual(body.stataHome, '/usr/local/stata19');
+        assert.strictEqual(body.stataEdition, 'se');
+    });
+
     await t.test('drops unset fields entirely once JSON-serialized, rather than sending them as null', () => {
         // JSON.stringify() omits undefined-valued keys -- this is what lets
         // http_api.cpp's parseSessionOptions() use body.value("rHome", "")

@@ -1,5 +1,7 @@
 #include "http_api.hpp"
 
+#include "access.hpp"
+
 #include <stdexcept>
 
 namespace themisto
@@ -18,6 +20,9 @@ namespace themisto
             options.pythonHome = body.value("pythonHome", "");
             options.pythonPath = body.value("pythonPath", "");
             options.venvPath = body.value("venvPath", "");
+            options.stataHome = body.value("stataHome", "");
+            options.stataEdition = body.value("stataEdition", "");
+            options.arkPath = body.value("arkPath", "");
             options.workingDirectory = body.value("workingDirectory", "");
             return options;
         }
@@ -29,8 +34,27 @@ namespace themisto
         }
     }
 
-    HttpApi::HttpApi(SessionRegistry& registry) : m_registry(registry)
+    HttpApi::HttpApi(SessionRegistry& registry, std::string token, Activity& activity)
+        : m_registry(registry), m_token(std::move(token)), m_activity(activity)
     {
+        // Every request needs the supervisor's token, and none may come from
+        // a web browser -- see access.hpp.
+        m_server.set_pre_routing_handler([this](const httplib::Request& req, httplib::Response& res) {
+            switch (access::check(req.get_header_value("Origin"), req.get_header_value("Authorization"), req.target, m_token))
+            {
+            case access::Verdict::Allowed:
+                m_activity.touch();
+                return httplib::Server::HandlerResponse::Unhandled;
+            case access::Verdict::FromBrowser:
+                sendJson(res, 403, { { "error", "requests from web pages are not accepted" } });
+                return httplib::Server::HandlerResponse::Handled;
+            case access::Verdict::BadToken:
+            default:
+                sendJson(res, 401, { { "error", "missing or wrong access token" } });
+                return httplib::Server::HandlerResponse::Handled;
+            }
+        });
+
         m_server.Post("/sessions", [this](const httplib::Request& req, httplib::Response& res) {
             json body = json::object();
             try
@@ -57,6 +81,13 @@ namespace themisto
             auto session = m_registry.getSession(id);
             sendJson(res, 200, session ? sessionToJson(*session)
                                        : json{ { "sessionId", id }, { "status", "ready" }, { "kernelType", options.kernelType } });
+        });
+
+        // Stops every session and then the supervisor itself (answered
+        // first; the stopping happens on main.cpp's thread).
+        m_server.Post("/shutdown", [this](const httplib::Request&, httplib::Response& res) {
+            sendJson(res, 200, { { "status", "shutting down" } });
+            if (m_onShutdown) m_onShutdown();
         });
 
         m_server.Get("/sessions", [this](const httplib::Request&, httplib::Response& res) {

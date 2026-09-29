@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
 import type {
+    BusyRequestOptions,
     CommInfoReplyContent,
     CompleteReplyContent,
     EngineOptions,
@@ -33,9 +34,13 @@ import { ResultHandler } from '../handlers/result-handler.js';
 import { ErrorHandler } from '../handlers/error-handler.js';
 import { DisplayHandler } from '../handlers/display-handler.js';
 import { findFreePort, waitForPort } from '../utils/network.js';
-import { SupervisorClient, type SessionConnectionInfo } from './supervisor-client.js';
-import { withDiscoveredRuntime } from './runtimes.js';
+import { SupervisorClient, sessionSocketUrl, supervisorHeaders, type SessionConnectionInfo, type SupervisorSessionInfo } from './supervisor-client.js';
+import { homedir } from 'os';
+import { join as joinPath } from 'path';
+import { withAbsolutePaths, withDiscoveredRuntime } from './runtimes.js';
 import { ensureRPackages } from './r-setup.js';
+import { analyzeR, type RCodeFacts } from './r-static.js';
+import { RHelper, R_STATE_EXPRESSION, R_STATE_KEY, mergeCompletions, parseRState, type RSessionState } from './r-helper.js';
 import { bundledHeraSource } from './native-paths.js';
 import { Comm } from './comm.js';
 
@@ -61,6 +66,25 @@ interface PendingRequest {
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
+
+// An R cell still running after this long gets its helper R process (see
+// r-helper.ts) started and its packages attached, so the helper is ready by
+// the time someone asks about a function.
+const R_HELPER_WARM_MS = 1000;
+
+/** Metadata key of a complete/inspect reply: 'helper' when a helper R process answered it while the session was busy (see r-helper.ts). */
+export const ANSWERED_BY = 'jovian/answered-by';
+/** Metadata key of a complete/inspect reply: true when it was not answered because a cell is running and `waitForCell` was false. */
+export const KERNEL_BUSY = 'jovian/busy';
+
+// The requests each kernel answers itself while a cell runs (the native
+// kernels' Interpreter::answersWhileBusy()); others wait for the cell.
+const ANSWERED_WHILE_BUSY: Record<string, readonly string[]> = {
+    r: [],
+    python: ['complete_request', 'inspect_request', 'is_complete_request'],
+    stata: ['is_complete_request'],
+    ark: []
+};
 
 // How long stop() waits for the kernel's shutdown_reply after the
 // supervisor reports the stop done (it is normally already here by then).
@@ -135,6 +159,16 @@ export class Session extends EventEmitter {
     private readonly pendingRequests = new Map<string, PendingRequest>();
     private kernelExecutionState: ExecutionState | undefined;
 
+    // R sessions only: the helper that answers completion/inspection while a
+    // cell runs (from SessionManager, one per R installation), what this
+    // session had attached and defined when it last finished a cell, and the
+    // packages the cells now running attach themselves.
+    private readonly rHelperFor: ((options: EngineOptions) => RHelper | undefined) | undefined;
+    private rState: RSessionState = { packages: [], globals: [] };
+    // What the R cells now running attach and define, read from their code
+    // (r-static.ts): they report it themselves only when they finish.
+    private readonly runningFacts = new Map<symbol, RCodeFacts>();
+
     // Every execute() call's code + the iopub messages it produced, bucketed
     // by the execute_request's own msg id (execute_input's parentMsgId) --
     // see getHistory()'s doc comment for what this is actually for.
@@ -146,12 +180,14 @@ export class Session extends EventEmitter {
         info: SessionConnectionInfo,
         options: EngineOptions,
         supervisor: SupervisorClient,
-        logging: { level?: LogThreshold | undefined; logger?: LoggerFunction | undefined } = {}
+        logging: { level?: LogThreshold | undefined; logger?: LoggerFunction | undefined } = {},
+        rHelperFor?: (options: EngineOptions) => RHelper | undefined
     ) {
         super();
         this.info = info;
         this.currentOptions = options;
         this.supervisor = supervisor;
+        this.rHelperFor = rHelperFor;
         this.logger = new Logger(options.logger ?? logging.logger, logging.level);
         this.on('message', (message: JupyterMessage) => {
             this.recordExecutionHistory(message);
@@ -212,9 +248,8 @@ export class Session extends EventEmitter {
         this.ws?.close();
 
         return new Promise((resolve, reject) => {
-            const url = `${this.info.wsBase}/sessions/${this.info.sessionId}/messages`;
-            this.logger.debug(`Connecting to session ${this.info.sessionId} at ${url}`);
-            const ws = new WebSocket(url);
+            this.logger.debug(`Connecting to session ${this.info.sessionId} at ${this.info.wsBase}`);
+            const ws = new WebSocket(sessionSocketUrl(this.info));
             this.ws = ws;
 
             const onOpenError = () => reject(new Error(`WebSocket connection to session ${this.info.sessionId} failed`));
@@ -231,7 +266,13 @@ export class Session extends EventEmitter {
             ws.addEventListener('error', onOpenError);
             ws.addEventListener('close', onCloseBeforeReady);
             ws.addEventListener('message', (event: MessageEvent) => {
-                void this.handleFrame(String(event.data), onReady);
+                // The supervisor sends what it has queued as one WebSocket
+                // frame, the JSON frames separated by '\n' (see
+                // native/src/themisto/outbox.hpp); JSON text never contains
+                // a raw newline.
+                for (const text of String(event.data).split('\n')) {
+                    if (text) void this.handleFrame(text, onReady);
+                }
             });
 
             // Unlike the ready-phase handlers above (removed once ready
@@ -285,7 +326,7 @@ export class Session extends EventEmitter {
         // The supervisor replaces a session's options wholesale, so send the
         // merge -- a restart that only switches rHome must keep the
         // workingDirectory, rLibs, ... the session was created with.
-        const mergedOptions = options ? withDiscoveredRuntime({ ...this.currentOptions, ...options }) : undefined;
+        const merged = options ? { ...this.currentOptions, ...withAbsolutePaths(options) } : undefined;
 
         // Reassigned synchronously, before awaiting anything below, so a
         // concurrent execute()/createShiny() call that reads this.readyPromise
@@ -295,6 +336,7 @@ export class Session extends EventEmitter {
         const shutdownReply = this.watchFor('shutdown_reply');
         this.readyPromise = (async () => {
             try {
+                const mergedOptions = merged ? await withDiscoveredRuntime(merged) : undefined;
                 if (mergedOptions) await ensureRPackages(mergedOptions, this.logger);
                 await this.supervisor.restartSession(this.info, mergedOptions);
                 if (mergedOptions) {
@@ -457,7 +499,57 @@ export class Session extends EventEmitter {
 
     async execute(code: string, options: ExecutionOptions = {}): Promise<ExecutionResult> {
         await this.readyPromise;
-        return this.queue.execute(code, options);
+        const helper = this.busyHelper();
+        if (!helper) {
+            return this.queue.execute(code, options);
+        }
+
+        // An R cell also reports, at its end, what the session has attached
+        // and defined (one more user expression, removed from the result) --
+        // what the helper needs to answer for this session while a later
+        // cell runs.
+        const running = Symbol('execution');
+        this.runningFacts.set(running, analyzeR(code));
+        const warm = setTimeout(() => helper.warm(this.busyState()), R_HELPER_WARM_MS);
+        try {
+            const result = await this.queue.execute(code, {
+                ...options,
+                userExpressions: { ...options.userExpressions, [R_STATE_KEY]: R_STATE_EXPRESSION }
+            });
+            const reported = result.userExpressions?.[R_STATE_KEY];
+            if (result.userExpressions) {
+                delete result.userExpressions[R_STATE_KEY];
+                if (Object.keys(result.userExpressions).length === 0) delete result.userExpressions;
+            }
+            this.rState = parseRState(reported) ?? this.rState;
+            return result;
+        } finally {
+            clearTimeout(warm);
+            this.runningFacts.delete(running);
+        }
+    }
+
+    // The helper for this session when it is an R session (none otherwise).
+    private busyHelper(): RHelper | undefined {
+        if ((this.currentOptions.kernelType ?? 'r') !== 'r') return undefined;
+        return this.rHelperFor?.(this.currentOptions);
+    }
+
+    // What the helper should have attached: the last reported state plus
+    // what the running cells attach themselves.
+    private busyState(): RSessionState {
+        const packages = new Set(this.rState.packages);
+        const globals = new Set(this.rState.globals);
+        for (const facts of this.runningFacts.values()) {
+            facts.packages.forEach((p) => packages.add(p));
+            facts.defines.forEach((n) => globals.add(n));
+        }
+        return { packages: [...packages], globals: [...globals] };
+    }
+
+    // Whether `msgType` sent now would wait for a running cell.
+    private waitsForCell(msgType: string): boolean {
+        return this.queue.busy && !(ANSWERED_WHILE_BUSY[this.currentOptions.kernelType ?? 'r'] ?? []).includes(msgType);
     }
 
     /**
@@ -724,21 +816,69 @@ export class Session extends EventEmitter {
      * kernelInfo(), which would wait for the running code to finish.
      */
     async status(): Promise<SessionStatusInfo> {
-        const res = await fetch(`${this.info.httpBase}/sessions/${this.info.sessionId}`);
+        const res = await fetch(`${this.info.httpBase}/sessions/${this.info.sessionId}`, { headers: supervisorHeaders(this.info.token) });
         if (!res.ok) {
             throw new Error(`Could not read the status of session ${this.info.sessionId} (HTTP ${res.status})`);
         }
         return await res.json() as SessionStatusInfo;
     }
 
-    /** complete_request: completions for the code at `cursorPos` (default: the end of `code`). */
-    complete(code: string, cursorPos: number = code.length): Promise<CompleteReplyContent> {
-        return this.request<CompleteReplyContent>('complete_request', { code, cursor_pos: cursorPos });
+    /**
+     * complete_request: completions for the code at `cursorPos` (default: the
+     * end of `code`, in code points). While an R session runs a cell, a helper
+     * R process with the same packages attached answers instead (its matches
+     * plus the session's own names from its last finished cell; `metadata`
+     * [ANSWERED_BY] is 'helper'). See BusyRequestOptions for `waitForCell`.
+     */
+    async complete(code: string, cursorPos: number = code.length, options: BusyRequestOptions = {}): Promise<CompleteReplyContent> {
+        const content = { code, cursor_pos: cursorPos };
+        const helper = this.waitsForCell('complete_request') ? this.busyHelper() : undefined;
+        if (helper) {
+            try {
+                const state = this.busyState();
+                const reply = await helper.ask<CompleteReplyContent>('complete_request', content, state);
+                const merged = mergeCompletions(reply, code, cursorPos, [...state.globals, ...analyzeR(code).defines]);
+                return { ...reply, ...merged, metadata: { ...reply.metadata, [ANSWERED_BY]: 'helper' } };
+            } catch (error) {
+                this.logger.debug(`The R helper could not complete while the session is busy: ${(error as Error).message}`);
+            }
+        }
+        if (options.waitForCell === false && this.waitsForCell('complete_request')) {
+            return { status: 'ok', matches: [], cursor_start: cursorPos, cursor_end: cursorPos, metadata: { [KERNEL_BUSY]: true } };
+        }
+        const reply = await this.request<CompleteReplyContent>('complete_request', content, { timeout: options.timeout });
+        // R's completer knows only what exists in the session; names defined
+        // earlier in the code being typed (not run yet) come from reading it.
+        if ((this.currentOptions.kernelType ?? 'r') === 'r' && reply.status === 'ok') {
+            return { ...reply, ...mergeCompletions(reply, code, cursorPos, analyzeR(code).defines) };
+        }
+        return reply;
     }
 
-    /** inspect_request: documentation/details for the symbol at `cursorPos` (default: the end of `code`). */
-    inspect(code: string, cursorPos: number = code.length, detailLevel: 0 | 1 = 0): Promise<InspectReplyContent> {
-        return this.request<InspectReplyContent>('inspect_request', { code, cursor_pos: cursorPos, detail_level: detailLevel });
+    /**
+     * inspect_request: documentation/details for the symbol at `cursorPos`
+     * (default: the end of `code`). While an R session runs a cell, a helper
+     * R process with the same packages attached answers for anything it can
+     * find -- a package's function, its help page -- (`metadata`
+     * [ANSWERED_BY] is 'helper'); something only the busy session has (an
+     * object it created) still waits for the cell. See BusyRequestOptions for
+     * `waitForCell`.
+     */
+    async inspect(code: string, cursorPos: number = code.length, detailLevel: 0 | 1 = 0, options: BusyRequestOptions = {}): Promise<InspectReplyContent> {
+        const content = { code, cursor_pos: cursorPos, detail_level: detailLevel };
+        const helper = this.waitsForCell('inspect_request') ? this.busyHelper() : undefined;
+        if (helper) {
+            try {
+                const reply = await helper.ask<InspectReplyContent>('inspect_request', content, this.busyState());
+                if (reply.found) return { ...reply, metadata: { ...reply.metadata, [ANSWERED_BY]: 'helper' } };
+            } catch (error) {
+                this.logger.debug(`The R helper could not inspect while the session is busy: ${(error as Error).message}`);
+            }
+        }
+        if (options.waitForCell === false && this.waitsForCell('inspect_request')) {
+            return { status: 'ok', found: false, data: {}, metadata: { [KERNEL_BUSY]: true } };
+        }
+        return this.request<InspectReplyContent>('inspect_request', content, { timeout: options.timeout });
     }
 
     /**
@@ -877,6 +1017,28 @@ export class Session extends EventEmitter {
         this.emit('stopped');
     }
 
+    /**
+     * Closes this client's connection without stopping the kernel (used by
+     * SessionManager.detach() in persistent mode). The Session is unusable
+     * afterwards; SessionManager.attachSession() makes a new one.
+     */
+    disconnect(): Promise<void> {
+        if (this.stopped) return Promise.resolve();
+        this.stopped = true;
+        this.queue.clear();
+        this.rejectPendingRequests(new Error('Session was disconnected'));
+        const ws = this.ws;
+        if (!ws || ws.readyState === WebSocket.CLOSED) return Promise.resolve();
+        // Resolves once the socket has really closed: a process that exits
+        // with it still closing trips an assertion in Node on Windows.
+        return new Promise((resolve) => {
+            const done = () => { clearTimeout(timer); resolve(); };
+            const timer = setTimeout(done, 2000);
+            ws.addEventListener('close', done, { once: true });
+            ws.close();
+        });
+    }
+
     /** Skips the graceful shutdown protocol -- only for cleanup on the way out. */
     kill(): void {
         if (!this.stopped) {
@@ -899,6 +1061,9 @@ export class SessionManager {
     private readonly supervisor: SupervisorClient;
     private readonly sessions = new Set<Session>();
     private exitHandlerRegistered = false;
+    private readonly busyHelperEnabled: boolean;
+    // One helper R process per R installation (see r-helper.ts).
+    private readonly rHelpers = new Map<string, RHelper>();
 
     /**
      * Quiet by default: only one-time setup notices, warnings and errors are
@@ -911,18 +1076,88 @@ export class SessionManager {
         this.logger = new Logger(this.customLogger, this.logLevel);
         const verbose = this.logLevel === 'trace' || this.logLevel === 'debug';
         const forwardKernelOutput = options.kernelOutput ?? (Boolean(process.env.JOVIAN_KERNEL_OUTPUT) || verbose);
-        this.supervisor = new SupervisorClient(this.logger, { forwardKernelOutput });
+        const persistent = options.persistent === true ? {} : options.persistent || undefined;
+        this.supervisor = new SupervisorClient(this.logger, {
+            forwardKernelOutput,
+            persistent: persistent && {
+                stateFile: persistent.stateFile ?? joinPath(homedir(), '.jovian', 'supervisor.json'),
+                idleShutdownMinutes: persistent.idleShutdownMinutes ?? 60
+            }
+        });
+        this.busyHelperEnabled = options.busyHelper ?? true;
+    }
+
+    /**
+     * Every session in the supervisor -- with `persistent`, including those a
+     * previous process created (a window reload, a restart of the host app).
+     * Starts the supervisor if none is running.
+     */
+    async listSessions(): Promise<SupervisorSessionInfo[]> {
+        return this.supervisor.listSessions();
+    }
+
+    /**
+     * A Session for one that already exists in the supervisor (from
+     * listSessions()): reconnects to its kernel, which kept running. Its
+     * options are the ones it was created with. What it printed while no
+     * client was connected is not replayed; its kernel-side history is
+     * (queryKernelHistory()).
+     */
+    async attachSession(sessionId: string): Promise<Session> {
+        const existing = [...this.sessions].find((s) => s.info.sessionId === sessionId);
+        if (existing) return existing;
+
+        const listed = (await this.supervisor.listSessions()).find((s) => s.sessionId === sessionId);
+        if (!listed) {
+            throw new Error(`The supervisor has no session ${sessionId}`);
+        }
+        const options: EngineOptions = Object.fromEntries(
+            Object.entries(listed.options ?? { kernelType: listed.kernelType }).filter(([, value]) => value !== '' && value !== undefined)
+        );
+        const info = await this.supervisor.connectionFor(sessionId);
+        const session = new Session(info, options, this.supervisor, { level: this.logLevel, logger: this.customLogger },
+            (current) => this.rHelperFor(current));
+        this.sessions.add(session);
+        this.registerExitHandler();
+        try {
+            await session.ready();
+        } catch (error) {
+            this.sessions.delete(session);
+            throw error;
+        }
+        return session;
+    }
+
+    /**
+     * Lets go of every session without stopping them (persistent mode): the
+     * connections close, the kernels keep running, and a later
+     * SessionManager can attachSession() to them. Without `persistent` the
+     * supervisor ends with this process anyway, so this is stopAll().
+     */
+    async detach(): Promise<void> {
+        if (!this.supervisor.isPersistent) {
+            await this.stopAll();
+            return;
+        }
+        await Promise.all([...this.sessions].map((session) => session.disconnect()));
+        this.sessions.clear();
+        await Promise.all([...this.rHelpers.values()].map((helper) => helper.stop()));
+        this.rHelpers.clear();
     }
 
     /** Creates a new R session in its own OS process and waits for it to be ready. */
     async createSession(requested: EngineOptions = {}): Promise<Session> {
-        // Finds R / Python when rHome / pythonHome were not given (see runtimes.ts).
-        // An installed package brings its own copy of hera (none in a source checkout).
-        const options = withDiscoveredRuntime(requested.heraSrcPath ? requested : { ...requested, heraSrcPath: bundledHeraSource() });
+        // Paths made absolute against this process's working directory, then
+        // R / Python / Stata found when rHome / pythonHome / stataHome were not
+        // given (see runtimes.ts). An installed package brings its own copy of
+        // hera (none in a source checkout).
+        const withHera = requested.heraSrcPath ? requested : { ...requested, heraSrcPath: bundledHeraSource() };
+        const options = await withDiscoveredRuntime(withAbsolutePaths(withHera));
         // First R session only: installs hera and what it needs (see r-setup.ts).
         await ensureRPackages(options, this.logger);
         const info = await this.supervisor.createSession(options);
-        const session = new Session(info, options, this.supervisor, { level: this.logLevel, logger: this.customLogger });
+        const session = new Session(info, options, this.supervisor, { level: this.logLevel, logger: this.customLogger },
+            (current) => this.rHelperFor(current));
         this.sessions.add(session);
         this.registerExitHandler();
 
@@ -938,9 +1173,45 @@ export class SessionManager {
 
     /** Gracefully stops every session managed by this instance. */
     async stopAll(): Promise<void> {
-        await Promise.all([...this.sessions].map((session) => session.stop()));
+        await Promise.all([
+            ...[...this.sessions].map((session) => session.stop()),
+            ...[...this.rHelpers.values()].map((helper) => helper.stop())
+        ]);
         this.sessions.clear();
-        this.supervisor.kill(true);
+        this.rHelpers.clear();
+        // Persistent: the supervisor is asked to stop (with any session another
+        // process left in it) and forgotten.
+        await this.supervisor.shutdown();
+    }
+
+    // The helper R process for sessions of this R installation (created on
+    // first use; it starts its own process only when first asked).
+    private rHelperFor(options: EngineOptions): RHelper | undefined {
+        if (!this.busyHelperEnabled) return undefined;
+        const key = JSON.stringify([options.rHome ?? '', options.rPath ?? '', options.rLibs ?? '']);
+        let helper = this.rHelpers.get(key);
+        if (!helper) {
+            helper = new RHelper(async () => {
+                // The options are the session's, already resolved (absolute,
+                // discovered): same R, same libraries, same hera.
+                const helperOptions: EngineOptions = {
+                    kernelType: 'r',
+                    rHome: options.rHome,
+                    rPath: options.rPath,
+                    rLibs: options.rLibs,
+                    pandocPath: options.pandocPath,
+                    heraSrcPath: options.heraSrcPath
+                };
+                this.logger.debug('Starting a helper R process to answer while R sessions are busy');
+                const info = await this.supervisor.createSession(helperOptions);
+                const session = new Session(info, helperOptions, this.supervisor, { level: this.logLevel, logger: this.customLogger });
+                session.on('error', () => {});
+                await session.ready();
+                return session;
+            });
+            this.rHelpers.set(key, helper);
+        }
+        return helper;
     }
 
     /**
@@ -952,7 +1223,9 @@ export class SessionManager {
      */
     killAll(): void {
         for (const session of this.sessions) session.kill();
+        for (const helper of this.rHelpers.values()) helper.kill();
         this.sessions.clear();
+        this.rHelpers.clear();
         this.supervisor.kill();
     }
 
@@ -963,6 +1236,13 @@ export class SessionManager {
         if (this.exitHandlerRegistered) return;
         this.exitHandlerRegistered = true;
         process.once('exit', () => {
+            for (const helper of this.rHelpers.values()) helper.kill();
+            // Persistent: the sessions are meant to outlive this process --
+            // only this process's connections to them close.
+            if (this.supervisor.isPersistent) {
+                for (const session of this.sessions) void session.disconnect();
+                return;
+            }
             for (const session of this.sessions) session.kill();
             this.supervisor.kill();
         });

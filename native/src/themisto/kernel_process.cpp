@@ -2,6 +2,8 @@
 
 #include <cctype>
 #include <cstdio>
+#include <cstring>
+#include <map>
 #include <filesystem>
 #include <iostream>
 #include <sstream>
@@ -76,11 +78,71 @@ namespace themisto
                 { "--python-home", options.pythonHome },
                 { "--python-path", options.pythonPath },
                 { "--venv-path", options.venvPath },
+                { "--stata-home", options.stataHome },
+                { "--stata-edition", options.stataEdition },
                 { "--registration-ip", options.registrationIp },
                 { "--registration-port", options.registrationPort },
                 { "--key", options.key },
             };
         }
+
+        // The kernel's command-line arguments (after the executable): the
+        // explicit ones when given (a kernel that is not one of ours, e.g.
+        // Ark), else Adrastea's own flags for the options that are set.
+        std::vector<std::string> commandArguments(const KernelProcessOptions& options)
+        {
+            if (!options.explicitArgs.empty())
+            {
+                return options.explicitArgs;
+            }
+            std::vector<std::string> args;
+            for (const auto& [flag, value] : toArgPairs(options))
+            {
+                if (value.empty()) continue;
+                args.push_back(flag);
+                args.push_back(value);
+            }
+            return args;
+        }
+
+#ifdef _WIN32
+        // This process's environment with `extra` set on top, as a
+        // CreateProcessA environment block ("NAME=value\0...\0"), or empty
+        // (inherit unchanged) when there is nothing extra.
+        std::vector<char> environmentBlock(const std::map<std::string, std::string>& extra)
+        {
+            std::vector<char> block;
+            if (extra.empty()) return block;
+            auto upper = [](std::string text) {
+                for (auto& c : text) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+                return text;
+            };
+            // Windows names are case-insensitive: drop inherited ones overridden.
+            std::map<std::string, std::string> byName;
+            if (LPCH strings = GetEnvironmentStringsA())
+            {
+                for (LPCH entry = strings; *entry; entry += std::strlen(entry) + 1)
+                {
+                    std::string text = entry;
+                    std::size_t eq = text.find('=', 1); // "=C:=C:\" entries start with '='
+                    if (eq == std::string::npos) continue;
+                    byName[upper(text.substr(0, eq))] = text;
+                }
+                FreeEnvironmentStringsA(strings);
+            }
+            for (const auto& [name, value] : extra)
+            {
+                byName[upper(name)] = name + "=" + value;
+            }
+            for (const auto& [key, text] : byName)
+            {
+                block.insert(block.end(), text.begin(), text.end());
+                block.push_back('\0');
+            }
+            block.push_back('\0');
+            return block;
+        }
+#endif
 
         // One job object shared by every kernel this supervisor process
         // ever spawns, created lazily on first use. JOB_OBJECT_LIMIT_KILL_
@@ -233,15 +295,12 @@ namespace themisto
         validateWorkingDirectory(m_options.workingDirectory);
         std::ostringstream cmd;
         cmd << quoteArg(m_options.kernelExePath);
-        for (const auto& [flag, value] : toArgPairs(m_options))
+        for (const auto& arg : commandArguments(m_options))
         {
-            if (value.empty())
-            {
-                continue;
-            }
-            cmd << " " << flag << " " << quoteArg(value);
+            cmd << " " << quoteArg(arg);
         }
         std::string commandLine = cmd.str();
+        std::vector<char> environment = environmentBlock(m_options.extraEnv);
 
         SECURITY_ATTRIBUTES pipeAttrs{};
         pipeAttrs.nLength = sizeof(pipeAttrs);
@@ -314,7 +373,7 @@ namespace themisto
             nullptr,
             TRUE,
             CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
-            nullptr,
+            environment.empty() ? nullptr : environment.data(),
             m_options.workingDirectory.empty() ? nullptr : m_options.workingDirectory.c_str(),
             &startupInfo.StartupInfo,
             &processInfo);
@@ -449,14 +508,9 @@ namespace themisto
     {
         validateWorkingDirectory(m_options.workingDirectory);
         std::vector<std::string> argStorage = { m_options.kernelExePath };
-        for (const auto& [flag, value] : toArgPairs(m_options))
+        for (const auto& arg : commandArguments(m_options))
         {
-            if (value.empty())
-            {
-                continue;
-            }
-            argStorage.push_back(flag);
-            argStorage.push_back(value);
+            argStorage.push_back(arg);
         }
 
         std::vector<char*> argv;
@@ -588,6 +642,10 @@ namespace themisto
                 _exit(127);
             }
 
+            for (const auto& [name, value] : m_options.extraEnv)
+            {
+                setenv(name.c_str(), value.c_str(), 1);
+            }
             execv(m_options.kernelExePath.c_str(), argv.data());
             int execErrno = errno;
             // Best-effort: if this write is ever short/interrupted, the

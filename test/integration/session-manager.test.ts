@@ -2,28 +2,28 @@ import { test } from 'node:test';
 import * as assert from 'node:assert';
 import { existsSync, mkdtempSync, realpathSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
-import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { SessionManager } from '../../dist/lib/session/session-manager.js';
+import {
+    discoverPythonHome as libDiscoverPythonHome,
+    discoverRHome as libDiscoverRHome,
+    discoverStataHome,
+    discoverArkPath
+} from '../../dist/lib/session/runtimes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// R_HOME isn't set as an inherited env var by r-lib/actions/setup-r (or by
-// many other R installs) -- confirmed the hard way, via a real CI failure
-// on Linux/macOS ("cannot find system Renviron" / "unable to open the base
-// package") once this fell through to a hardcoded Windows-only path.
-// `R RHOME` is R's own portable way of answering this on every platform
-// (the same technique cmake/FindR.cmake already uses); the hardcoded path
-// remains only as a last resort for a Windows machine with R installed but
-// not on PATH at all.
+// The installations are found once, the way SessionManager finds them
+// (lib/session/runtimes.ts) -- R_HOME is not set by r-lib/actions/setup-r
+// or many other R installs, and `R RHOME` / the registry answer instead.
+// Python is sys.base_prefix of the Python on PATH (not sys.prefix, which
+// inside a venv is the venv and has no libpython). Empty when not found, in
+// which case the tests needing it skip themselves.
+const [R_HOME, PYTHON_HOME, STATA_HOME] = await Promise.all([libDiscoverRHome(), libDiscoverPythonHome(), discoverStataHome()]);
+
 function discoverRHome(): string {
-    if (process.env.R_HOME) return process.env.R_HOME;
-    try {
-        return execSync('R RHOME', { encoding: 'utf8' }).trim();
-    } catch {
-        return 'C:/Program Files/R/R-4.6.0';
-    }
+    return R_HOME ?? '';
 }
 
 // Deliberately NO `after(() => process.exit(0))` here (this file used to
@@ -45,20 +45,19 @@ function carpoExeExists(): boolean {
     return existsSync(join(__dirname, '../../dist/native/Release', exeName));
 }
 
-// Same "ask the runtime itself" approach as discoverRHome() above and
-// tools/playground/server.js's discoverPythonHome(): sys.prefix is the
-// portable PYTHONHOME for whichever Python is actually on PATH. Empty when
-// no Python is found, in which case the Python tests below skip themselves.
+function callistoExeExists(): boolean {
+    const exeName = process.platform === 'win32' ? 'callisto.exe' : 'callisto';
+    return existsSync(join(__dirname, '../../dist/native/Release', exeName));
+}
+
+// A Stata that can actually start: found the way the library finds it, and
+// licensed (Stata will not start without stata.lic in its directory).
+function licensedStataHome(): string | undefined {
+    return STATA_HOME && existsSync(join(STATA_HOME, 'stata.lic')) ? STATA_HOME : undefined;
+}
+
 function discoverPythonHome(): string {
-    if (process.env.PYTHONHOME) return process.env.PYTHONHOME;
-    for (const cmd of ['python3', 'python']) {
-        try {
-            return execSync(`${cmd} -c "import sys; print(sys.prefix)"`, { encoding: 'utf8' }).trim();
-        } catch {
-            // try the next candidate
-        }
-    }
-    return '';
+    return PYTHON_HOME ?? '';
 }
 
 test('SessionManager Integration (supervisor + standalone kernel exe)', async (t) => {
@@ -883,6 +882,322 @@ hera::CommManager$register_comm_target("echo2", function(comm, message) {
             await busy;
         } finally {
             await manager.stopAll();
+        }
+    });
+
+    // -- concurrency inside a session ---------------------------------------
+
+    await t.test('Python: completion and inspection are answered while a cell runs; queued cells keep their order', async (t2) => {
+        const pythonHome = discoverPythonHome();
+        if (!pythonHome || !carpoExeExists()) {
+            t2.skip('no Python installation found, or carpo not built');
+            return;
+        }
+        const manager = new SessionManager();
+        const session = await manager.createSession({ kernelType: 'python', pythonHome });
+        try {
+            session.on('error', () => {});
+            const busy = session.execute('import time\ntime.sleep(3)', { timeout: 10000 });
+            await new Promise((resolve) => setTimeout(resolve, 300));
+
+            let started = Date.now();
+            const completion = await session.complete('impo');
+            assert.ok(Date.now() - started < 1500, `complete() waited ${Date.now() - started} ms for the running cell`);
+            assert.ok(completion.matches.includes('import '), JSON.stringify(completion.matches));
+            started = Date.now();
+            assert.strictEqual((await session.isComplete('for i in x:')).status, 'incomplete');
+            assert.ok(Date.now() - started < 1500);
+            assert.strictEqual(session.executionState, 'busy', 'a request answered mid-cell must not make the session look idle');
+            assert.strictEqual((await busy).success, true);
+
+            const [first, second] = await Promise.all([
+                session.execute('import time\ntime.sleep(0.3)\norder = ["first"]'),
+                session.execute('order.append("second")\norder')
+            ]);
+            assert.strictEqual(first.success, true);
+            assert.strictEqual(second.output.find((m) => m.msgType === 'execute_result')?.content?.data?.['text/plain'], "['first', 'second']");
+        } finally {
+            await manager.stopAll();
+        }
+    });
+
+    await t.test('Python: threads and asyncio tasks keep running between cells, and what they print arrives', async (t2) => {
+        const pythonHome = discoverPythonHome();
+        if (!pythonHome || !carpoExeExists()) {
+            t2.skip('no Python installation found, or carpo not built');
+            return;
+        }
+        const manager = new SessionManager();
+        const session = await manager.createSession({ kernelType: 'python', pythonHome });
+        try {
+            session.on('error', () => {});
+            const stdout: string[] = [];
+            session.on('stdout', (text: string) => stdout.push(text));
+
+            await session.execute(
+                'import threading, time, asyncio\n' +
+                'def later():\n    time.sleep(0.3)\n    print("from-a-thread", flush=True)\n' +
+                'threading.Thread(target=later, daemon=True).start()\n' +
+                'async def task():\n    await asyncio.sleep(0.3)\n    print("from-a-task", flush=True)\n' +
+                'asyncio.get_event_loop().create_task(task())'
+            );
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            const text = stdout.join('');
+            assert.ok(text.includes('from-a-thread'), `thread output lost: ${JSON.stringify(stdout)}`);
+            assert.ok(text.includes('from-a-task'), `task output lost: ${JSON.stringify(stdout)}`);
+        } finally {
+            await manager.stopAll();
+        }
+    });
+
+    await t.test('Python: process pools, subprocess.run(sys.executable) and top-level await work', async (t2) => {
+        const pythonHome = discoverPythonHome();
+        if (!pythonHome || !carpoExeExists()) {
+            t2.skip('no Python installation found, or carpo not built');
+            return;
+        }
+        const manager = new SessionManager();
+        const session = await manager.createSession({ kernelType: 'python', pythonHome });
+        try {
+            session.on('error', () => {});
+            const valueOf = async (code: string) => {
+                const result = await session.execute(code, { timeout: 30000 });
+                assert.strictEqual(result.success, true, JSON.stringify(result.output.find((m) => m.msgType === 'error')?.content));
+                return result.output.find((m) => m.msgType === 'execute_result')?.content?.data?.['text/plain'];
+            };
+            assert.strictEqual(await valueOf('from concurrent.futures import ProcessPoolExecutor\nwith ProcessPoolExecutor(2) as ex:\n    r = list(ex.map(abs, [-1, -2]))\nr'), '[1, 2]');
+            assert.strictEqual(await valueOf('import subprocess, sys\nsubprocess.run([sys.executable, "-c", "print(6*7)"], capture_output=True, text=True).stdout.strip()'), "'42'");
+            assert.strictEqual(await valueOf('import asyncio\nawait asyncio.sleep(0.1, result="awaited")'), "'awaited'");
+        } finally {
+            await manager.stopAll();
+        }
+    });
+
+    await t.test('R: later callbacks (and so httpuv/Shiny servers) run while the session is idle', async () => {
+        const manager = new SessionManager();
+        const session = await manager.createSession({ rHome: discoverRHome() });
+        try {
+            session.on('error', () => {});
+            const stdout: string[] = [];
+            session.on('stdout', (text: string) => stdout.push(text));
+            const hasLater = await session.execute('cat(requireNamespace("later", quietly = TRUE), "\\n")');
+            if (!stdout.join('').includes('TRUE')) {
+                assert.ok(hasLater.success);
+                return; // later is not installed here; nothing to check
+            }
+            await session.execute('later::later(function() cat("later-fired\\n"), 0.2)');
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            assert.ok(stdout.join('').includes('later-fired'), `callback did not run while idle: ${JSON.stringify(stdout)}`);
+
+            await session.execute('later::later(function() stop("a callback that fails"), 0.1)');
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            assert.strictEqual((await session.execute('1 + 1')).success, true);
+        } finally {
+            await manager.stopAll();
+        }
+    });
+
+    await t.test('R: inspect and complete a package function while a cell runs (the helper R process answers)', async () => {
+        const manager = new SessionManager();
+        const session = await manager.createSession({ rHome: discoverRHome() });
+        try {
+            session.on('error', () => {});
+            await session.execute('my_data <- mtcars');
+            const busy = session.execute('library(stats)\nSys.sleep(6)', { timeout: 30000 });
+            await new Promise((resolve) => setTimeout(resolve, 300));
+
+            let started = Date.now();
+            const inspected = await session.inspect('median', 6);
+            assert.strictEqual(inspected.found, true);
+            assert.strictEqual(inspected.metadata?.['jovian/answered-by'], 'helper');
+            assert.ok(Date.now() - started < 5000, `inspect took ${Date.now() - started} ms`);
+
+            started = Date.now();
+            const completed = await session.complete('my_d');
+            assert.ok(completed.matches.includes('my_data'), JSON.stringify(completed.matches));
+            assert.ok(Date.now() - started < 3000);
+
+            // Something only the busy session has cannot be answered by the helper.
+            const own = await session.inspect('my_data', 7, 0, { waitForCell: false });
+            assert.strictEqual(own.found, false);
+            assert.strictEqual(own.metadata?.['jovian/busy'], true);
+
+            assert.strictEqual((await busy).success, true);
+            // The session's own user expressions still come back as given, without the helper's.
+            const withExpressions = await session.execute('x <- 2', { userExpressions: { twice: 'x * 2' } });
+            assert.deepStrictEqual(Object.keys(withExpressions.userExpressions ?? {}), ['twice']);
+        } finally {
+            await manager.stopAll();
+        }
+    });
+
+    await t.test('a flood of 100 000 messages arrives complete and the session keeps answering', async () => {
+        // Unbatched output (one message per write) is the fastest way to make
+        // a kernel send tens of thousands of messages a second: the relay used
+        // to stop reading the client's requests on that connection for good,
+        // and the IOPub sockets dropped messages at their high-water mark.
+        const saved = { ms: process.env.JOVIAN_STREAM_FLUSH_MS, bytes: process.env.JOVIAN_STREAM_FLUSH_BYTES };
+        process.env.JOVIAN_STREAM_FLUSH_MS = '0';
+        process.env.JOVIAN_STREAM_FLUSH_BYTES = '1';
+        const manager = new SessionManager(); // its own supervisor, started with the settings above
+        try {
+            const session = await manager.createSession({ rHome: discoverRHome() });
+            let text = '';
+            let messages = 0;
+            session.on('message', (m: any) => {
+                if (m.msgType === 'stream') {
+                    messages++;
+                    text += m.content.text;
+                }
+            });
+            const flood = await session.execute('for (i in 1:20000) cat("line", i, "\\n")', { timeout: 120000 });
+            assert.strictEqual(flood.success, true);
+            assert.ok(messages > 50000, `expected an unbatched flood, got ${messages} messages`);
+            const lines = text.split('\n').filter(Boolean);
+            assert.strictEqual(lines.length, 20000, 'every line arrived');
+            assert.strictEqual(lines[19999], 'line 20000 ');
+            assert.strictEqual((await session.execute('1 + 1', { timeout: 10000 })).success, true);
+            assert.ok((await session.kernelInfo()).implementation);
+        } finally {
+            if (saved.ms === undefined) delete process.env.JOVIAN_STREAM_FLUSH_MS; else process.env.JOVIAN_STREAM_FLUSH_MS = saved.ms;
+            if (saved.bytes === undefined) delete process.env.JOVIAN_STREAM_FLUSH_BYTES; else process.env.JOVIAN_STREAM_FLUSH_BYTES = saved.bytes;
+            await manager.stopAll();
+        }
+    });
+
+    await t.test('the supervisor refuses requests without its token, and requests from web pages', async () => {
+        const manager = new SessionManager();
+        const session = await manager.createSession({ rHome: discoverRHome() });
+        try {
+            const { httpBase, wsBase, sessionId, token } = session.info;
+            assert.strictEqual((await fetch(`${httpBase}/sessions`)).status, 401);
+            assert.strictEqual((await fetch(`${httpBase}/sessions`, { headers: { authorization: 'Bearer wrong' } })).status, 401);
+            assert.strictEqual((await fetch(`${httpBase}/sessions`, { headers: { authorization: `Bearer ${token}` } })).status, 200);
+            assert.strictEqual((await fetch(`${httpBase}/sessions`, {
+                headers: { authorization: `Bearer ${token}`, origin: 'http://example.com' }
+            })).status, 403);
+
+            const closeCode = await new Promise<number>((resolve) => {
+                const ws = new WebSocket(`${wsBase}/sessions/${sessionId}/messages`);
+                ws.addEventListener('close', (event) => resolve(event.code));
+                ws.addEventListener('error', () => {});
+            });
+            assert.strictEqual(closeCode, 4401);
+            // The session itself, which sends the token, is unaffected.
+            assert.strictEqual((await session.execute('1 + 1')).success, true);
+        } finally {
+            await manager.stopAll();
+        }
+    });
+
+    await t.test('persistent: a session outlives its SessionManager and another one reattaches to it', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'jovian-persist-'));
+        const stateFile = join(dir, 'supervisor.json');
+        const first = new SessionManager({ persistent: { stateFile, idleShutdownMinutes: 5 } });
+        const second = new SessionManager({ persistent: { stateFile, idleShutdownMinutes: 5 } });
+        try {
+            const session = await first.createSession({ rHome: discoverRHome() });
+            await session.execute('kept <- 42');
+            const sessionId = session.info.sessionId;
+            await first.detach();
+            assert.ok(existsSync(stateFile), 'the supervisor is recorded in the state file');
+
+            const listed = await second.listSessions();
+            assert.ok(listed.some((s) => s.sessionId === sessionId), JSON.stringify(listed.map((s) => s.sessionId)));
+            const again = await second.attachSession(sessionId);
+            assert.ok(again.options.rHome, 'options come back from the supervisor');
+            const result = await again.execute('kept');
+            assert.ok(result.output.some((m) => m.content?.data?.['text/plain']?.includes('42')), 'state survived');
+        } finally {
+            await second.stopAll();
+            assert.ok(!existsSync(stateFile), 'stopAll() forgets the supervisor');
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    await t.test('Ark: Posit\'s R kernel runs under the supervisor (JEP 66 handshake)', async (t2) => {
+        const arkPath = await discoverArkPath();
+        if (!arkPath) {
+            t2.skip('no ark executable found (Positron not installed, ARK_PATH not set)');
+            return;
+        }
+        const manager = new SessionManager();
+        try {
+            const ark = await manager.createSession({ kernelType: 'ark', rHome: discoverRHome(), arkPath });
+            ark.on('error', () => {});
+            assert.strictEqual((await ark.kernelInfo()).implementation, 'ark');
+            const result = await ark.execute('21 * 2');
+            assert.strictEqual(result.success, true);
+            assert.ok(result.output.some((m) => m.content?.data?.['text/plain']?.includes('42')));
+            const failed = await ark.execute('stop("boom")');
+            assert.strictEqual(failed.success, false);
+        } finally {
+            await manager.stopAll();
+        }
+    });
+
+    await t.test('Stata: output, persistent state, errors, graphs, completion, interrupt and working directory', async (t2) => {
+        const stataHome = licensedStataHome();
+        if (!stataHome || !callistoExeExists()) {
+            t2.skip('no licensed Stata 17+ found, or callisto not built');
+            return;
+        }
+
+        const dir = mkdtempSync(join(tmpdir(), 'jovian-cwd-'));
+        const manager = new SessionManager();
+        let session;
+        try {
+            session = await manager.createSession({ kernelType: 'stata', stataHome, workingDirectory: dir });
+        } catch (error) {
+            // A stata.lic Stata itself rejects is this machine's problem, not the kernel's.
+            const reason = String((error as Error).message).match(/License is invalid|Cannot find license file[^\n]*/)?.[0];
+            if (reason) {
+                await manager.stopAll();
+                rmSync(dir, { recursive: true, force: true });
+                t2.skip(`Stata could not start here: ${reason}`);
+                return;
+            }
+            throw error;
+        }
+
+        try {
+            session.on('error', () => {});
+            const stdout: string[] = [];
+            session.on('stdout', (text: string) => stdout.push(text));
+
+            const info = await session.kernelInfo();
+            assert.strictEqual(info.language_info.name, 'stata');
+
+            assert.strictEqual((await session.execute('sysuse auto, clear\nlocal answer = 42')).success, true);
+            stdout.length = 0;
+            assert.strictEqual((await session.execute('display `answer\' + _N')).success, true);
+            assert.ok(stdout.join('').includes('116'), `unexpected stdout: ${JSON.stringify(stdout)}`);
+
+            const failed = await session.execute('regress price nosuchvar');
+            assert.strictEqual(failed.success, false);
+            assert.ok(failed.output.some((m) => m.msgType === 'error' && m.content?.ename === 'r(111)'));
+
+            const graph = await session.execute('scatter price mpg');
+            assert.ok(graph.output.some((m) => m.msgType === 'display_data' && m.content?.data?.['image/png']), 'no graph published');
+
+            const completion = await session.complete('summarize pri');
+            assert.ok(completion.matches.includes('price'), `completing "pri": ${JSON.stringify(completion.matches)}`);
+            assert.strictEqual((await session.isComplete('forvalues i = 1/3 {')).status, 'incomplete');
+
+            stdout.length = 0;
+            await session.execute('pwd');
+            assert.strictEqual(realpathSync.native(stdout.join('').trim()), realpathSync.native(dir));
+
+            const running = session.execute('sleep 60000', { timeout: 60000 });
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            assert.strictEqual(await session.interrupt({ timeout: 5000 }), true);
+            const interrupted = await running;
+            assert.strictEqual(interrupted.success, false);
+            assert.ok(interrupted.output.some((m) => m.msgType === 'error' && m.content?.ename === 'r(1)'));
+            assert.strictEqual((await session.execute('display 1')).success, true);
+        } finally {
+            await manager.stopAll();
+            rmSync(dir, { recursive: true, force: true });
         }
     });
 });

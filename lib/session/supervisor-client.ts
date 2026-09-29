@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from 'child_process';
+import { closeSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { createInterface } from 'readline';
-import { join } from 'path';
-import type { EngineOptions } from '../types/index.js';
+import { dirname, join } from 'path';
+import type { EngineOptions, SessionStatusInfo } from '../types/index.js';
 import { Logger } from '../utils/logger.js';
 import { bundledHeraSource, ensureExecutable, locateNativeDirectory } from './native-paths.js';
 
@@ -9,7 +10,12 @@ export interface SessionConnectionInfo {
     sessionId: string;
     httpBase: string;
     wsBase: string;
+    /** The supervisor's access token -- sent with every request (see supervisorHeaders()). */
+    token: string;
 }
+
+/** A session as the supervisor lists it: its status plus the options it was started with. */
+export type SupervisorSessionInfo = SessionStatusInfo & { options?: Partial<EngineOptions> };
 
 interface CreateSessionResponse {
     sessionId?: string;
@@ -35,8 +41,61 @@ export function buildSessionOptionsBody(options: Partial<EngineOptions>): Record
         pythonHome: options.pythonHome,
         pythonPath: options.pythonPath,
         venvPath: options.venvPath,
+        stataHome: options.stataHome,
+        stataEdition: options.stataEdition,
+        arkPath: options.arkPath,
         workingDirectory: options.workingDirectory
     };
+}
+
+/** Where a running supervisor listens, and the token its API requires. */
+export interface SupervisorEndpoint {
+    httpBase: string;
+    wsBase: string;
+    token: string;
+    /** The supervisor's process id. */
+    pid: number;
+}
+
+/** The HTTP headers every request to the supervisor carries. */
+export function supervisorHeaders(token: string, extra: Record<string, string> = {}): Record<string, string> {
+    return token ? { authorization: `Bearer ${token}`, ...extra } : extra;
+}
+
+/** A session's WebSocket URL, with the token (Node's WebSocket cannot send headers). */
+export function sessionSocketUrl(info: SessionConnectionInfo): string {
+    const base = `${info.wsBase}/sessions/${info.sessionId}/messages`;
+    return info.token ? `${base}?token=${encodeURIComponent(info.token)}` : base;
+}
+
+/** See SessionManagerOptions.persistent. */
+export interface PersistentSupervisorOptions {
+    stateFile: string;
+    idleShutdownMinutes: number;
+}
+
+/** Reads a state file written by a persistent SupervisorClient (undefined if there is none, or it is unreadable). */
+export function readSupervisorState(stateFile: string): SupervisorEndpoint | undefined {
+    try {
+        const state = JSON.parse(readFileSync(stateFile, 'utf8')) as Partial<SupervisorEndpoint>;
+        if (typeof state.httpBase === 'string' && typeof state.wsBase === 'string' && typeof state.token === 'string') {
+            return { httpBase: state.httpBase, wsBase: state.wsBase, token: state.token, pid: Number(state.pid) || 0 };
+        }
+    } catch {
+        // No supervisor recorded, or the file is damaged: start a new one.
+    }
+    return undefined;
+}
+
+/** Where a persistent supervisor writes its output (the kernels' start-up lines): beside the state file. */
+export function supervisorLogFile(stateFile: string): string {
+    return stateFile.replace(/(\.json)?$/, '.log');
+}
+
+/** Writes the state file, readable by this user only (it holds the token). */
+export function writeSupervisorState(stateFile: string, endpoint: SupervisorEndpoint): void {
+    mkdirSync(dirname(stateFile), { recursive: true });
+    writeFileSync(stateFile, JSON.stringify(endpoint), { mode: 0o600 });
 }
 
 // themisto is the kernel supervisor: it's the only process in this system
@@ -45,19 +104,36 @@ export function buildSessionOptionsBody(options: Partial<EngineOptions>): Record
 // each of them, and re-exposes sessions over plain HTTP (lifecycle) +
 // WebSocket (execute/interrupt/message streaming) -- so Electron/VS Code's
 // process, where this class runs, never needs a native dependency at all.
+//
+// Every request carries the token the supervisor printed in its ready line
+// (native/src/themisto/access.hpp): the API is reachable by any program on
+// this machine, and it runs code.
+//
+// Persistent mode (SessionManagerOptions.persistent): the supervisor is
+// started detached, outlives this process, and is found again through a
+// state file by the next SessionManager with the same stateFile -- so a
+// window reload (Electron, VS Code) does not lose running sessions. It stops
+// itself after idleShutdownMinutes without any client.
 export class SupervisorClient {
     private child: ChildProcess | undefined;
-    private readyPromise: Promise<{ httpPort: number; wsPort: number }> | undefined;
+    private readyPromise: Promise<SupervisorEndpoint> | undefined;
     private readonly logger: Logger;
     private readonly forwardKernelOutput: boolean;
+    private readonly persistent: PersistentSupervisorOptions | undefined;
     // The supervisor's stderr is where every kernel's start-up output ends up
     // ([elara] ..., [carpo] ...). It is kept, not printed, unless asked for,
     // and attached to the error when a kernel fails to start.
     private readonly recentOutput: string[] = [];
 
-    constructor(logger: Logger, options: { forwardKernelOutput?: boolean } = {}) {
+    constructor(logger: Logger, options: { forwardKernelOutput?: boolean; persistent?: PersistentSupervisorOptions | undefined } = {}) {
         this.logger = logger;
         this.forwardKernelOutput = options.forwardKernelOutput ?? false;
+        this.persistent = options.persistent;
+    }
+
+    /** Whether the supervisor is meant to outlive this process. */
+    get isPersistent(): boolean {
+        return this.persistent !== undefined;
     }
 
     private rememberOutput(line: string): void {
@@ -74,29 +150,80 @@ export class SupervisorClient {
         return `${message}\nKernel output:\n  ${lines.join('\n  ')}`;
     }
 
-    private ensureStarted(): Promise<{ httpPort: number; wsPort: number }> {
+    /** The running supervisor (started, or in persistent mode found, on first use). */
+    endpoint(): Promise<SupervisorEndpoint> {
         if (!this.readyPromise) {
-            this.readyPromise = this.spawnSupervisor();
+            this.readyPromise = this.startOrFind();
+            this.readyPromise.catch(() => { this.readyPromise = undefined; });
         }
         return this.readyPromise;
     }
 
-    private spawnSupervisor(): Promise<{ httpPort: number; wsPort: number }> {
+    private async startOrFind(): Promise<SupervisorEndpoint> {
+        if (this.persistent) {
+            const known = readSupervisorState(this.persistent.stateFile);
+            if (known && await this.answers(known)) {
+                this.logger.info(`Reconnected to the supervisor (pid ${known.pid})`);
+                return known;
+            }
+        }
+        if (this.persistent) mkdirSync(dirname(this.persistent.stateFile), { recursive: true });
+        const endpoint = await this.spawnSupervisor();
+        if (this.persistent) writeSupervisorState(this.persistent.stateFile, endpoint);
+        return endpoint;
+    }
+
+    // Whether a recorded supervisor is still there and takes its token.
+    private async answers(endpoint: SupervisorEndpoint): Promise<boolean> {
+        // A timer cleared as soon as it answers (not AbortSignal.timeout(),
+        // whose timer outlives the request: a process exiting with it pending
+        // trips an assertion in Node on Windows).
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3000);
+        try {
+            const res = await fetch(`${endpoint.httpBase}/sessions`, {
+                headers: supervisorHeaders(endpoint.token),
+                signal: controller.signal
+            });
+            return res.ok;
+        } catch {
+            return false;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    private spawnSupervisor(): Promise<SupervisorEndpoint> {
         return new Promise((resolve, reject) => {
             const exePath = resolveSupervisorExecutable();
             this.logger.debug(`Spawning supervisor process from: ${exePath}`);
 
-            const child = spawn(exePath, [], { stdio: ['ignore', 'pipe', 'pipe'] });
+            const args = this.persistent ? ['--idle-shutdown-minutes', String(this.persistent.idleShutdownMinutes)] : [];
+            // Persistent: its output (the kernels' start-up lines) goes to a
+            // log file beside the state file instead of a pipe, which would
+            // outlive this process (and, on Windows, trips libuv when a
+            // process exits with such a pipe still open).
+            const logFd = this.persistent ? openSync(supervisorLogFile(this.persistent.stateFile), 'a') : undefined;
+            const child = spawn(exePath, args, {
+                stdio: ['ignore', 'pipe', logFd ?? 'pipe'],
+                windowsHide: true,
+                // Persistent: its own process group, so it is not taken down
+                // with this process (Ctrl+C in a terminal, a window reload).
+                detached: this.persistent !== undefined
+            });
             this.child = child;
 
-            createInterface({ input: child.stderr! }).on('line', (line) => {
-                this.rememberOutput(line);
-                if (this.forwardKernelOutput) process.stderr.write(`${line}\n`);
-            });
+            if (logFd !== undefined) closeSync(logFd);
+            if (child.stderr) {
+                createInterface({ input: child.stderr }).on('line', (line) => {
+                    this.rememberOutput(line);
+                    if (this.forwardKernelOutput) process.stderr.write(`${line}\n`);
+                });
+            }
 
             const rl = createInterface({ input: child.stdout! });
             const onLine = (line: string) => {
-                let message: { type?: string; httpPort?: number; wsPort?: number };
+                let message: { type?: string; httpPort?: number; wsPort?: number; token?: string; pid?: number };
                 try {
                     message = JSON.parse(line);
                 } catch {
@@ -105,7 +232,19 @@ export class SupervisorClient {
                 if (message.type === 'supervisorReady' && typeof message.httpPort === 'number' && typeof message.wsPort === 'number') {
                     cleanup();
                     this.logger.info(`Supervisor ready (pid ${child.pid})`, { httpPort: message.httpPort, wsPort: message.wsPort });
-                    resolve({ httpPort: message.httpPort, wsPort: message.wsPort });
+                    if (this.persistent) {
+                        // Nothing more comes on stdout; let go of the pipe
+                        // and the process, which must not keep this one alive.
+                        rl.close();
+                        child.stdout?.destroy();
+                        child.unref();
+                    }
+                    resolve({
+                        httpBase: `http://127.0.0.1:${message.httpPort}`,
+                        wsBase: `ws://127.0.0.1:${message.wsPort}`,
+                        token: message.token ?? '',
+                        pid: message.pid ?? child.pid ?? 0
+                    });
                 }
             };
             const onExit = (code: number | null) => {
@@ -124,12 +263,11 @@ export class SupervisorClient {
     }
 
     async createSession(options: EngineOptions): Promise<SessionConnectionInfo> {
-        const { httpPort, wsPort } = await this.ensureStarted();
-        const httpBase = `http://127.0.0.1:${httpPort}`;
+        const endpoint = await this.endpoint();
 
-        const res = await fetch(`${httpBase}/sessions`, {
+        const res = await fetch(`${endpoint.httpBase}/sessions`, {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
+            headers: supervisorHeaders(endpoint.token, { 'content-type': 'application/json' }),
             body: JSON.stringify(buildSessionOptionsBody(options))
         });
 
@@ -138,12 +276,29 @@ export class SupervisorClient {
             throw new Error(this.withKernelOutput(body.error ?? `Supervisor failed to create session (HTTP ${res.status})`));
         }
 
-        return { sessionId: body.sessionId, httpBase, wsBase: `ws://127.0.0.1:${wsPort}` };
+        return { sessionId: body.sessionId, httpBase: endpoint.httpBase, wsBase: endpoint.wsBase, token: endpoint.token };
+    }
+
+    /** Every session the supervisor has (all of them: it does not know which client created which). */
+    async listSessions(): Promise<SupervisorSessionInfo[]> {
+        const endpoint = await this.endpoint();
+        const res = await fetch(`${endpoint.httpBase}/sessions`, { headers: supervisorHeaders(endpoint.token) });
+        if (!res.ok) {
+            throw new Error(`Could not list the supervisor's sessions (HTTP ${res.status})`);
+        }
+        return ((await res.json()) as { sessions: SupervisorSessionInfo[] }).sessions;
+    }
+
+    /** Connection details for a session that already exists in the supervisor. */
+    async connectionFor(sessionId: string): Promise<SessionConnectionInfo> {
+        const endpoint = await this.endpoint();
+        return { sessionId, httpBase: endpoint.httpBase, wsBase: endpoint.wsBase, token: endpoint.token };
     }
 
     async stopSession(info: SessionConnectionInfo): Promise<void> {
         try {
-            await fetch(`${info.httpBase}/sessions/${info.sessionId}`, { method: 'DELETE' });
+            const res = await fetch(`${info.httpBase}/sessions/${info.sessionId}`, { method: 'DELETE', headers: supervisorHeaders(info.token) });
+            await res.arrayBuffer(); // read to the end, so no request is left in flight
         } catch (error) {
             this.logger.warn(`Failed to gracefully stop session ${info.sessionId} via supervisor`, error);
         }
@@ -166,10 +321,8 @@ export class SupervisorClient {
     async restartSession(info: SessionConnectionInfo, options?: Partial<EngineOptions>): Promise<void> {
         const res = await fetch(`${info.httpBase}/sessions/${info.sessionId}/restart`, {
             method: 'POST',
-            ...(options ? {
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(buildSessionOptionsBody(options))
-            } : {})
+            headers: supervisorHeaders(info.token, options ? { 'content-type': 'application/json' } : {}),
+            ...(options ? { body: JSON.stringify(buildSessionOptionsBody(options)) } : {})
         });
         const body = await res.json() as CreateSessionResponse;
         if (!res.ok || !body.sessionId) {
@@ -178,11 +331,40 @@ export class SupervisorClient {
     }
 
     /**
+     * Stops the supervisor for good: in persistent mode it is asked to shut
+     * down (stopping every session it still has) and forgotten; otherwise
+     * this is kill(true).
+     */
+    async shutdown(): Promise<void> {
+        if (!this.persistent) {
+            this.kill(true);
+            return;
+        }
+        const endpoint = readSupervisorState(this.persistent.stateFile) ?? (this.readyPromise ? await this.readyPromise.catch(() => undefined) : undefined);
+        if (endpoint) {
+            try {
+                const res = await fetch(`${endpoint.httpBase}/shutdown`, { method: 'POST', headers: supervisorHeaders(endpoint.token) });
+                await res.arrayBuffer();
+            } catch (error) {
+                this.logger.warn('Could not ask the supervisor to shut down', error);
+            }
+        }
+        try {
+            rmSync(this.persistent.stateFile, { force: true });
+        } catch {
+            // Already gone.
+        }
+        this.readyPromise = undefined;
+    }
+
+    /**
      * Skips graceful per-session shutdown -- only for cleanup on the way out.
      * `expected` is the normal end of stopAll(), after every session was
-     * stopped: not worth a warning.
+     * stopped: not worth a warning. A persistent supervisor is left running
+     * (that is its point); use shutdown() to stop it.
      */
     kill(expected = false): void {
+        if (this.persistent) return;
         if (this.child && !this.child.killed) {
             const message = `Force-killing supervisor process (pid ${this.child.pid})`;
             if (expected) this.logger.debug(message);

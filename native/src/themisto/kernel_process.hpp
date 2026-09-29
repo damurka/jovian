@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <thread>
@@ -28,9 +29,17 @@ namespace themisto
         std::string pythonHome;
         std::string pythonPath;
         std::string venvPath;
+        // Callisto (Stata).
+        std::string stataHome;
+        std::string stataEdition;
         // Directory the kernel process starts in (empty = inherit the
         // supervisor's). Validated before spawning -- see KernelProcess::start().
         std::string workingDirectory;
+        // The arguments to pass instead of Adrastea's own flags (above and
+        // below), for a kernel that is not one of ours (Ark). Empty: ours.
+        std::vector<std::string> explicitArgs;
+        // Environment variables the kernel gets on top of the supervisor's.
+        std::map<std::string, std::string> extraEnv;
         std::string registrationIp;
         std::string registrationPort;
         std::string key;

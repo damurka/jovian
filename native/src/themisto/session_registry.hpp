@@ -24,8 +24,8 @@ namespace themisto
 
     struct SessionOptions
     {
-        // "r" (default, for every existing caller that predates this field)
-        // or "python" -- selects which kernel executable createSessionWithId()
+        // "r" (default, for every existing caller that predates this field),
+        // "python" or "stata" -- selects which kernel executable createSessionWithId()
         // spawns (SessionRegistry::m_kernelExePaths) and which of the two
         // field groups below actually gets used. Not an enum: it round-trips
         // through JSON (http_api.cpp) and a plain string keeps that trivial
@@ -43,6 +43,15 @@ namespace themisto
         std::string pythonHome;
         std::string pythonPath;
         std::string venvPath;
+
+        // Callisto (Stata), mirroring callisto::EnvironmentConfig.
+        std::string stataHome;
+        std::string stataEdition;
+
+        // kernelType "ark": Posit's Ark R kernel, launched the standard
+        // Jupyter way; its executable (it is not shipped with Jovian). R comes
+        // from rHome.
+        std::string arkPath;
 
         // Directory the kernel process starts in (empty = the supervisor's own).
         std::string workingDirectory;
@@ -89,6 +98,10 @@ namespace themisto
         std::mutex callbackMutex;
         std::function<void(const std::string&)> onMessage;
         std::function<void(const std::string&)> onKernelExit;
+        // Which relay connection set the two callbacks above (guarded by
+        // callbackMutex): a connection that closes clears them only if they
+        // are still its own, not a newer connection's.
+        const void* callbackOwner = nullptr;
 
         std::atomic<bool> polling{ false };
         std::thread pollThread;
@@ -110,9 +123,10 @@ namespace themisto
     class SessionRegistry
     {
     public:
-        // kernelExePaths maps SessionOptions::kernelType ("r", "python") to
-        // the executable to spawn for that type -- main.cpp discovers both
-        // elara and carpo as siblings and builds this map once at startup.
+        // kernelExePaths maps SessionOptions::kernelType ("r", "python",
+        // "stata") to the executable to spawn for that type -- main.cpp
+        // discovers elara, carpo and callisto as siblings and builds this map
+        // once at startup.
         // A type with no entry (or one whose file doesn't exist -- carpo
         // isn't built by default, see JOVIAN_BUILD_CARPO) fails the
         // individual createSession() call for that type with a clear error

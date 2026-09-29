@@ -2,6 +2,8 @@
 
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <optional>
 #include <set>
@@ -189,12 +191,32 @@ namespace themisto
 
     std::string SessionRegistry::createSessionWithId(const std::string& id, SessionOptions options, std::string& error)
     {
-        auto exeIt = m_kernelExePaths.find(options.kernelType);
-        if (exeIt == m_kernelExePaths.end() || exeIt->second.empty())
+        // Ark (Posit's R kernel) is not shipped with Jovian: its executable
+        // comes with the request (arkPath), or from --ark-exe.
+        std::string kernelExePath;
+        if (options.kernelType == "ark" && !options.arkPath.empty())
         {
-            error = "no kernel executable is configured for kernelType '" + options.kernelType +
+            kernelExePath = options.arkPath;
+        }
+        else if (auto exeIt = m_kernelExePaths.find(options.kernelType); exeIt != m_kernelExePaths.end())
+        {
+            kernelExePath = exeIt->second;
+        }
+        if (kernelExePath.empty())
+        {
+            error = options.kernelType == "ark"
+                ? std::string("kernelType 'ark' needs arkPath: the ark executable (Positron ships one)")
+                : "no kernel executable is configured for kernelType '" + options.kernelType +
                     "' (this supervisor was started without one -- see main.cpp's kernel discovery)";
             return std::string();
+        }
+        {
+            std::error_code ec;
+            if (!std::filesystem::is_regular_file(kernelExePath, ec))
+            {
+                error = "kernel executable not found: " + kernelExePath;
+                return std::string();
+            }
         }
 
         auto session = std::make_shared<Session>();
@@ -202,7 +224,7 @@ namespace themisto
         session->options = options;
 
         KernelProcessOptions procOptions;
-        procOptions.kernelExePath = exeIt->second;
+        procOptions.kernelExePath = kernelExePath;
         procOptions.rHome = options.rHome;
         procOptions.rPath = options.rPath;
         procOptions.rLibs = options.rLibs;
@@ -211,6 +233,8 @@ namespace themisto
         procOptions.pythonHome = options.pythonHome;
         procOptions.pythonPath = options.pythonPath;
         procOptions.venvPath = options.venvPath;
+        procOptions.stataHome = options.stataHome;
+        procOptions.stataEdition = options.stataEdition;
         procOptions.workingDirectory = options.workingDirectory;
         procOptions.registrationIp = m_registrationIp;
         procOptions.registrationPort = m_registrationPort;
@@ -241,10 +265,43 @@ namespace themisto
             // will hand back as the resulting KernelConfiguration's key
             // (see the comment in startRegistrationListener()).
             procOptions.key = m_registrationKey;
-            if (options.kernelType == "r")
+            if (options.kernelType == "r" || options.kernelType == "ark")
             {
                 ensureRBinOnPath(options.rHome, options.rPath);
             }
+
+            // Ark takes the standard Jupyter launch: a registration file
+            // (JEP 66) naming this supervisor's registration socket and key,
+            // instead of Adrastea's --registration-port/--key flags, and R
+            // from R_HOME. Removed once it has registered (or failed to).
+            std::filesystem::path registrationFile;
+            if (options.kernelType == "ark")
+            {
+                registrationFile = std::filesystem::temp_directory_path() / ("jovian-ark-" + id + ".json");
+                json registration = {
+                    { "transport", "tcp" },
+                    { "signature_scheme", "hmac-sha256" },
+                    { "ip", m_registrationIp },
+                    { "key", m_registrationKey },
+                    { "registration_port", std::stoi(m_registrationPort) }
+                };
+                std::ofstream(registrationFile, std::ios::binary) << registration.dump();
+                procOptions.explicitArgs = { "--connection_file", registrationFile.string(), "--session-mode", "notebook" };
+                if (!options.rHome.empty())
+                {
+                    procOptions.extraEnv["R_HOME"] = options.rHome;
+                }
+            }
+            struct RemoveOnExit
+            {
+                std::filesystem::path path;
+                ~RemoveOnExit()
+                {
+                    std::error_code ec;
+                    if (!path.empty()) std::filesystem::remove(path, ec);
+                }
+            } removeRegistration{ registrationFile };
+
             session->process = std::make_unique<KernelProcess>(procOptions);
             session->process->start();
 
@@ -472,7 +529,24 @@ namespace themisto
             { "status", toString(session.status.load()) },
             { "kernelType", session.options.kernelType },
             { "workingDirectory", session.options.workingDirectory },
-            { "pid", session.process ? session.process->pid() : 0 }
+            { "pid", session.process ? session.process->pid() : 0 },
+            // What it was started with -- a client reconnecting to this
+            // supervisor rebuilds its Session from these.
+            { "options", {
+                { "kernelType", session.options.kernelType },
+                { "rHome", session.options.rHome },
+                { "rPath", session.options.rPath },
+                { "rLibs", session.options.rLibs },
+                { "pandocPath", session.options.pandocPath },
+                { "heraSrcPath", session.options.heraSrcPath },
+                { "pythonHome", session.options.pythonHome },
+                { "pythonPath", session.options.pythonPath },
+                { "venvPath", session.options.venvPath },
+                { "stataHome", session.options.stataHome },
+                { "stataEdition", session.options.stataEdition },
+                { "arkPath", session.options.arkPath },
+                { "workingDirectory", session.options.workingDirectory }
+            } }
         };
         std::optional<std::uint64_t> mem = session.process ? session.process->memoryUsageBytes() : std::nullopt;
         result["memoryBytes"] = mem.has_value() ? json(mem.value()) : json(nullptr);

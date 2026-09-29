@@ -1,10 +1,13 @@
 #ifndef THEMISTO_HTTP_API_HPP
 #define THEMISTO_HTTP_API_HPP
 
+#include <functional>
+#include <string>
 #include <thread>
 
 #include <httplib.h>
 
+#include "activity.hpp"
 #include "session_registry.hpp"
 
 namespace themisto
@@ -16,7 +19,13 @@ namespace themisto
     class HttpApi
     {
     public:
-        explicit HttpApi(SessionRegistry& registry);
+        // `token`: what every request must present (see access.hpp); empty
+        // turns the check off.
+        HttpApi(SessionRegistry& registry, std::string token, Activity& activity);
+
+        // Called (on a server thread) when a client asks the supervisor to
+        // shut down (POST /shutdown); main.cpp does the actual stopping.
+        void onShutdownRequested(std::function<void()> callback) { m_onShutdown = std::move(callback); }
         ~HttpApi();
 
         HttpApi(const HttpApi&) = delete;
@@ -29,6 +38,9 @@ namespace themisto
 
     private:
         SessionRegistry& m_registry;
+        std::string m_token;
+        Activity& m_activity;
+        std::function<void()> m_onShutdown;
         httplib::Server m_server;
         std::thread m_serverThread;
     };

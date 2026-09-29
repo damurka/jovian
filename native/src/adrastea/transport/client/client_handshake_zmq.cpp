@@ -1,5 +1,6 @@
 #include <chrono>
 #include <functional>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -52,6 +53,11 @@ namespace adrastea
 
     private:
 
+        // The configuration from a JEP 66 handshake_request (answered here
+        // with a signed handshake_reply), or nullopt when `wire_msg` is not
+        // one -- it is then left untouched for the short form.
+        std::optional<KernelConfiguration> readJep66Handshake(zmq::multipart_t& wire_msg);
+
         zmq::context_t* p_context;
         std::string m_key;
         zmq::socket_t m_handshake;
@@ -90,6 +96,68 @@ namespace adrastea
         return getSocketPort(m_handshake);
     }
 
+    std::optional<KernelConfiguration> ClientHandshakeZmqImpl::readJep66Handshake(zmq::multipart_t& wire_msg)
+    {
+        // Routing frames, then <IDS|MSG>, then signature, header, parent
+        // header, metadata, content: at least five frames after the
+        // delimiter. The short form has two.
+        std::size_t delimiterAt = wire_msg.size();
+        for (std::size_t i = 0; i < wire_msg.size(); ++i)
+        {
+            const zmq::message_t& frame = wire_msg[i];
+            if (std::string(frame.data<const char>(), frame.size()) == "<IDS|MSG>")
+            {
+                delimiterAt = i;
+                break;
+            }
+        }
+        if (delimiterAt == wire_msg.size() || wire_msg.size() - delimiterAt - 1 < 5)
+        {
+            return std::nullopt;
+        }
+
+        zmq::multipart_t copy = wire_msg.clone();
+        Message request;
+        try
+        {
+            request = ZmqSerializer::deserialize(copy, *p_auth); // checks the signature
+        }
+        catch (const std::exception& e)
+        {
+            throw std::runtime_error(std::string("Rejected a kernel's handshake: ") + e.what());
+        }
+        if (request.header().value("msg_type", "") != "handshake_request")
+        {
+            return std::nullopt;
+        }
+
+        const json& content = request.content();
+        auto port = [&](const char* name) {
+            const json& value = content.at(name);
+            return value.is_string() ? value.get<std::string>() : std::to_string(value.get<long long>());
+        };
+        KernelConfiguration config;
+        config.m_key = m_key;
+        config.m_controlPort = port("control_port");
+        config.m_shellPort = port("shell_port");
+        config.m_stdinPort = port("stdin_port");
+        config.m_iopubPort = port("iopub_port");
+        config.m_hbPort = port("hb_port");
+
+        // Back through the same routing frames (for a REQ peer they include
+        // its empty envelope frame, which it strips on receipt).
+        Message reply(request.identities(),
+            makeHeader("handshake_reply", "themisto", request.header().value("session", "")),
+            request.header(),
+            json::object(),
+            json{ { "status", "ok" } },
+            buffer_sequence());
+        zmq::multipart_t wire_reply = ZmqSerializer::serialize(std::move(reply), *p_auth, json::error_handler_t::replace);
+        wire_reply.send(m_handshake);
+        wire_msg.clear();
+        return config;
+    }
+
     KernelConfiguration ClientHandshakeZmqImpl::waitForConfiguration(const std::function<bool()>& shouldAbort)
     {
         zmq::multipart_t wire_msg;
@@ -119,6 +187,16 @@ namespace adrastea
                     "stderr output for what it's doing.");
             }
         }
+        // Two forms. A kernel following JEP 66 (the Jupyter handshake, e.g.
+        // Posit's Ark) sends a complete signed Jupyter message --
+        // handshake_request, ports as numbers -- from a REQ socket and waits
+        // for a signed handshake_reply. Adrastea's own kernels send the
+        // shorter form below: a signature and the ports as strings.
+        if (auto jep66 = readJep66Handshake(wire_msg))
+        {
+            return *jep66;
+        }
+
         auto routing_ids = ZmqSerializer::deserializeZmqId(wire_msg);
         // TODO: check signature
         wire_msg.pop(); // signature
