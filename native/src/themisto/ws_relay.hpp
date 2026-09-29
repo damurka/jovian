@@ -2,9 +2,11 @@
 #define THEMISTO_WS_RELAY_HPP
 
 #include <memory>
+#include <string>
 
 #include <ixwebsocket/IXWebSocketServer.h>
 
+#include "activity.hpp"
 #include "session_registry.hpp"
 
 namespace themisto
@@ -19,7 +21,9 @@ namespace themisto
     class WsRelay
     {
     public:
-        explicit WsRelay(SessionRegistry& registry);
+        // `token`: what every connection must present, as ?token= or an
+        // Authorization header (see access.hpp); empty turns the check off.
+        WsRelay(SessionRegistry& registry, std::string token, Activity& activity);
         ~WsRelay();
 
         WsRelay(const WsRelay&) = delete;
@@ -32,6 +36,8 @@ namespace themisto
 
     private:
         SessionRegistry& m_registry;
+        std::string m_token;
+        Activity& m_activity;
         std::unique_ptr<ix::WebSocketServer> m_server;
     };
 }

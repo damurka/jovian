@@ -17,6 +17,8 @@ namespace adrastea
         , p_clientImpl(client)
     {
         m_iopubEndPoint = getEndPoint(config.m_transport, config.m_ip, config.m_iopubPort);
+        // Never drop output (see server/publisher.cpp).
+        m_iopub.set(zmq::sockopt::rcvhwm, 0);
         m_iopub.connect(m_iopubEndPoint);
         m_iopub.set(zmq::sockopt::subscribe, "");
         initSocket(m_controller, getControllerEndPoint("iopub"));

@@ -15,6 +15,13 @@ namespace adrastea
         , m_controller(context, zmq::socket_type::rep)
         , m_serializeIopubMsgCb(std::move(serialize_iopub_msg_cb))
     {
+        // No high-water mark on the IOPub path (here, the listener below, the
+        // kernel-side PUB in server_zmq_impl.cpp and the client's SUB): at
+        // the default of 1000 queued messages a PUB/XPUB silently drops
+        // output when the reader falls behind -- measured losing a few of
+        // 100 000 messages at ~45 000/s. A burst is queued in memory instead.
+        m_publisher.set(zmq::sockopt::sndhwm, 0);
+        m_listener.set(zmq::sockopt::rcvhwm, 0);
         initSocket(m_publisher, transport, ip, port);
         // Set xpub_verbose option to 1 to pass all subscription messages (not only unique ones).
         m_publisher.set(zmq::sockopt::xpub_verbose, 1);
