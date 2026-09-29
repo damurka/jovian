@@ -8,7 +8,7 @@ export const PACKAGE_SCOPE = '@damurka';
 export const PACKAGE_NAME = `${PACKAGE_SCOPE}/jovian`;
 
 /**
- * The prebuilt kernels (themisto, elara, carpo) ship in one small package per
+ * The prebuilt kernels (themisto, elara, carpo, callisto) ship in one small package per
  * platform -- `@scope/jovian-<os>-<cpu>` -- that npm installs alongside
  * the main package only where it matches (each declares `os`/`cpu`). These are
  * the platforms that get a package.
@@ -21,7 +21,7 @@ export function platformPackageName(platform: string = process.platform, arch: s
 }
 
 export interface NativeLocation {
-    /** Directory holding themisto, elara and carpo. */
+    /** Directory holding themisto, elara, carpo and callisto. */
     dir: string;
     source: 'JOVIAN_NATIVE_DIR' | 'platform package' | 'source build';
 }
@@ -112,11 +112,11 @@ export function locateNativeDirectory(lookup: NativeLookup = defaultLookup()): N
  */
 export function ensureExecutable(dir: string, platform: string = process.platform): void {
     if (platform === 'win32') return;
-    for (const name of ['themisto', 'elara', 'carpo']) {
+    for (const name of ['themisto', 'elara', 'carpo', 'callisto']) {
         try {
             chmodSync(join(dir, name), 0o755);
         } catch {
-            // Absent (carpo is optional) or not ours to change: running it will say so.
+            // Absent (carpo and callisto are optional) or not ours to change: running it will say so.
         }
     }
 }
@@ -127,13 +127,22 @@ export function ensureExecutable(dir: string, platform: string = process.platfor
  * heraSrcPath. Only when running from an installed package (under
  * node_modules): a source checkout leaves hera alone so development and CI
  * control which one is loaded.
+ *
+ * In an Electron app the package is loaded from `node_modules.asar` (an archive
+ * only Electron can read) and its files that others read are unpacked beside
+ * it, in `node_modules.asar.unpacked`: R installs hera from there. Without
+ * this, an app's first R session on a new computer found no hera to install.
  */
 export function bundledHeraSource(
     baseDir: string = moduleDir,
     exists: (path: string) => boolean = existsSync
 ): string | undefined {
-    if (!baseDir.split(sep).includes('node_modules')) return undefined;
-    // <package>/lib/session -> <package>/packages/hera (the published layout)
-    const candidate = join(baseDir, '../../packages/hera');
+    const installed = baseDir.split(sep).some((part) => part === 'node_modules' || part === 'node_modules.asar' || part === 'node_modules.asar.unpacked');
+    if (!installed) return undefined;
+    // <package>/lib/session -> <package>/packages/hera (the published layout), outside the archive
+    const candidate = join(baseDir, '../../packages/hera')
+        .split(sep)
+        .map((part) => (part === 'node_modules.asar' ? 'node_modules.asar.unpacked' : part))
+        .join(sep);
     return exists(join(candidate, 'DESCRIPTION')) ? candidate : undefined;
 }

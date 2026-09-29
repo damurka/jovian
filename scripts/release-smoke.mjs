@@ -115,7 +115,7 @@ const quiet = spawnSync(process.execPath, ['quiet-check.mjs'], {
     encoding: 'utf8',
     env: { ...process.env, R_LIBS: rlib, JOVIAN_NATIVE_DIR: '', JOVIAN_LOG_LEVEL: '', JOVIAN_KERNEL_OUTPUT: '' }
 });
-const noise = `${quiet.stdout}${quiet.stderr}`.split(/\r?\n/).filter((line) => /\[(trace|debug|info)\]|\[elara\]|\[carpo\]|\[themisto\]/.test(line));
+const noise = `${quiet.stdout}${quiet.stderr}`.split(/\r?\n/).filter((line) => /\[(trace|debug|info)\]|\[elara\]|\[carpo\]|\[callisto\]|\[themisto\]/.test(line));
 if (quiet.status === 0 && noise.length === 0) {
     console.log('ok   quiet by default');
 } else {

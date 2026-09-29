@@ -51,6 +51,8 @@ add_library(themisto_core STATIC
     ${JOVIAN_SOURCE_DIR}/themisto/session_registry.hpp
     ${JOVIAN_SOURCE_DIR}/themisto/kernel_process.cpp
     ${JOVIAN_SOURCE_DIR}/themisto/kernel_process.hpp
+    ${JOVIAN_SOURCE_DIR}/themisto/access.cpp
+    ${JOVIAN_SOURCE_DIR}/themisto/access.hpp
 )
 target_compile_features(themisto_core PRIVATE cxx_std_23)
 # PUBLIC: everything that links themisto_core (every test target below)
@@ -86,6 +88,12 @@ if (R_HOME)
 endif ()
 
 add_test(NAME SessionRegistryTest COMMAND session_registry_test)
+
+add_executable(access_test themisto/access_test.cpp)
+target_compile_features(access_test PRIVATE cxx_std_23)
+target_include_directories(access_test PRIVATE ${JOVIAN_INCLUDE_DIR} ${JOVIAN_SOURCE_DIR})
+target_link_libraries(access_test PRIVATE themisto_core GTest::gtest_main)
+add_test(NAME AccessTest COMMAND access_test)
 # Each test that needs a kernel starts a real R process (~0.7s locally,
 # several times that on a cold CI runner) and there are ~20 of them, so
 # the suite takes ~20s locally; 180s is a wide margin over that, not a
@@ -141,18 +149,20 @@ if (JOVIAN_BUILD_CARPO)
     # default OFF) test target -- so it's resolved locally instead of
     # burdening every configure with a Python dependency. CMake's own
     # FindPython3 locates an interpreter; asking THAT interpreter for its
-    # own sys.prefix (rather than guessing from its executable's directory,
-    # which is wrong on POSIX -- .../bin/python3's parent isn't the
-    # install prefix) matches exactly what PyInterpreter needs PYTHONHOME
-    # set to for that same interpreter to load correctly.
+    # own sys.base_prefix (rather than guessing from its executable's
+    # directory, which is wrong on POSIX -- .../bin/python3's parent isn't
+    # the install prefix) matches exactly what PyInterpreter needs
+    # PYTHONHOME set to for that same interpreter to load correctly. Not
+    # sys.prefix: when CMake finds a venv's python, that is the venv, which
+    # has no libpython.
     find_package(Python3 COMPONENTS Interpreter)
     if (Python3_Interpreter_FOUND)
         execute_process(
-            COMMAND "${Python3_EXECUTABLE}" -c "import sys; print(sys.prefix)"
+            COMMAND "${Python3_EXECUTABLE}" -c "import sys; print(sys.base_prefix)"
             OUTPUT_VARIABLE CARPO_TEST_PYTHON_HOME
             OUTPUT_STRIP_TRAILING_WHITESPACE
         )
-        # sys.prefix reports backslashes on Windows -- normalized to
+        # sys.base_prefix reports backslashes on Windows -- normalized to
         # forward slashes both so it survives being embedded in a quoted
         # compile-definition string literal unescaped, and because
         # Windows' own APIs/std::filesystem accept forward slashes fine
@@ -167,6 +177,40 @@ if (JOVIAN_BUILD_CARPO)
     endif ()
 
     add_test(NAME CarpoTest COMMAND carpo_test)
+endif ()
+
+# ==========================================
+# CALLISTO TESTS (see native/include/callisto/interpreter_stata.hpp)
+# ==========================================
+# stata_text_test needs nothing; callisto_test needs a licensed Stata 17+ and
+# reads its directory from STATA_HOME when it runs (skipped without one).
+if (JOVIAN_BUILD_CALLISTO)
+    add_executable(callisto_stata_text_test
+        callisto/stata_text_test.cpp
+        ${JOVIAN_SOURCE_DIR}/callisto/stata/stata_text.cpp
+    )
+    target_compile_features(callisto_stata_text_test PRIVATE cxx_std_23)
+    target_link_libraries(callisto_stata_text_test PRIVATE
+        adrastea
+        GTest::gtest_main
+    )
+    add_test(NAME CallistoStataTextTest COMMAND callisto_stata_text_test)
+
+    add_executable(callisto_test
+        callisto/callisto_test.cpp
+        ${JOVIAN_SOURCE_DIR}/callisto/interpreter_stata.cpp
+        ${JOVIAN_SOURCE_DIR}/callisto/stata/stata_dynlib.cpp
+        ${JOVIAN_SOURCE_DIR}/callisto/stata/stata_text.cpp
+    )
+    target_compile_features(callisto_test PRIVATE cxx_std_23)
+    target_link_libraries(callisto_test PRIVATE
+        adrastea
+        GTest::gtest_main
+    )
+    if (NOT WIN32)
+        target_link_libraries(callisto_test PRIVATE ${CMAKE_DL_LIBS})
+    endif ()
+    add_test(NAME CallistoTest COMMAND callisto_test)
 endif ()
 
 # ==========================================

@@ -122,7 +122,7 @@ jobs:
       # all on this runner.
       #
       # One build, tests included: the release script ships only the kernels
-      # (themisto, elara, carpo) and the libraries they need, never the test
+      # (themisto, elara, carpo, callisto) and the libraries they need, never the test
       # binaries next to them.
       - name: Configure native (Release, with tests)
         shell: bash
@@ -131,7 +131,7 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build native (elara + themisto + carpo + tests)
+      - name: Build native (elara + themisto + carpo + callisto + tests)
         run: cmake --build dist/native --config Release
 
       - name: Run native tests (ctest)

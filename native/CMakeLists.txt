@@ -35,6 +35,11 @@ set(CARPO_HEADERS
     ${JOVIAN_INCLUDE_DIR}/carpo/interpreter_py.hpp
 )
 
+set(CALLISTO_HEADERS
+    ${JOVIAN_INCLUDE_DIR}/callisto/engine.hpp
+    ${JOVIAN_INCLUDE_DIR}/callisto/interpreter_stata.hpp
+)
+
 # Organized by module
 set(ADRASTEA_CORE_SOURCES
     ${JOVIAN_SOURCE_DIR}/adrastea/core/kernel/kernel.cpp
@@ -125,6 +130,10 @@ set(THEMISTO_SOURCES
     ${JOVIAN_SOURCE_DIR}/themisto/http_api.hpp
     ${JOVIAN_SOURCE_DIR}/themisto/ws_relay.cpp
     ${JOVIAN_SOURCE_DIR}/themisto/ws_relay.hpp
+    ${JOVIAN_SOURCE_DIR}/themisto/access.cpp
+    ${JOVIAN_SOURCE_DIR}/themisto/access.hpp
+    ${JOVIAN_SOURCE_DIR}/themisto/activity.hpp
+    ${JOVIAN_SOURCE_DIR}/themisto/outbox.hpp
 )
 
 set(ELARA_EXE_SOURCES
@@ -153,6 +162,23 @@ set(CARPO_EXE_SOURCES
     ${JOVIAN_SOURCE_DIR}/carpo/bridge/engine.cpp
 )
 
+# The Stata kernel ("Callisto") -- see native/include/callisto/
+# interpreter_stata.hpp. Stata's shared library is loaded at runtime
+# (stata/stata_dynlib.cpp), like R and Python; stata/stata_text.cpp is the
+# plain text processing, tested without Stata.
+set(CALLISTO_SOURCES
+    ${JOVIAN_SOURCE_DIR}/callisto/interpreter_stata.cpp
+    ${JOVIAN_SOURCE_DIR}/callisto/stata/stata_dynlib.cpp
+    ${JOVIAN_SOURCE_DIR}/callisto/stata/stata_dynlib.hpp
+    ${JOVIAN_SOURCE_DIR}/callisto/stata/stata_text.cpp
+    ${JOVIAN_SOURCE_DIR}/callisto/stata/stata_text.hpp
+)
+
+set(CALLISTO_EXE_SOURCES
+    ${JOVIAN_SOURCE_DIR}/callisto/callisto.cpp
+    ${JOVIAN_SOURCE_DIR}/callisto/bridge/engine.cpp
+)
+
 # Create source groups for IDE organization
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source Files" FILES
     ${ADRASTEA_CORE_SOURCES}
@@ -161,11 +187,13 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source Files" FILES
     ${ELARA_R_SOURCES}
     ${CARPO_SOURCES}
     ${CARPO_EXE_SOURCES}
+    ${CALLISTO_SOURCES}
+    ${CALLISTO_EXE_SOURCES}
     ${ADRASTEA_UTILS_SOURCES}
     ${THEMISTO_SOURCES}
     ${ELARA_EXE_SOURCES}
 )
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/include PREFIX "Header Files" FILES ${ADRASTEA_HEADERS} ${ELARA_HEADERS} ${CARPO_HEADERS})
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/include PREFIX "Header Files" FILES ${ADRASTEA_HEADERS} ${ELARA_HEADERS} ${CARPO_HEADERS} ${CALLISTO_HEADERS})
 
 # ==========================================
 # TARGET SELECTION
@@ -203,6 +231,9 @@ option(JOVIAN_BUILD_THEMISTO "Build the kernel supervisor executable (themisto)"
 # compiles fine even on a machine with no Python installed; it just can't
 # actually run there without one, exactly like elara.exe and R_HOME.
 option(JOVIAN_BUILD_CARPO "Build the Python kernel executable (carpo)" ON)
+# Stata, like R and Python, is only needed at run time, so callisto builds
+# everywhere.
+option(JOVIAN_BUILD_CALLISTO "Build the Stata kernel executable (callisto)" ON)
 
 function(jovian_apply_platform_guid_define target_name)
     if (MSVC)
@@ -410,6 +441,34 @@ if (JOVIAN_BUILD_CARPO)
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
     jovian_apply_platform_guid_define(carpo)
+endif ()
+
+if (JOVIAN_BUILD_CALLISTO)
+    message(STATUS "Building Stata kernel executable (callisto)...")
+
+    # ==========================================
+    # CALLISTO EXECUTABLE TARGET
+    # ==========================================
+    add_executable(callisto
+        ${CALLISTO_SOURCES}
+        ${CALLISTO_EXE_SOURCES}
+        ${CALLISTO_HEADERS}
+    )
+
+    target_compile_features(callisto PRIVATE cxx_std_23)
+
+    # Everything else (nlohmann_json, cppzmq, OpenSSL::Crypto -- base64 for
+    # graph PNGs -- and the include directories) comes through `adrastea`.
+    target_link_libraries(callisto PRIVATE adrastea)
+
+    if (NOT WIN32)
+        target_link_libraries(callisto PRIVATE ${CMAKE_DL_LIBS})
+    endif ()
+
+    set_target_properties(callisto PROPERTIES
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+
+    jovian_apply_platform_guid_define(callisto)
 endif ()
 
 if(BUILD_TESTING)

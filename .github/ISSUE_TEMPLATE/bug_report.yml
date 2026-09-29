@@ -37,7 +37,7 @@ body:
     attributes:
       label: Output
       description: |
-        The error and the output around it. Run with `JOVIAN_LOG_LEVEL=debug` to include the kernels' own start-up output (`[elara]` / `[carpo]` lines), which is often where the cause is.
+        The error and the output around it. Run with `JOVIAN_LOG_LEVEL=debug` to include the kernels' own start-up output (`[elara]` / `[carpo]` / `[callisto]` lines), which is often where the cause is.
       render: shell
 
   - type: input
@@ -87,7 +87,8 @@ body:
       options:
         - R (Elara)
         - Python (Carpo)
-        - Both
+        - Stata (Callisto)
+        - More than one
         - Not sure / not about a kernel
     validations:
       required: true

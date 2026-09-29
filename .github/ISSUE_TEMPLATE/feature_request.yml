@@ -38,6 +38,7 @@ body:
         - TypeScript API (lib/)
         - R kernel (Elara / hera)
         - Python kernel (Carpo)
+        - Stata kernel (Callisto)
         - Supervisor (Themisto)
         - A new platform
         - Packaging / installation

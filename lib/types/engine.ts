@@ -26,19 +26,67 @@ export interface SessionManagerOptions {
      * 'trace' or env JOVIAN_KERNEL_OUTPUT is set.
      */
     kernelOutput?: boolean | undefined;
+    /**
+     * Answer completion and inspection for a busy R session from a second,
+     * idle R process with the same packages attached (default true). R cannot
+     * answer them itself while a cell runs. The helper is started when an R
+     * cell has been running for a second, one per R installation, shared by
+     * the sessions using it, and stopped with them; it costs one more R
+     * process. Set false to have such requests wait for the cell instead.
+     */
+    busyHelper?: boolean | undefined;
+    /**
+     * Keep the supervisor (and so every session) running when this process
+     * exits, so the next SessionManager -- after a window reload, a restart
+     * of the host app -- reconnects to it: `true`, or where to record it and
+     * how long it may sit unused. See SessionManager.listSessions() and
+     * attachSession(). Default: off -- sessions end with this process.
+     */
+    persistent?: boolean | PersistentOptions | undefined;
+}
+
+export interface PersistentOptions {
+    /**
+     * Where the running supervisor is recorded (address and access token --
+     * written readable by this user only). SessionManagers with the same
+     * stateFile share one supervisor. Default: ~/.jovian/supervisor.json.
+     */
+    stateFile?: string | undefined;
+    /**
+     * The supervisor stops itself, and every session in it, after this many
+     * minutes with no client connected (default 60).
+     */
+    idleShutdownMinutes?: number | undefined;
+}
+
+/** How Session.complete() / inspect() behave while a cell is running. */
+export interface BusyRequestOptions {
+    /**
+     * When the kernel (or, for R, its helper -- see
+     * SessionManagerOptions.busyHelper) cannot answer until the running cell
+     * finishes: wait for it (true, the default), or resolve at once with
+     * nothing found and `metadata['jovian/busy']` set (false) -- for
+     * as-you-type requests that should not sit behind a long cell.
+     */
+    waitForCell?: boolean | undefined;
+    /** How long to wait for the reply, in ms (default 10000) -- raise it to wait out a long cell. */
+    timeout?: number | undefined;
 }
 
 export type LoggerFunction = (level: LogLevel, message: string, data?: any) => void;
 
+/** The kernels a session can run: R (Elara), Python (Carpo) or Stata (Callisto). */
+export type KernelType = 'r' | 'python' | 'stata' | 'ark';
+
 export interface EngineOptions {
     /**
      * Which kernel a session runs: 'r' (Elara, the default -- every caller
-     * that predates this field keeps behaving exactly as before) or
-     * 'python' (Carpo). Selects which set of the fields below the
+     * that predates this field keeps behaving exactly as before), 'python'
+     * (Carpo) or 'stata' (Callisto). Selects which set of the fields below the
      * supervisor actually uses (native/src/themisto/session_registry.cpp's
      * SessionOptions::kernelType) and which kernel executable it spawns.
      */
-    kernelType?: 'r' | 'python' | undefined;
+    kernelType?: KernelType | undefined;
 
     /** R installation (`R RHOME`). Found from $R_HOME, `R RHOME` or the Windows registry when omitted. */
     rHome?: string | undefined;
@@ -62,6 +110,29 @@ export interface EngineOptions {
     pythonPath?: string | undefined;
     /** Only used when kernelType is 'python' -- not yet consulted by Carpo itself (see carpo::EnvironmentConfig). */
     venvPath?: string | undefined;
+
+    /**
+     * Only used when kernelType is 'stata' -- the directory Stata (17 or
+     * newer) is installed in, the one holding its executable and shared
+     * library (e.g. `C:\Program Files\StataNow19`, `/usr/local/stata19`,
+     * `/Applications/StataNow`). Found from $STATA_HOME or the usual install
+     * locations when omitted.
+     */
+    stataHome?: string | undefined;
+    /**
+     * Only used when kernelType is 'stata' -- which edition to load when more
+     * than one is installed in stataHome. Default: the first of 'mp', 'se',
+     * 'be' that is there.
+     */
+    stataEdition?: 'mp' | 'se' | 'be' | undefined;
+
+    /**
+     * Only used when kernelType is 'ark' -- Posit's Ark R kernel (the one in
+     * Positron), run by the same supervisor instead of Elara: an experiment,
+     * see docs/kernels.md. The ark executable; found from $ARK_PATH, Positron's
+     * install, or ark on PATH when omitted. R comes from rHome, as for 'r'.
+     */
+    arkPath?: string | undefined;
 
     /**
      * Directory the kernel process starts in -- what `getwd()` (R) /
@@ -209,7 +280,7 @@ export interface HeartbeatInfo {
 export interface SessionStatusInfo {
     sessionId: string;
     status: 'starting' | 'ready' | 'stopped' | 'crashed';
-    kernelType: 'r' | 'python';
+    kernelType: KernelType;
     workingDirectory: string;
     /** OS process id of the kernel; 0 when it is not running. */
     pid: number;

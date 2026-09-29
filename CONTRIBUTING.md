@@ -35,7 +35,7 @@ npm test                 # native ctest + TypeScript unit + integration tests
 
 ## Native code
 
-Adrastea, Elara, Carpo and Themisto run several threads per process, so a few things are worth knowing before you touch them: ZeroMQ sockets are not thread-safe (a socket used from two threads needs a lock, as `DealerChannel` has), and R and Python are each embedded in one process on one thread (see [Architecture](docs/architecture/overview.md)). Interrupt and shutdown paths differ between Windows and POSIX; test both.
+Adrastea, Elara, Carpo, Callisto and Themisto run several threads per process, so a few things are worth knowing before you touch them: ZeroMQ sockets are not thread-safe (a socket used from two threads needs a lock, as `DealerChannel` has), and R and Python are each embedded in one process on one thread (see [Architecture](docs/architecture/overview.md)). Interrupt and shutdown paths differ between Windows and POSIX; test both.
 
 ## Adding a platform
 

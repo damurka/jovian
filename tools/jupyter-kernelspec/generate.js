@@ -1,74 +1,49 @@
 #!/usr/bin/env node
-// Writes Jupyter kernelspecs (kernel.json) for elara.exe's and carpo.exe's
-// -f/--connection-file launch mode (native/src/elara/elara.cpp,
-// native/src/carpo/carpo.cpp) -- the standard "a frontend picks ports,
+// Writes Jupyter kernelspecs (kernel.json) for elara.exe's, carpo.exe's and
+// callisto.exe's -f/--connection-file launch mode (native/src/elara/elara.cpp,
+// native/src/carpo/carpo.cpp, native/src/callisto/callisto.cpp) -- the standard "a frontend picks ports,
 // writes a connection file, launches this argv with {connection_file}
 // substituted in" protocol, as opposed to the themisto-specific
 // --registration-port/--key mode used by lib/session/supervisor-client.ts.
 //
-// Writes BOTH kernelspecs by default (elara/kernel.json and
-// carpo/kernel.json under the output directory) -- pass --only=r or
-// --only=python to write just one, e.g. on a machine that only built one
-// of the two (JOVIAN_BUILD_CARPO defaults ON now, but a stale build
-// directory from before that change might still be missing carpo.exe). A
-// missing executable for the *other* kernel only skips that one kernel's
-// spec (with a warning), it doesn't abort the whole run.
+// Writes every kernelspec by default (elara/, carpo/ and callisto/
+// kernel.json under the output directory) -- pass --only=r, --only=python or
+// --only=stata to write just one. A missing executable, or no Stata found,
+// only skips that one kernel's spec (with a warning), it doesn't abort the
+// whole run.
 //
-// R_HOME/R_PATH/PYTHONHOME are baked into argv at generation time (same
-// process.env.R_HOME/PYTHONHOME fallback pattern as tools/playground/
-// lib/env.mjs and test/integration/session-manager.test.ts) rather than
-// looked up at kernel-launch time, since kernel.json's argv is static --
-// re-run this after moving R/Python installs or rebuilding elara.exe/
-// carpo.exe somewhere new.
+// R_HOME/R_PATH/PYTHONHOME/STATA_HOME are baked into argv at generation time
+// rather than looked up at kernel-launch time, since kernel.json's argv is
+// static -- re-run this after moving an install or rebuilding the kernels
+// somewhere new. They are found exactly as SessionManager finds them (the
+// built library's lib/session/runtimes.ts), so run `npm run build:lib` first.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { execSync } from 'node:child_process';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
 
-// R_HOME isn't set as an inherited env var by every R install (confirmed
-// via a real CI failure once this fell through to a hardcoded Windows-only
-// path on Linux/macOS). `R RHOME` is R's own portable way of answering
-// this on every platform, matching cmake/FindR.cmake's own technique; the
-// hardcoded path remains only as a last resort for a Windows machine with
-// R installed but not on PATH at all.
-function discoverRHome() {
-    if (process.env.R_HOME) return process.env.R_HOME;
-    try {
-        return execSync('R RHOME', { encoding: 'utf8' }).trim();
-    } catch {
-        return 'C:/Program Files/R/R-4.6.0';
+let runtimesModule;
+async function runtimes() {
+    const file = path.join(REPO_ROOT, 'dist', 'lib', 'session', 'runtimes.js');
+    if (!existsSync(file)) {
+        throw new Error(`The library is not built (${file} is missing) -- run \`npm run build:lib\` first.`);
     }
+    runtimesModule ??= await import(pathToFileURL(file).href);
+    return runtimesModule;
 }
 
-function defaultREnv() {
-    const rHome = discoverRHome();
-    return {
-        rHome,
-        rPath: process.env.R_PATH || `${rHome}/bin/x64`,
-        rLibs: process.env.R_LIBS || ''
-    };
+async function defaultREnv() {
+    const rHome = await (await runtimes()).discoverRHome();
+    // R.dll lives in bin/x64 on Windows; elsewhere R finds its own library.
+    const rPath = process.env.R_PATH || (rHome && process.platform === 'win32' ? `${rHome}/bin/x64` : '');
+    return { rHome, rPath, rLibs: process.env.R_LIBS || '' };
 }
 
-// Same "ask the runtime itself" pattern as discoverRHome() above (and
-// native/test/CMakeLists.txt's CARPO_TEST_PYTHON_HOME, which asks a
-// CMake-discovered Python the same question) -- Python's own sys.prefix
-// is the portable, correct answer to "what should PYTHONHOME be for this
-// exact interpreter" on every platform. Tries `python3` before `python`
-// since that's the more specific/unambiguous name where both exist.
-function discoverPythonHome() {
-    if (process.env.PYTHONHOME) return process.env.PYTHONHOME;
-    for (const cmd of ['python3', 'python']) {
-        try {
-            return execSync(`${cmd} -c "import sys; print(sys.prefix)"`, { encoding: 'utf8' }).trim();
-        } catch {
-            // Try the next candidate command name.
-        }
-    }
-    return process.platform === 'win32' ? 'C:/Python312' : '/usr';
+async function discoverPythonHome() {
+    return (await runtimes()).discoverPythonHome();
 }
 
 function resolveExecutable(name) {
@@ -101,8 +76,15 @@ async function writeElaraKernelSpec(baseDir) {
         return;
     }
 
-    const { rHome, rPath, rLibs } = defaultREnv();
-    const argv = [exePath, '-f', '{connection_file}', '--r-home', rHome, '--r-path', rPath];
+    const { rHome, rPath, rLibs } = await defaultREnv();
+    if (!rHome) {
+        console.warn('Skipping R (Elara) kernelspec -- no R found; set R_HOME to its directory.');
+        return;
+    }
+    const argv = [exePath, '-f', '{connection_file}', '--r-home', rHome];
+    if (rPath) {
+        argv.push('--r-path', rPath);
+    }
     if (rLibs) {
         argv.push('--r-libs', rLibs);
     }
@@ -132,7 +114,11 @@ async function writeCarpoKernelSpec(baseDir) {
         return;
     }
 
-    const pythonHome = discoverPythonHome();
+    const pythonHome = await discoverPythonHome();
+    if (!pythonHome) {
+        console.warn('Skipping Python (Carpo) kernelspec -- no Python found; set PYTHONHOME to its prefix.');
+        return;
+    }
     const argv = [exePath, '-f', '{connection_file}', '--python-home', pythonHome];
 
     const kernelSpec = {
@@ -153,18 +139,57 @@ async function writeCarpoKernelSpec(baseDir) {
     console.log(`\nInstall it for the current user with:\n  jupyter kernelspec install "${outDir}" --user --name carpo`);
 }
 
+async function discoverStataHome() {
+    return (await runtimes()).discoverStataHome();
+}
+
+async function writeCallistoKernelSpec(baseDir) {
+    const exePath = resolveExecutable('callisto');
+    if (!existsSync(exePath)) {
+        console.warn(`Skipping Stata (Callisto) kernelspec -- executable not found at ${exePath} (build it first: npm run build:native).`);
+        return;
+    }
+
+    const stataHome = await discoverStataHome();
+    if (!stataHome) {
+        console.warn('Skipping Stata (Callisto) kernelspec -- no Stata 17+ found; set STATA_HOME to its directory.');
+        return;
+    }
+    const argv = [exePath, '-f', '{connection_file}', '--stata-home', stataHome];
+
+    const kernelSpec = {
+        argv,
+        display_name: 'Stata (Callisto)',
+        language: 'stata',
+        interrupt_mode: 'message'
+    };
+
+    const outDir = path.join(baseDir, 'callisto');
+    await mkdir(outDir, { recursive: true });
+    const kernelJsonPath = path.join(outDir, 'kernel.json');
+    await writeFile(kernelJsonPath, JSON.stringify(kernelSpec, null, 2) + '\n');
+
+    console.log(`Wrote ${kernelJsonPath}`);
+    console.log(JSON.stringify(kernelSpec, null, 2));
+    console.log(`\nInstall it for the current user with:\n  jupyter kernelspec install "${outDir}" --user --name callisto`);
+}
+
 async function main() {
     const positional = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
     const onlyArg = process.argv.find((arg) => arg.startsWith('--only='));
-    const only = onlyArg ? onlyArg.slice('--only='.length) : 'both';
+    const only = onlyArg ? onlyArg.slice('--only='.length) : 'all';
+    const wants = (kernel) => only === 'all' || only === 'both' || only === kernel;
 
     const baseDir = positional[0] || path.join(REPO_ROOT, 'kernelspec');
 
-    if (only !== 'python') {
+    if (wants('r')) {
         await writeElaraKernelSpec(baseDir);
     }
-    if (only !== 'r') {
+    if (wants('python')) {
         await writeCarpoKernelSpec(baseDir);
+    }
+    if (wants('stata')) {
+        await writeCallistoKernelSpec(baseDir);
     }
 }
 

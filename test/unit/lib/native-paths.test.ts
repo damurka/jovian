@@ -107,6 +107,15 @@ test('bundledHeraSource', async (t) => {
         assert.strictEqual(found, join('app', 'node_modules', '@damurka', 'jovian', 'packages', 'hera'));
     });
 
+    await t.test('in an Electron app: the unpacked copy beside the asar archive, which R can read', () => {
+        const inAsar = join('app', 'resources', 'app', 'node_modules.asar', '@damurka', 'jovian', 'lib', 'session');
+        const unpacked = join('app', 'resources', 'app', 'node_modules.asar.unpacked', '@damurka', 'jovian', 'packages', 'hera');
+        assert.strictEqual(bundledHeraSource(inAsar, (p) => p === join(unpacked, 'DESCRIPTION')), unpacked);
+        // loaded from the unpacked folder itself
+        const fromUnpacked = join('app', 'resources', 'app', 'node_modules.asar.unpacked', '@damurka', 'jovian', 'lib', 'session');
+        assert.strictEqual(bundledHeraSource(fromUnpacked, (p) => p === join(unpacked, 'DESCRIPTION')), unpacked);
+    });
+
     await t.test('is undefined in a source checkout so development controls which hera loads', () => {
         const checkout = join('repo', 'dist', 'lib', 'session');
         assert.strictEqual(bundledHeraSource(checkout, () => true), undefined);

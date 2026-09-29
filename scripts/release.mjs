@@ -33,7 +33,7 @@ export const TARGETS = {
 
 const DIR_NAME = PACKAGE.split('/').pop();
 const REPOSITORY = 'https://github.com/damurka/jovian';
-const KERNELS = ['themisto', 'elara', 'carpo'];
+const KERNELS = ['themisto', 'elara', 'carpo', 'callisto'];
 // Everything else the Windows build puts next to the executables that the
 // kernels need at run time (vcpkg's dynamic libraries). Test binaries,
 // gtest, PDBs and import libraries are not among them.
@@ -93,7 +93,7 @@ export function platformManifest(version, target) {
     return {
         name: `${PACKAGE}-${target}`,
         ...common(version),
-        description: `Prebuilt Jovian kernels (themisto, elara, carpo) for ${os} ${cpu}. Install ${PACKAGE}, not this.`,
+        description: `Prebuilt Jovian kernels (themisto, elara, carpo, callisto) for ${os} ${cpu}. Install ${PACKAGE}, not this.`,
         os: [os],
         cpu: [cpu],
         files: ['bin', 'README.md', 'LICENSE']
@@ -177,7 +177,7 @@ export function stagePlatform(version, target, from, out = OUT) {
     }
 
     writeFileSync(join(dir, 'README.md'),
-        `# ${PACKAGE}-${target}\n\nPrebuilt kernels (themisto, elara${shipped.includes(exe('carpo')) ? ', carpo' : ''}) for ${target}.\n` +
+        `# ${PACKAGE}-${target}\n\nPrebuilt kernels (${KERNELS.filter((k) => shipped.includes(exe(k))).join(', ')}) for ${target}.\n` +
         `This is an implementation detail of [${PACKAGE}](https://www.npmjs.com/package/${PACKAGE}): install that package, not this one.\n`);
     cpSync(join(ROOT, 'LICENSE'), join(dir, 'LICENSE'));
     writeJson(join(dir, 'package.json'), platformManifest(version, target));
