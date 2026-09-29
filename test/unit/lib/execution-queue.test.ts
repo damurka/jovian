@@ -92,6 +92,25 @@ test('ExecutionQueue', async (t) => {
         assert.strictEqual(result.output.length, 1);
     });
 
+    await t.test('output still arriving after the reply keeps the wait for idle going', async () => {
+        // A flood's iopub backlog can arrive seconds behind the reply (macOS
+        // CI runners); a fixed wait from the reply finished the execution
+        // with most of the output still to come.
+        const emitter = new EventEmitter();
+        const queue = new ExecutionQueue({ execute: () => 'msg-backlog' }, emitter, 100, undefined, undefined, 40);
+        const resultPromise = queue.execute('for (i in 1:20000) cat(i)');
+        emitter.emit('message', message('execute_reply', 'msg-backlog', { status: 'ok', execution_count: 1 }));
+        for (let i = 0; i < 6; i++) { // 150 ms of output, far past the 40 ms wait
+            await new Promise((resolve) => setTimeout(resolve, 25));
+            emitter.emit('message', message('stream', 'msg-backlog', { name: 'stdout', text: `${i}
+` }));
+        }
+        emitter.emit('message', message('status', 'msg-backlog', { execution_state: 'idle' }));
+
+        const result = await resultPromise;
+        assert.strictEqual(result.output.length, 6, 'every message that came before the idle is in the result');
+    });
+
     await t.test('an aborted reply finishes at once: the request never ran, so no idle follows', async () => {
         const emitter = new EventEmitter();
         const queue = new ExecutionQueue({ execute: () => 'msg-aborted' }, emitter, 100, undefined, undefined, 60_000);

@@ -1052,10 +1052,7 @@ hera::CommManager$register_comm_target("echo2", function(comm, message) {
             });
             const flood = await session.execute('for (i in 1:20000) cat("line", i, "\\n")', { timeout: 120000 });
             assert.strictEqual(flood.success, true);
-            // One message per console write: ~80 000 on Windows and Linux, but
-            // R on macOS hands the console larger pieces (15 000-25 000).
-            // Batched output would be under a hundred.
-            assert.ok(messages > 5000, `expected an unbatched flood, got ${messages} messages`);
+            assert.ok(messages > 50000, `expected an unbatched flood, got ${messages} messages`);
             const lines = text.split('\n').filter(Boolean);
             assert.strictEqual(lines.length, 20000, 'every line arrived');
             assert.strictEqual(lines[19999], 'line 20000 ');

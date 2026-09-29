@@ -22,12 +22,19 @@ interface PendingExecution {
     // Set once execute_reply has arrived while `idle` has not: finishes the
     // execution as soon as it does.
     finishWhenIdle: (() => void) | undefined;
+    // Set while finishWhenIdle is: restarts the wait for the idle, because
+    // another message for the request just arrived.
+    restartIdleWait: (() => void) | undefined;
 }
 
 const DEFAULT_TIMEOUT_MS = 30000;
-// How long after execute_reply to wait for the kernel's `status: idle`, if it
-// has not come yet. A kernel publishes it right after the reply, so this only
-// matters for one that never does; it must not make such a kernel hang.
+// How long to wait for the kernel's `status: idle` after execute_reply, or
+// after the request's latest message, if it has not come yet. A kernel
+// publishes it right after the reply, so this only matters for one that never
+// does; it must not make such a kernel hang. The wait restarts with each
+// message: after a flood the iopub backlog can take seconds to arrive behind
+// the reply (macOS CI runners: over 2 s for 80 000 messages), and output still
+// coming means the idle is still to come.
 const DEFAULT_IDLE_WAIT_MS = 2000;
 const ABORTED_MESSAGE = 'Execution aborted: an earlier execution failed with stopOnError';
 
@@ -139,6 +146,7 @@ export class ExecutionQueue {
             output: [],
             idle: false,
             finishWhenIdle: undefined,
+            restartIdleWait: undefined,
             timer,
             finish: (result) => {
                 clearTimeout(timer);
@@ -161,6 +169,7 @@ export class ExecutionQueue {
         if (!pending) {
             return;
         }
+        pending.restartIdleWait?.();
 
         switch (message.msgType) {
             case 'input_request':
@@ -219,6 +228,7 @@ export class ExecutionQueue {
                 const finishNow = () => {
                     clearTimeout(idleFallback);
                     pending.finishWhenIdle = undefined;
+                    pending.restartIdleWait = undefined;
                     if (replyStatus !== 'ok' && pending.stopOnError) {
                         this.abortQueued();
                     }
@@ -251,7 +261,8 @@ export class ExecutionQueue {
                 // publishes `status: idle` on iopub, after all of the request's
                 // output and on the same socket, so the execution is finished
                 // once both the reply and that idle have arrived. A kernel that
-                // never sends the idle costs idleWaitMs, not a hang.
+                // never sends the idle costs idleWaitMs after its last message,
+                // not a hang.
                 //
                 // An aborted request (stop_on_error) never ran: the kernel sends
                 // its reply and nothing else, no output and no idle.
@@ -259,13 +270,17 @@ export class ExecutionQueue {
                     finishNow();
                 } else {
                     pending.finishWhenIdle = finishNow;
-                    idleFallback = setTimeout(() => {
-                        if (this.pending.get(message.parentMsgId) === pending) {
-                            this.logger?.warn(`Execution ${message.parentMsgId}: no idle status within ${this.idleWaitMs}ms of the reply; finishing without it`);
-                            finishNow();
-                        }
-                    }, this.idleWaitMs);
-                    idleFallback.unref?.();
+                    pending.restartIdleWait = () => {
+                        clearTimeout(idleFallback);
+                        idleFallback = setTimeout(() => {
+                            if (this.pending.get(message.parentMsgId) === pending) {
+                                this.logger?.warn(`Execution ${message.parentMsgId}: no idle status within ${this.idleWaitMs}ms of its last message; finishing without it`);
+                                finishNow();
+                            }
+                        }, this.idleWaitMs);
+                        idleFallback.unref?.();
+                    };
+                    pending.restartIdleWait();
                 }
                 break;
             }
