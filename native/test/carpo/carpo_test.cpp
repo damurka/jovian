@@ -412,10 +412,12 @@ TEST(CarpoTest, PythonThreadsKeepRunningWhileTheKernelIsIdle)
         "        ticks.append(1)\n"
         "        time.sleep(0.01)\n"
         "threading.Thread(target=tick, daemon=True).start()\n");
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    // ~200 ticks in 2 s; a slow macOS CI runner managed 8 in 500 ms. With the
+    // GIL held while idle the thread gets one or two.
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
     int ticks = std::stoi(valueAfter(interpreter, "", "len(ticks)"));
-    EXPECT_GT(ticks, 10) << "the thread barely ran while the kernel was idle";
+    EXPECT_GT(ticks, 5) << "the thread barely ran while the kernel was idle";
 }
 
 TEST(CarpoTest, SysExecutableIsARealPythonNotTheKernel)
