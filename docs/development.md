@@ -6,7 +6,7 @@
 CMakeLists.txt, native/CMakeLists.txt, native/test/CMakeLists.txt   the build (see below)
 cmake/                  FindR.cmake, FindLibUUID.cmake
 vcpkg.json              native dependencies (manifest, pinned baseline)
-native/                 C++: adrastea (static lib), elara, carpo, themisto — see architecture/overview.md
+native/                 C++: adrastea (static lib), elara, carpo, callisto, themisto — see architecture/overview.md
 lib/                    the TypeScript package
 packages/hera/          the R companion package
 test/unit/lib/          TypeScript unit tests (Session against a fake WebSocket, ExecutionQueue, …)
@@ -28,6 +28,7 @@ dist/                   ALL build output (gitignored): dist/lib, dist/native, di
 | `JOVIAN_BUILD_ELARA` | ON | Build the `elara` executable |
 | `JOVIAN_BUILD_THEMISTO` | ON | Build the `themisto` executable |
 | `JOVIAN_BUILD_CARPO` | ON | Build the `carpo` executable |
+| `JOVIAN_BUILD_CALLISTO` | ON | Build the `callisto` executable |
 | `JOVIAN_BUILD_TESTS` | OFF | Build the GoogleTest executables and register them with CTest |
 | `JOVIAN_SANITIZE_ADDRESS` | OFF | Address sanitizer |
 
@@ -51,9 +52,9 @@ Platform notes baked into the build: Windows links the MSVC dynamic runtime, giv
 |---|---|---|---|
 | **Native (GoogleTest / CTest)** | `npm test` (first stage), or by hand: configure `dist/native-test` with `-DJOVIAN_BUILD_TESTS=ON`, build, `ctest --test-dir dist/native-test -C Release --output-on-failure --timeout 180` | vcpkg deps; R + `hera` for `SessionRegistryTest`; Python for `CarpoTest` | 12 CTest entries, below |
 | **TypeScript unit** | `npm run test:unit` | built `dist/lib` | `Session` against a fake WebSocket, `ExecutionQueue`, router, middleware, option bodies. No processes. |
-| **Integration** | `npm run test:integration` | built native binaries + `dist/lib`, R + `hera`; Python + `carpo` for the Python tests | Real `SessionManager` → `themisto` → `elara`/`carpo`: execute, streaming, stdin (R and Python), history, complete/inspect/is_complete/kernel_info, user expressions, `stopOnError`, interrupt (R and Python), working directory, stderr, comms (client- and kernel-initiated), `shutdown_reply` on stop/restart. Skips itself if `themisto` is not built; the Python tests skip without Python or `carpo`. |
+| **Integration** | `npm run test:integration` | built native binaries + `dist/lib`, R + `hera`; Python + `carpo` for the Python tests; a licensed Stata + `callisto` for the Stata test | Real `SessionManager` → `themisto` → `elara`/`carpo`: execute, streaming, stdin (R and Python), history, complete/inspect/is_complete/kernel_info, user expressions, `stopOnError`, interrupt (R and Python), working directory, stderr, comms (client- and kernel-initiated), `shutdown_reply` on stop/restart. Skips itself if `themisto` is not built; the Python tests skip without Python or `carpo`. |
 
-CTest entries: `MessageTest`, `MiddlewareTest`, `AuthenticationTest`, `ZmqSerializerTest`, `KernelConfigurationTest`, `ClientZmqTest`, `ClientHeartbeatTest`, `ClientHandshakeZmqTest` (transport, no R); `ElaraTest` (spawns `elara` for its start-up failure paths); `KernelProcessTest` (spawn/liveness/kill against a dummy helper); `SessionRegistryTest` (drives a real `elara` through `SessionRegistry` — create/execute/restart/stop/interrupt/requests/comms/stop-on-error/user-expressions and concurrency races; ~20 kernel starts, ~25 s locally, 180 s CTest timeout); `CarpoTest` (embeds real Python: execution, streaming, complete/inspect, venv activation).
+CTest entries: `MessageTest`, `MiddlewareTest`, `AuthenticationTest`, `ZmqSerializerTest`, `KernelConfigurationTest`, `ClientZmqTest`, `ClientHeartbeatTest`, `ClientHandshakeZmqTest` (transport, no R); `ElaraTest` (spawns `elara` for its start-up failure paths); `KernelProcessTest` (spawn/liveness/kill against a dummy helper); `SessionRegistryTest` (drives a real `elara` through `SessionRegistry` — create/execute/restart/stop/interrupt/requests/comms/stop-on-error/user-expressions and concurrency races; ~20 kernel starts, ~25 s locally, 180 s CTest timeout); `CarpoTest` (embeds real Python: execution, streaming, complete/inspect, venv activation, threads and asyncio tasks between cells, top-level `await`, `sys.executable`, completion while a cell runs); `CallistoStataTextTest` (Stata's is_complete, completion tokens and error messages, no Stata needed); `CallistoTest` (embeds a real, licensed Stata 17+ from `STATA_HOME`: output, errors, graphs, completion, inspection; skipped without one).
 
 Playground tests are separate: `npm --prefix tools/playground test`.
 
@@ -64,7 +65,7 @@ The `hera` R package is installed into your R library, not run from the repo: af
 ### Gotchas
 
 - **The TypeScript tests import the compiled library from `dist/lib`.** After changing `lib/`, run `npm run build:lib` first, or you are testing stale code.
-- **Windows will not overwrite a running `.exe`.** A leftover `themisto.exe` / `elara.exe` / `carpo.exe` (a crashed test run, a playground left open) makes the next native build fail at link time (`LNK1104`) and can silently slow or hang later runs. Kernels are put in a job object that dies with Themisto, but a supervisor that outlives its test runner still keeps them. Check with `tasklist | findstr /i "themisto elara carpo"` and kill strays before building. To run something while rebuilding, point `JOVIAN_NATIVE_DIR` at a *copy* of `dist/native/Release`.
+- **Windows will not overwrite a running `.exe`.** A leftover `themisto.exe` / `elara.exe` / `carpo.exe` / `callisto.exe` (a crashed test run, a playground left open) makes the next native build fail at link time (`LNK1104`) and can silently slow or hang later runs. Kernels are put in a job object that dies with Themisto, but a supervisor that outlives its test runner still keeps them. Check with `tasklist | findstr /i "themisto elara carpo"` and kill strays before building. To run something while rebuilding, point `JOVIAN_NATIVE_DIR` at a *copy* of `dist/native/Release`.
 - **Linux (Ubuntu/Debian).** The suites were run on Ubuntu 26.04 under WSL (native 12/12, unit, integration). What that setup needed: `cmake ninja-build uuid-dev r-base-dev python3-venv` from apt (`python3-venv` is for CarpoTest's venv test); the **official Node** from nodejs.org, because the distribution's Node has no TypeScript type stripping (`ERR_UNKNOWN_FILE_EXTENSION` on `.ts`); and `hera`'s dependencies from CRAN in a private `R_LIBS_USER` with `R_LIBS_SITE=/nonexistent`, since the apt `r-cran-*` packages fail to load (`undefined symbol: SETLENGTH`, built for a different R ABI). Export those two variables in the shell that runs `ctest` and the Node tests so the kernel processes inherit them. Build in the WSL filesystem (rsync the tree), not under `/mnt/c`. macOS is covered only by CI.
 - **A test that holds a mutex its own `onMessage` callback needs, while calling `stopSession()`, deadlocks:** the supervisor's poll thread now keeps relaying (the kernel's `shutdown_reply`) during the stop. Scope such locks.
 - **Every real-kernel test starts a process** (~0.7 s locally, more on cold CI runners) — keep the number of sessions per test small.
@@ -78,7 +79,7 @@ The `hera` R package is installed into your R library, not run from the repo: af
 2. `r-lib/actions/setup-r-dependencies` with `packages: local::packages/hera` — installs `hera` and all its CRAN imports (real code execution needs it).
 3. `uuid-dev` on Linux.
 4. Clone and bootstrap vcpkg (`VCPKG_ROOT`), with the vcpkg binary cache keyed on the platform and `vcpkg.json`.
-5. **One** native build (`dist/native`, Release, `-DJOVIAN_BUILD_TESTS=ON`): elara, themisto, carpo and the tests. The release script ships only the kernels and their libraries, never the test binaries.
+5. **One** native build (`dist/native`, Release, `-DJOVIAN_BUILD_TESTS=ON`): elara, themisto, carpo, callisto and the tests. The release script ships only the kernels and their libraries, never the test binaries.
 6. `ctest -C Release --output-on-failure --timeout 180`.
 7. `npm ci --legacy-peer-deps` (a known peer-dependency conflict between TypeScript 7 and the `@typescript-eslint` plugin), `npx tsc --build`, unit tests, integration tests.
 

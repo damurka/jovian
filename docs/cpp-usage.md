@@ -5,7 +5,8 @@ Jovian's native layer is four CMake targets, defined in [`native/CMakeLists.txt`
 - **`adrastea`** — a static library: the language-neutral Jupyter kernel framework (transport, messaging, the kernel request loop, the abstract `Interpreter` interface). Public headers under [`native/include/adrastea/`](../native/include/adrastea).
 - **`elara`** — an executable: embeds R on top of `adrastea`. Public headers under [`native/include/elara/`](../native/include/elara).
 - **`carpo`** — an executable: embeds Python (CPython) on top of `adrastea` the same way. Public headers under [`native/include/carpo/`](../native/include/carpo).
-- **`themisto`** — an executable: the supervisor that spawns/monitors `elara`/`carpo` processes, one per session, keyed by that session's `kernelType`.
+- **`callisto`** — an executable: embeds Stata (17+, through the shared library Stata ships for pystata) on top of `adrastea`. Public headers under [`native/include/callisto/`](../native/include/callisto).
+- **`themisto`** — an executable: the supervisor that spawns/monitors `elara`/`carpo`/`callisto` processes, one per session, keyed by that session's `kernelType`.
 
 ## Current state: in-tree only
 
@@ -32,13 +33,16 @@ This is exactly the shape both Elara and Carpo have (`native/src/carpo/`, built 
 
 ### Threading contract for interpreter authors
 
-The kernel executes code and reads its sockets on **one thread** (the process's main thread), and every `Interpreter` virtual is called from it — with **one exception**:
+The kernel executes code and reads its sockets on **one thread** (the process's main thread), and every `Interpreter` virtual is called from it — with **two exceptions**:
 
 - **`interruptRequestImpl()` is called from a different thread**, the *control watcher*, while `executeRequestImpl()` is still running (`KernelCore::executeRequest` brackets the interpreter call with `Server::beginExecution()` / `endExecution()`; between them a watcher thread services `interrupt_request` on the control channel — see [Architecture](architecture/overview.md#inside-a-kernel-process-elara--carpo)). It must therefore only do thread-safe things: flag the runtime to break out of what it is doing, and return `createInterruptReply()`. Do not touch the interpreter's state or call its API from it.
 - Only flag an interrupt **while an execution is actually running** (keep an `std::atomic<bool>` set by `executeRequestImpl`, as `RInterpreter` and `PyInterpreter` do). An interrupt with nothing to interrupt would otherwise linger and abort the *next* execution.
 - Make the runtime check that flag *and* wake blocking calls. R: set `R_interrupts_pending` (POSIX) / `UserBreak` (Windows); R polls it. Python: a real SIGINT to the interpreter thread (`raise(SIGINT)` on Windows, `pthread_kill` on POSIX) with `signal.default_int_handler` installed, because `PyErr_SetInterrupt()` alone does not wake `time.sleep()`.
 - Publishing from the watcher is safe (`ServerZmqImpl` serialises iopub publishing and control replies); everything else, including anything reached through `getInterpreter()`, is not.
 - All other control messages (`shutdown_request`, …) sent during an execution are queued and delivered on the main thread afterwards.
+- **Requests you opt in with `answersWhileBusyImpl(msg_type)`** (return `true` for, say, `"complete_request"`) are called from the kernel's busy-request thread while `executeRequestImpl()` runs -- and may also run at the same time as the next request after it. Say yes only for handlers that are safe to run concurrently with everything else: text-only ones (Callisto's `is_complete`), or ones that take the runtime's own lock (Carpo takes the GIL). The default is `false`: the request waits for the execution.
+
+One more hook runs on the main thread: **`idleImpl()`**, called every ~20 ms while no request is waiting. Use it to run the runtime's own event loop so timers and callbacks progress between requests (Elara runs `later::run_now()`, Carpo one pass of the session's asyncio loop). Keep it cheap when there is nothing to do; output it produces is published as part of the latest request.
 
 Also part of the contract: `executeRequestImpl` must call its reply callback exactly once, honour `ExecuteRequestConfig::allow_stdin` for blocking reads (`adrastea::blockingInputRequest`, which throws when stdin is not allowed), evaluate `user_expressions` after a successful execution and return them in `createSuccessfulReply(payload, user_expressions)`, and report `restart` back in `shutdownRequestImpl`'s `createShutdownReply(restart)`.
 

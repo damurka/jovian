@@ -40,7 +40,7 @@ On Debian/Ubuntu, if `hera` fails to install with `undefined symbol: SETLENGTH`,
 
 ```sh
 npm install --legacy-peer-deps
-npm run build          # native (elara, carpo, themisto) -> dist/native/Release, then TypeScript -> dist/lib
+npm run build          # native (elara, carpo, callisto, themisto) -> dist/native/Release, then TypeScript -> dist/lib
 ```
 
 `npm run build` uses `VCPKG_ROOT`'s toolchain file; the first build compiles ZeroMQ, OpenSSL and the other vcpkg dependencies, which takes a while (vcpkg caches them afterwards). If it succeeds you have `dist/native/Release/{themisto,elara,carpo}[.exe]` and `dist/lib/`.

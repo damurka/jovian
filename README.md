@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/damurka/jovian/actions/workflows/ci.yml/badge.svg)](https://github.com/damurka/jovian/actions/workflows/ci.yml)
 
-Jovian runs **R** and **Python** as supervised Jupyter kernels that you can drive from Node.js and Electron. Every session is its own operating-system process with its own embedded interpreter, so one session blocking on a long call (a Shiny app, a slow loop) never starves another, and a kernel that crashes takes only its own session with it.
+Jovian runs **R**, **Python** and **Stata** as supervised Jupyter kernels that you can drive from Node.js and Electron. Every session is its own operating-system process with its own embedded interpreter, so one session blocking on a long call (a Shiny app, a slow loop) never starves another, and a kernel that crashes takes only its own session with it.
 
 ```typescript
 import { SessionManager } from '@damurka/jovian';
@@ -16,6 +16,9 @@ console.log(result.success, result.output);
 const py = await manager.createSession({ kernelType: 'python' });
 console.log((await py.execute('sum(range(1, 11))')).success);
 
+const stata = await manager.createSession({ kernelType: 'stata' });
+await stata.execute('sysuse auto, clear\nregress price mpg weight');
+
 await manager.stopAll();
 ```
 
@@ -27,6 +30,7 @@ The pieces are named after moons of Jupiter:
 | **Adrastea** | Language-neutral Jupyter kernel framework — wire protocol, ZMQ transport, request loop, the abstract `Interpreter` interface (`native/`, a static library). |
 | **Elara** | The R kernel: embeds R on top of Adrastea (`elara` / `elara.exe`). It includes [hera](packages/hera), the R package loaded in every R session (execution, completion, inspection, comms), which is installed into R for you. |
 | **Carpo** | The Python kernel: embeds CPython on top of Adrastea the same way (`carpo` / `carpo.exe`). |
+| **Callisto** | The Stata kernel: embeds Stata 17+ through the shared library Stata ships for its Python integration (`callisto` / `callisto.exe`). |
 | **Themisto** | The kernel supervisor: spawns and monitors one kernel process per session and re-exposes sessions over HTTP + WebSocket (`themisto` / `themisto.exe`). |
 
 ## Install
@@ -35,22 +39,26 @@ The pieces are named after moons of Jupiter:
 npm install @damurka/jovian
 ```
 
-The package ships **prebuilt** `themisto`, `elara` and `carpo` binaries — no compiler, CMake or vcpkg — for **Windows x64**, **Linux x64 and arm64**, and **macOS x64 (Intel) and arm64 (Apple Silicon)**. Windows on ARM and 32-bit ARM Linux are not supported (there is no ARM64 R for Windows yet); [build from source](docs/building.md#using-your-own-build) there. npm installs the matching `@damurka/jovian-<os>-<cpu>` package automatically as an optional dependency, so do not install with `--omit=optional` / `--no-optional`. Node.js ≥ 22.13 is required. The package is an ES module: use `import` (in a project with `"type": "module"`, or `.mjs`/`.mts` files), or `require()` it from CommonJS on Node 22.13+.
+The package ships **prebuilt** `themisto`, `elara`, `carpo` and `callisto` binaries — no compiler, CMake or vcpkg — for **Windows x64**, **Linux x64 and arm64**, and **macOS x64 (Intel) and arm64 (Apple Silicon)**. Windows on ARM and 32-bit ARM Linux are not supported (there is no ARM64 R for Windows yet); [build from source](docs/building.md#using-your-own-build) there. npm installs the matching `@damurka/jovian-<os>-<cpu>` package automatically as an optional dependency, so do not install with `--omit=optional` / `--no-optional`. Node.js ≥ 22.13 is required. The package is an ES module: use `import` (in a project with `"type": "module"`, or `.mjs`/`.mts` files), or `require()` it from CommonJS on Node 22.13+.
 
 What you must already have on the machine:
 
-- **R** (4.2 or newer; a build with a shared library, which the CRAN/Posit binaries and distribution packages are) for R sessions. If `rHome` is not passed, it is found from `$R_HOME`, then `R RHOME` (R on `PATH`), then the Windows registry; pass `rHome` to choose a specific installation. You do not need to install any R packages yourself. The `hera` R package every R session needs ships inside the npm package, and before the **first** R session the library installs it, together with its CRAN dependencies (`cli`, `evaluate`, `glue`, `IRdisplay`, `jsonlite`, `R6`, `repr`, `rlang` and what they need), into your R library. Nothing else (not even `remotes`) has to be installed first. This needs an internet connection, takes about 20 seconds where CRAN has binaries (Windows, macOS) and a few minutes on Linux, where packages are compiled from source and need a compiler (Ubuntu: `sudo apt install build-essential`). It happens once; later sessions start straight away. A package that is installed but cannot be loaded (Debian/Ubuntu `r-cran-*` packages built for an older R fail with `undefined symbol: SETLENGTH`) is reinstalled from CRAN into your own library. If it cannot finish, `createSession()` rejects with R's own reason. Set `JOVIAN_SKIP_R_SETUP=1` to skip this step and manage the packages yourself.
+- **R** (4.2 or newer; a build with a shared library, which the CRAN/Posit binaries and distribution packages are) for R sessions. If `rHome` is not passed, it is found from `$R_HOME`, then `R RHOME` (R on `PATH`), then the Windows registry, then the usual install locations (Program Files, the R framework and Homebrew on macOS, `/opt/R/<version>`, `/usr/lib/R`), skipping anything that is not an R installation; pass `rHome` to choose a specific installation. What is found is reused for the rest of the process, and relative paths in any option are taken from the calling process's working directory. You do not need to install any R packages yourself. The `hera` R package every R session needs ships inside the npm package, and before the **first** R session the library installs it, together with its CRAN dependencies (`cli`, `evaluate`, `glue`, `IRdisplay`, `jsonlite`, `R6`, `repr`, `rlang` and what they need), into your R library. Nothing else (not even `remotes`) has to be installed first. This needs an internet connection, takes about 20 seconds where CRAN has binaries (Windows, macOS) and a few minutes on Linux, where packages are compiled from source and need a compiler (Ubuntu: `sudo apt install build-essential`). It happens once; later sessions start straight away. A package that is installed but cannot be loaded (Debian/Ubuntu `r-cran-*` packages built for an older R fail with `undefined symbol: SETLENGTH`) is reinstalled from CRAN into your own library. If it cannot finish, `createSession()` rejects with R's own reason. Set `JOVIAN_SKIP_R_SETUP=1` to skip this step and manage the packages yourself.
 
 - **Python 3** with its shared library (optional, for Python sessions); if `pythonHome` is not passed, it is found from `$PYTHONHOME`, then the first `python3` / `python` on `PATH` (its `sys.base_prefix`); pass `pythonHome` to choose one.
+- **Stata 17 or newer**, licensed (optional, for Stata sessions); any edition (MP, SE, BE) and StataNow. If `stataHome` is not passed, it is found from `$STATA_HOME`, then the newest Stata in the standard location (`Stata19`, `StataNow19`, … under Program Files; `/Applications/Stata*`; `/usr/local/stata*`); pass `stataHome` (the directory holding Stata's executable) to choose one, and `stataEdition` when that directory has more than one edition.
 - **Linux:** `libuuid` (`libuuid1`, present on nearly every system) and a glibc at least as new as the one the binaries were built against (Ubuntu 24.04's, 2.39). On an older distribution, [build from source](docs/building.md).
 - **macOS:** 14 or newer.
 - **Windows:** the [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist) (x64, 2015–2022) — the binaries use the dynamic C++ runtime; most machines already have it.
 
 ## Features
 
-- **Two kernels, one API.** R (Elara) and Python (Carpo), chosen per session with `kernelType`.
+- **Three kernels, one API.** R (Elara), Python (Carpo) and Stata (Callisto), chosen per session with `kernelType`.
 - **Execution** with streaming stdout/stderr, `execute_result`, rich `display_data` (R plots arrive as `image/png`), `update_display_data`, `clear_output`, and structured errors with tracebacks.
 - **Interactive input.** `input()` (Python) and `readline()` (R) round-trip over the Jupyter stdin channel; see [the input guide](docs/guides/interactive-input.md).
+- **Sessions that survive a reload.** With `persistent: true` the supervisor outlives your process; the next `SessionManager` finds it again (`listSessions()`, `attachSession()`), and it stops itself after an hour with no client. See [the API reference](docs/api/README.md#sessionmanager).
+- **A locked-down supervisor.** Its HTTP and WebSocket API accepts only requests carrying the token it gave its parent, and nothing from a web browser. See [Protocol](docs/protocol.md#access).
+- **Work that keeps going between cells.** Python threads and asyncio tasks keep running (and printing) after their cell, cells may use top-level `await`, and process pools work; R's `later` callbacks — httpuv, plumber, promises — run while the session is idle. Completion and inspection keep working while a cell runs: Python answers them itself, and for R a helper R process with the same packages attached does. See [the kernels page](docs/kernels.md).
 - **Real interrupt.** `session.interrupt()` breaks running R and Python code (a sleeping call, a busy loop), not just the queue; the kernel keeps running afterwards. See [interrupting](docs/guides/interrupting.md).
 - **Working directory.** `workingDirectory` is where the kernel process starts (`getwd()` / `os.getcwd()`); it survives restarts.
 - **Protocol requests as methods.** `complete`, `inspect`, `isComplete`, `kernelInfo`, `commInfo`, `queryKernelHistory` — real Jupyter messages, answered by the kernel. See [API reference](docs/api/README.md).
@@ -60,7 +68,7 @@ What you must already have on the machine:
 - **Crash detection in milliseconds.** The supervisor watches the OS process handle, with the ZMQ heartbeat as a backstop for a kernel that is alive but stuck. A crashed session can be `restart()`ed in place under the same session id.
 - **Restart with different options.** Switch R or Python installations on restart; unchanged options are kept ([details](docs/guides/sessions-lifecycle.md)).
 - **A browser playground** (Next.js) for exercising live sessions — see [`tools/playground`](tools/playground/README.md).
-- **Standard Jupyter launch mode.** `elara` and `carpo` can also be started directly by `jupyter lab` / `jupyter console` via a generated kernelspec (`npm run jupyter:kernelspec`), no supervisor involved.
+- **Standard Jupyter launch mode.** `elara`, `carpo` and `callisto` can also be started directly by `jupyter lab` / `jupyter console` via a generated kernelspec (`npm run jupyter:kernelspec`), no supervisor involved.
 
 ## Environment variables
 
@@ -68,10 +76,12 @@ What you must already have on the machine:
 |---|---|
 | `R_HOME` | R installation to use when `rHome` is not passed; otherwise the library asks `R RHOME`. |
 | `PYTHONHOME` | Python installation prefix when `pythonHome` is not passed; otherwise the library asks `python3` / `python` for its `sys.base_prefix`. |
-| `JOVIAN_NATIVE_DIR` | Directory holding `themisto`, `elara` and `carpo`. Default: the installed `@damurka/jovian-<os>-<cpu>` package. Use it to run your own build ([building from source](docs/building.md#using-your-own-build)). |
+| `STATA_HOME` | Stata directory when `stataHome` is not passed; otherwise the library looks in the standard install locations. |
+| `JOVIAN_NATIVE_DIR` | Directory holding `themisto`, `elara`, `carpo` and `callisto`. Default: the installed `@damurka/jovian-<os>-<cpu>` package. Use it to run your own build ([building from source](docs/building.md#using-your-own-build)). |
 | `JOVIAN_LOG_LEVEL` | How much the library prints: `trace`, `debug`, `info`, `notice` (the default), `warn`, `error` or `silent`. `debug` also shows the kernels' start-up output. See [the API reference](docs/api/README.md#sessionmanager). |
-| `JOVIAN_KERNEL_OUTPUT` | Set to print the kernels' own `[elara]` / `[carpo]` start-up output. |
+| `JOVIAN_KERNEL_OUTPUT` | Set to print the kernels' own `[elara]` / `[carpo]` / `[callisto]` start-up output. |
 | `JOVIAN_SKIP_R_SETUP` | Set to skip the one-time install of `hera` and its R packages. |
+| `ARK_PATH` | The `ark` executable for `kernelType: 'ark'` sessions; otherwise Positron's bundled one, or `ark` on `PATH`. |
 
 ## Building from source
 
@@ -102,8 +112,8 @@ See [`tools/playground/README.md`](tools/playground/README.md).
 | [Architecture](docs/architecture/overview.md) | Components, process and thread model, message flows. |
 | [Protocol](docs/protocol.md) | Jupyter messages supported, Themisto's HTTP API and WebSocket frames. |
 | [API reference](docs/api/README.md) | `SessionManager`, `Session`, `Comm`, options and result types. |
-| Guides | [Interactive input](docs/guides/interactive-input.md) · [Interrupting](docs/guides/interrupting.md) · [Comms](docs/guides/comms.md) · [History](docs/guides/history.md) · [Session lifecycle](docs/guides/sessions-lifecycle.md) · [R and Python environments](docs/guides/environments.md) · [Playground](docs/guides/playground.md) |
-| [Kernels](docs/kernels.md) | How Elara and Carpo work, and where they differ. |
+| Guides | [Interactive input](docs/guides/interactive-input.md) · [Interrupting](docs/guides/interrupting.md) · [Comms](docs/guides/comms.md) · [History](docs/guides/history.md) · [Session lifecycle](docs/guides/sessions-lifecycle.md) · [R, Python and Stata environments](docs/guides/environments.md) · [Playground](docs/guides/playground.md) |
+| [Kernels](docs/kernels.md) | How Elara, Carpo and Callisto work, and where they differ. |
 | [Building from source](docs/building.md) | Requirements per platform, build and test commands, using your own build. |
 | [Development](docs/development.md) | Repo layout, build system, test layers, CI, debugging. |
 | [Releasing](docs/releasing.md) | How the npm packages are built and published. |

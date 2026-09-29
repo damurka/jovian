@@ -46,19 +46,21 @@ R only. Runs `shiny::runApp()` in the session (with `timeout: 0`) and resolves o
 
 ## Protocol requests
 
-Each is a real Jupyter request answered by the kernel; each rejects on an `error`/`aborted` status, on timeout (10 s), or if the session ends. They are queued **behind a running execution** on the kernel's main thread (only `interrupt()` is serviced during one).
+Each is a real Jupyter request answered by the kernel; each rejects on an `error`/`aborted` status, on timeout (10 s), or if the session ends. They are queued **behind a running execution** on the kernel's main thread, except: `interrupt()`; for Python, `complete()`, `inspect()` and `isComplete()`, which the kernel answers mid-run; for Stata, `isComplete()`; and for R, `complete()` and `inspect()` of package functions, which a helper R process answers while the session is busy (see [Kernels](../kernels.md#completion-inspection-is_complete); the reply's `metadata['jovian/answered-by']` is `'helper'`).
 
 | Method | Sends | Resolves with |
 |---|---|---|
-| `complete(code, cursorPos = code.length)` | `complete_request` | `{ status, matches: string[], cursor_start, cursor_end, metadata }` |
-| `inspect(code, cursorPos = code.length, detailLevel = 0)` | `inspect_request` | `{ status, found, data: { 'text/plain'?, 'text/html'? }, metadata }` |
+| `complete(code, cursorPos = code.length, { waitForCell?, timeout? })` | `complete_request` | `{ status, matches: string[], cursor_start, cursor_end, metadata }` |
+| `inspect(code, cursorPos = code.length, detailLevel = 0, { waitForCell?, timeout? })` | `inspect_request` | `{ status, found, data: { 'text/plain'?, 'text/html'? }, metadata }` |
 | `isComplete(code)` | `is_complete_request` | `{ status: 'complete' \| 'incomplete' \| 'invalid' \| 'unknown', indent? }` |
 | `kernelInfo()` | `kernel_info_request` | `{ protocol_version, implementation, implementation_version, language_info: { name, version, … }, banner, … }` |
 | `commInfo(targetName?)` | `comm_info_request` | `{ status, comms: { [commId]: { target_name } } }` |
 | `queryKernelHistory(options?)` | `history_request` | `KernelHistoryEntry[]` — see [History](../guides/history.md) |
 | `request<T>(msgType, content?, { timeout? })` | any whitelisted request/reply pair | the reply `content` |
 
-`request()` is the generic form behind the methods above. It accepts the request types in the [whitelist](../protocol.md#client--themisto); the reply type is derived by replacing `_request` with `_reply`. It is not for `execute_request`, `input_reply` or `shutdown_request`.
+`waitForCell: false` (for as-you-type requests): when a cell is running and the answer would have to wait for it, resolve at once with nothing found and `metadata['jovian/busy'] = true` instead. `timeout` (ms, default 10 000) is how long to wait for the reply.
+
+`request()` is the generic form behind the methods above; it always sends the request to the session's own kernel (no helper). It accepts the request types in the [whitelist](../protocol.md#client--themisto); the reply type is derived by replacing `_request` with `_reply`. It is not for `execute_request`, `input_reply` or `shutdown_request`.
 
 ## Comms
 

@@ -5,8 +5,8 @@ Jovian is published to npm as six packages under the `@damurka` scope, one libra
 | Package | Contents |
 |---|---|
 | `@damurka/jovian` | The compiled TypeScript library, the `hera` R package, docs. Lists the platform packages below as `optionalDependencies`. This is the one users install. |
-| `@damurka/jovian-win32-x64` | `themisto.exe`, `elara.exe`, `carpo.exe` and the DLLs they need. |
-| `@damurka/jovian-linux-x64`, `-linux-arm64`, `-darwin-x64`, `-darwin-arm64` | `themisto`, `elara`, `carpo`. |
+| `@damurka/jovian-win32-x64` | `themisto.exe`, `elara.exe`, `carpo.exe`, `callisto.exe` and the DLLs they need. |
+| `@damurka/jovian-linux-x64`, `-linux-arm64`, `-darwin-x64`, `-darwin-arm64` | `themisto`, `elara`, `carpo`, `callisto`. |
 
 Each platform package declares `os` and `cpu`, so npm installs only the one that matches the machine. At run time the library finds the binaries in that package (see [`lib/session/native-paths.ts`](../lib/session/native-paths.ts): `JOVIAN_NATIVE_DIR`, then the platform package, then a source checkout's `dist/native/Release`). All four packages are published at the **same version**; the main package pins the platform packages to it.
 

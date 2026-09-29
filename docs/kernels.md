@@ -1,17 +1,17 @@
-# The kernels: Elara (R) and Carpo (Python)
+# The kernels: Elara (R), Carpo (Python) and Callisto (Stata)
 
-Both kernels are the same program shape — `main()` parses a few flags, sets up environment variables, loads the language runtime dynamically, starts an Adrastea `Kernel` with a language-specific `Interpreter`, and runs its request loop on the main thread — and differ in how the interpreter turns requests into language calls. This page covers what a *user* of a session can observe and where the two differ. For the shared machinery see [Architecture](architecture/overview.md); for adding a third kernel see [C++ usage](cpp-usage.md).
+The kernels are the same program shape — `main()` parses a few flags, sets up environment variables, loads the language runtime dynamically, starts an Adrastea `Kernel` with a language-specific `Interpreter`, and runs its request loop on the main thread — and differ in how the interpreter turns requests into language calls. This page covers what a *user* of a session can observe and where they differ. For the shared machinery see [Architecture](architecture/overview.md); for adding another kernel see [C++ usage](cpp-usage.md).
 
 ## Launch modes
 
 | Mode | Command line | Used by |
 |---|---|---|
 | **Supervised** | `--registration-ip <ip> --registration-port <port> --key <key>` plus the environment flags below | Themisto (what `SessionManager` uses) — the kernel binds its ZMQ ports and reports them to the supervisor's registration socket. |
-| **Connection file** | `-f <connection_file>` / `--connection-file <file>` | A Jupyter frontend (`jupyter lab`, `jupyter console`) via a kernelspec: `npm run jupyter:kernelspec` writes `kernelspec/elara/kernel.json` and `kernelspec/carpo/kernel.json` (`interrupt_mode: "message"`); install with `jupyter kernelspec install <dir> --user --name elara`. The paths to R/Python are baked into the file at generation time. Elara's connection-file mode has been exercised; Carpo's spec is generated but has not been tried against a real Jupyter install. |
+| **Connection file** | `-f <connection_file>` / `--connection-file <file>` | A Jupyter frontend (`jupyter lab`, `jupyter console`) via a kernelspec: `npm run jupyter:kernelspec` writes `kernelspec/elara/kernel.json`, `kernelspec/carpo/kernel.json` and `kernelspec/callisto/kernel.json` (`interrupt_mode: "message"`); install with `jupyter kernelspec install <dir> --user --name elara`. The paths to R/Python/Stata are baked into the file at generation time. Elara's connection-file mode has been exercised; Carpo's and Callisto's specs are generated but have not been tried against a real Jupyter install. |
 
-Environment flags — Elara: `--r-home`, `--r-path`, `--r-libs`, `--pandoc-path`, `--hera-src-path`. Carpo: `--python-home`, `--python-path`, `--venv-path`. The kernel translates them into environment variables (`R_HOME`, `PATH`, `R_LIBS`/`R_LIBS_USER`, `RSTUDIO_PANDOC`, `ELARA_HERA_SRC`; `PYTHONHOME`, `PYTHONPATH`, `CARPO_VENV_PATH`) before loading the runtime. `workingDirectory` is not a kernel flag: Themisto starts the kernel *process* in that directory (`chdir` between `fork` and `exec` on POSIX, `lpCurrentDirectory` on Windows) after checking it exists.
+Environment flags — Elara: `--r-home`, `--r-path`, `--r-libs`, `--pandoc-path`, `--hera-src-path`. Carpo: `--python-home`, `--python-path`, `--venv-path`. Callisto: `--stata-home`, `--stata-edition`. The kernel translates them into environment variables (`R_HOME`, `PATH`, `R_LIBS`/`R_LIBS_USER`, `RSTUDIO_PANDOC`, `ELARA_HERA_SRC`; `PYTHONHOME`, `PYTHONPATH`, `CARPO_VENV_PATH`; `STATA_HOME`, `CALLISTO_STATA_EDITION`) before loading the runtime. `workingDirectory` is not a kernel flag: Themisto starts the kernel *process* in that directory (`chdir` between `fork` and `exec` on POSIX, `lpCurrentDirectory` on Windows) after checking it exists.
 
-Kernel stdout/stderr (start-up notes such as `[R Interpreter] .libPaths() …`) is captured by Themisto and re-printed on its own stderr, prefixed `[elara]` / `[carpo]`.
+Kernel stdout/stderr (start-up notes such as `[R Interpreter] .libPaths() …`) is captured by Themisto and re-printed on its own stderr, prefixed `[elara]` / `[carpo]` / `[callisto]`.
 
 ## Elara (R)
 
@@ -35,7 +35,7 @@ Kernel stdout/stderr (start-up notes such as `[R Interpreter] .libPaths() …`) 
 
 Code runs in the **global environment**. R output that goes through R's console writer is streamed as it happens (`WriteConsoleEx` hook), not batched — subject to the ~50 ms / 16 KB coalescing every kernel applies (see [Protocol](protocol.md#1-jupyter-messages-the-kernels-support)).
 
-**Live output inside one long expression.** `evaluate` captures stdout into a temporary file and normally hands it over only when a top-level expression ends (or a message/warning/plot happens), so `for (i in 1:1e6) print(i)` would show nothing until it was over. `hera` (`patch_evaluate_sink()` in `packages/hera/R/execute.R`) wraps the one internal `evaluate` function that creates that sink so it is a *split* sink (`sink(con, split = TRUE)`): the same output is also teed to R's console, and the console hook publishes it immediately; `try()` output is pointed at the same place, and `evaluate`'s own stdout handler is then silenced so nothing arrives twice. A silent execution is not teed. This needs **`hera` >= 0.6.0.9001**; with an older installed `hera` everything still works but such output arrives when the expression ends. Update it with `npm run hera:install`.
+**Live output inside one long expression.** `evaluate` captures stdout into a temporary file and normally hands it over only when a top-level expression ends (or a message/warning/plot happens), so `for (i in 1:1e6) print(i)` would show nothing until it was over. `hera` (`patch_evaluate_sink()` in `packages/hera/R/execute.R`) wraps the one internal `evaluate` function that creates that sink so that there is no sink: output goes to R's console, and the console hook publishes it immediately; `try()` output goes there too, and `evaluate`'s own stdout handler is silenced. A silent execution keeps `evaluate`'s sink (its output is not shown). This needs **`hera` >= 0.6.0.9001**; with an older installed `hera` everything still works but such output arrives when the expression ends. `hera` 0.6.0.9002 also stops capturing a second copy into a file (0.6.0.9001 teed it, which cost about 150 ms per MB of output: 200 000 printed lines went from 3.6 s to 1.0 s, a single 10 MB `cat()` from 1.7 s to 0.3 s). Update it with `npm run hera:install`.
 
 Rich output from R code: `hera::display_data(list("text/html" = "<b>hi</b>"))` publishes a `display_data`; `hera::clear_output(wait = FALSE)` publishes `clear_output`; `hera:::update_display_data()` publishes `update_display_data` (not exported).
 
@@ -45,6 +45,10 @@ Rich output from R code: `hera::display_data(list("text/html" = "<b>hi</b>"))` p
 - `inspect_request` → the token at the cursor is evaluated; for a function its help page (HTML + text) is returned, otherwise sections *Class attribute*, *Printed form*, *Help document*.
 - `is_complete_request` → `R_ParseVector` status: `complete` / `incomplete` / `invalid`.
 
+**Names from the code itself.** R's completer knows only what exists in the session. Names defined in the code being typed but not run yet (`df2 <- …` two lines up), and names a running cell defines, are added by reading the code (`lib/session/r-static.ts`: assignments in every form, `function` arguments, `for` variables, `assign("…")`; comments and strings skipped). The same reading finds the packages a running cell attaches for the helper below.
+
+**While a cell runs**, R cannot answer these itself (its interpreter runs one thing at a time and cannot be called from another thread). The library answers `complete()` and `inspect()` from a **helper R process** instead (`lib/session/r-helper.ts`): a second, idle R of the same installation, started once an R cell has run for a second and shared by the sessions using that R. Every R execution reports, at its end, the packages the session has attached and the names it has defined (one extra `user_expressions` entry, removed from the result). The helper attaches the same packages, plus any the running cell attaches itself with `library()`, and answers. So help for a package's function (`walk`, `median`) and completion of package functions and of the session's own names work mid-cell. Inspecting something only the busy session has, an object it created, still waits for the cell. Replies from the helper carry `metadata['jovian/answered-by'] = 'helper'`. Turn it off with `new SessionManager({ busyHelper: false })`.
+
 ### Comms
 
 The full comm API is available through `hera` (`CommManager`, `Comm`) — see [Comms](guides/comms.md). `hera` depends on `jsonlite`, `R6`, `glue` and `cli`.
@@ -52,6 +56,10 @@ The full comm API is available through `hera` (`CommManager`, `Comm`) — see [C
 ### Interrupt
 
 Sets R's user-break flag (`R_interrupts_pending` on POSIX, `UserBreak` on Windows) from the control-watcher thread; R unwinds at its next interrupt check. `kernel_info` reports `language_info.name` `R` and R's `major.minor` version (`implementation` is reported as `xr`).
+
+### The event loop between cells
+
+R's console runs the [`later`](https://r-lib.github.io/later/) event loop whenever R waits for input; an embedded R never waits for input, so Elara runs it itself: every ~20 ms while the kernel is idle, `later::run_now(0)` when `later` is loaded and has something due. Callbacks from `later::later()`, promises, and servers built on httpuv (`httpuv::startServer()`, plumber, a Shiny app started without blocking) therefore run **between cells**, as at RStudio's console, and what they print goes to the latest request. An error in a callback is printed and does not affect the session. While a cell runs, callbacks wait until it finishes.
 
 ### Shiny
 
@@ -61,24 +69,33 @@ Sets R's user-break flag (`R_interrupts_pending` on POSIX, `UserBreak` on Window
 
 ### Start-up
 
-`PYTHONHOME` / `PYTHONPATH` / `CARPO_VENV_PATH` are set, `libpython` is located and loaded (see [Architecture](architecture/overview.md#dynamic-loading-of-r-and-python)) and `Py_Initialize()` runs on the kernel's main thread. Then a **bootstrap module** — Python source embedded in `interpreter_py.cpp` (`kBootstrapSource`) — is executed once in its own private namespace, so none of its helpers appear in the user's `globals()`. It defines `__carpo_run`, `__carpo_is_complete`, `__carpo_complete`, `__carpo_inspect`, `__carpo_eval_expr`, activates the venv's `site-packages`, replaces `builtins.input`, and installs `signal.default_int_handler` for SIGINT (see [Interrupting](guides/interrupting.md)).
+`PYTHONHOME` / `PYTHONPATH` / `CARPO_VENV_PATH` are set, `libpython` is located and loaded (see [Architecture](architecture/overview.md#dynamic-loading-of-r-and-python)) and `Py_Initialize()` runs on the kernel's main thread, which then **releases the GIL** for good: each request takes it only while it calls into Python. Then a **bootstrap module** — Python source embedded in `interpreter_py.cpp` (`kBootstrapSource`) — is executed once in its own private namespace, so none of its helpers appear in the user's `globals()`. It defines `__carpo_run`, `__carpo_is_complete`, `__carpo_complete`, `__carpo_inspect`, `__carpo_eval_expr`, `__carpo_idle`, activates the venv's `site-packages`, replaces `sys.stdout` / `sys.stderr` and `builtins.input`, sets `sys.executable` to the real interpreter (the venv's `python` when `venvPath` is given, else the base installation's) instead of `carpo`, and installs `signal.default_int_handler` for SIGINT (see [Interrupting](guides/interrupting.md)).
 
 ### Executing code
 
 `PyInterpreter::executeRequestImpl` calls `__carpo_run(code, __main__.__dict__)`:
 
 - the code is parsed with `ast`; if the last statement is a bare expression it is evaluated separately and, if the value is not `None`, published as an `execute_result` with `text/plain` = `repr(value)` — exactly what a REPL shows;
-- `sys.stdout` / `sys.stderr` are redirected to a stream that calls a native callback on every `write()`, so output streams **as it is written**, not at the end (published through the same ~50 ms / 16 KB coalescing as R, so a flood of `print()` calls becomes far fewer messages);
+- it is compiled with `PyCF_ALLOW_TOP_LEVEL_AWAIT`, so a cell may `await` at top level, as in IPython (`await asyncio.sleep(1)`; a trailing `await ...` is the cell's value); such a cell runs on the session's event loop (below);
+- `sys.stdout` / `sys.stderr` are a stream that calls a native callback on every `write()`, so output streams **as it is written**, not at the end (published through the same ~50 ms / 16 KB coalescing as R, so a flood of `print()` calls becomes far fewer messages). They stay in place between cells, so a thread or task still printing after its cell has finished reaches the client as part of the latest request;
 - any exception is caught (`BaseException`, so `KeyboardInterrupt` too) and returned as `ename` (type name), `evalue` (`str(e)`) and `traceback` (formatted lines);
 - `user_expressions` are `eval`'d in the same globals and `repr`'d.
 
 Code runs in the `__main__` namespace and state persists across executions and across `execute()` calls of the same session.
+
+### Threads, asyncio and processes
+
+- **Threads** run while the kernel is idle as well as during cells: the kernel thread holds the GIL only while it calls into Python.
+- **asyncio:** the session has one event loop, the current loop in every cell. Top-level `await` cells run on it, and between cells the kernel advances it every ~20 ms (`__carpo_idle`), so a task started with `asyncio.get_event_loop().create_task(...)` keeps running after its cell. `asyncio.run()` in a cell still works (it makes its own loop).
+- **Processes:** `multiprocessing`, `concurrent.futures.ProcessPoolExecutor` and `subprocess.run([sys.executable, ...])` start the real Python (see `sys.executable` above). With the `spawn` start method (the default on Windows and macOS), a worker cannot see functions defined in a cell, as in any Jupyter kernel: put them in a module, or use built-ins.
 
 ### Completion, inspection, is_complete
 
 - `complete` → `rlcompleter` on the token before the cursor; matches include the call paren for functions (`print(`).
 - `inspect` → `eval`s the token: signature (when available), `Type: <name>`, then the docstring or `repr`. `text/plain` only.
 - `is_complete` → `codeop.compile_command`.
+
+All three are **answered while a cell runs** (on another thread of the kernel, taking the GIL, which a running cell gives up every few milliseconds and whenever it sleeps or waits on I/O) instead of queuing behind it. Code that holds the GIL in one long native call delays the answer until the call returns.
 
 ### `input()`
 
@@ -92,24 +109,72 @@ Code runs in the `__main__` namespace and state persists across executions and a
 
 A real SIGINT delivered to the interpreter thread; Python raises `KeyboardInterrupt` (also waking a blocked `time.sleep()`), which `__carpo_run` returns as an ordinary `error`.
 
+## Callisto (Stata)
+
+### Start-up
+
+`STATA_HOME` (and `CALLISTO_STATA_EDITION` for `--stata-edition`) are set, and Stata's shared library is loaded from `stataHome`: the first of MP, SE, BE that is installed there, unless an edition is asked for (see [Architecture](architecture/overview.md#dynamic-loading-of-r-and-python) and [Environments](guides/environments.md#stata)). Stata 17 is the first release that ships it. `SYSDIR_STATA` is set to the same directory, as pystata does, and Stata is started with `-q` (no banner). If Stata refuses to start, most often `Cannot find license file`, the kernel exits with Stata's own message. It then runs `set more off` and, on Windows, puts `c(java_home)/bin` on `PATH` for Stata's Java-based commands (pystata does the same).
+
+### Executing code
+
+`StataInterpreter::executeRequestImpl` writes the cell to a temporary do-file and runs it with `include`:
+
+- `include`, not `do`, so the cell runs in the interactive context: a `local` defined in one cell is still defined in the next, as when typing at Stata's prompt. Being a do-file, everything a do-file allows works: `/* */` and `//` comments, `///` continuations, loops, `program define`, `#delimit ;`.
+- Stata prints into its output buffer; a second thread empties it every 20 ms while the command runs and publishes the text as `stream` `stdout`, so output arrives as it is produced (with the ~50 ms / 16 KB coalescing every kernel applies). Stata's output has no separate error stream: everything is stdout.
+- A non-zero return code is an `error` whose `ename` is Stata's `r(<rc>)` (`r(111)`) and whose `evalue` is the message Stata printed above it (`variable nosuchvar not found`); the `traceback` is those two lines.
+- **Graphs.** `_gr_list on` makes Stata record the graphs a cell draws; afterwards each one is exported with `graph export` to a PNG and published as one `display_data` (`image/png` plus a `text/plain` placeholder), the way pystata shows graphs inline. Silent executions skip this.
+- `user_expressions` are each shown with `display <expr>`; one that fails reports its own `r(<rc>)`.
+
+There is no `execute_result`: Stata commands print, they do not return a value.
+
+The machinery never changes the user's `r()` results: the graph list is read between `_return hold` and `_return restore`, and completion reads names through Mata.
+
+### Completion, inspection, is_complete
+
+- `complete_request` → variable names of the dataset in memory for a bare name, global macros after `$` or `${`, local macros after `` ` `` (from Mata's `st_varname()` / `st_dir()`).
+- `inspect_request` → for a variable name, the output of `describe` and `summarize` for it (`text/plain`); anything else is not found.
+- `is_complete_request` → `incomplete` while a `{` block or a `/* */` comment is open or the last line ends in `///`, `invalid` for a `}` that closes nothing, otherwise `complete`. Braces inside strings, compound strings and comments are not counted. It never calls Stata, so it is answered while a cell runs; completion and inspection wait for the cell.
+
+### Interrupt
+
+`StataSO_SetBreak()` from the control-watcher thread, only while a cell runs: Stata's own Break. The cell fails with `r(1)` (`--Break--`) and the session stays usable.
+
+### Not supported
+
+No `input_request`: Stata's `_request()` cannot be answered over the stdin channel. No comms. `python:` blocks inside a cell need Stata's Python integration, which Callisto does not set up.
+
+## Ark (R, Posit's kernel) -- experimental
+
+`kernelType: 'ark'` runs [Ark](https://github.com/posit-dev/ark), the R kernel inside Positron (MIT-licensed, not shipped with Jovian), under the same supervisor instead of Elara. The `ark` executable comes from `arkPath`, else `$ARK_PATH`, the copy bundled with Positron, or `ark` on `PATH`; R comes from `rHome` (set as `R_HOME`). Themisto starts it the standard Jupyter way: it writes a JEP 66 registration file and passes `--connection_file <file> --session-mode notebook`, and Ark registers with a signed `handshake_request` (see [Protocol](protocol.md#kernel-registration-jep-66)).
+
+Verified on Windows with Ark 0.1.252 and R 4.6: start-up (about 0.3 s), output, results, errors, plots (`image/png`), `kernel_info` (`implementation: "ark"`), interrupt and restart. Not available through Jovian:
+
+- **`complete_request` / `inspect_request` return nothing.** Ark answers these through its language server (LSP) over a Positron-specific comm, not the Jupyter requests. Jovian does not speak LSP.
+- An interrupted cell reports success rather than an error.
+- The busy-time helper (`busyHelper`) and the `hera` set-up are Elara's; they do not apply.
+
+It is a way to try Ark's R frontend (its console behaviour, its debugger later) without leaving Jovian's supervisor, not a replacement for Elara.
+
 ## Differences at a glance
 
-| | Elara (R) | Carpo (Python) |
-|---|---|---|
-| Runtime dependency | R (+ the `hera` R package, + CRAN deps) | CPython 3 with its shared library |
-| Global scope | `.GlobalEnv` | `__main__` |
-| Rich output | `display_data`, plots (`image/png`), `text/html`, `update_display_data`, `clear_output` (via `hera`) | `execute_result` `text/plain` only — no `display_data` / plots yet |
-| stderr stream | messages and warnings | `sys.stderr` |
-| Completions | R names | `rlcompleter` (with `(` for callables) |
-| Inspect | help pages (HTML + text) | signature / docstring (text) |
-| Comms | yes (`hera::CommManager`) | no targets can be registered |
-| Interrupt | user-break flag | SIGINT → `KeyboardInterrupt` |
-| `kernel_info` | `R`, `implementation: "xr"` | `python`, `implementation: "carpo"`, banner `carpo (Python x.y.z)` |
-| Extra environments | `rLibs` | `venvPath`, `pythonPath` |
+| | Elara (R) | Carpo (Python) | Callisto (Stata) |
+|---|---|---|---|
+| Runtime dependency | R (+ the `hera` R package, + CRAN deps) | CPython 3 with its shared library | Stata 17+, licensed |
+| Global scope | `.GlobalEnv` | `__main__` | Stata's dataset in memory, interactive-level macros |
+| Rich output | `display_data`, plots (`image/png`), `text/html`, `update_display_data`, `clear_output` (via `hera`) | `execute_result` `text/plain` only — no `display_data` / plots yet | graphs (`image/png`); no `execute_result` |
+| stderr stream | messages and warnings | `sys.stderr` | none — everything is stdout |
+| Completions | R names | `rlcompleter` (with `(` for callables) | variables, globals, locals |
+| Inspect | help pages (HTML + text) | signature / docstring (text) | `describe` + `summarize` of a variable |
+| Comms | yes (`hera::CommManager`) | no targets can be registered | no |
+| Interrupt | user-break flag | SIGINT → `KeyboardInterrupt` | Stata's Break → `r(1)` |
+| Answered while a cell runs | interrupt; complete and inspect of package functions (helper R process) | interrupt, complete, inspect, is_complete | interrupt, is_complete |
+| Between cells | `later` callbacks (httpuv, promises) run | threads and asyncio tasks run | nothing runs |
+| `kernel_info` | `R`, `implementation: "xr"` | `python`, `implementation: "carpo"`, banner `carpo (Python x.y.z)` | `stata`, `implementation: "callisto"`, banner `callisto (Stata 19.5 MP)` |
+| Extra environments | `rLibs` | `venvPath`, `pythonPath` | `stataEdition`; ado-paths are Stata's own |
 
-## Known limits (both kernels)
+## Known limits (all kernels)
 
-- **One thing at a time.** A kernel is single-threaded: requests other than `interrupt_request` wait for a running execution. Use separate sessions for concurrency.
+- **One cell at a time.** A kernel runs one execution at a time, and requests other than the ones listed under *Answered while a cell runs* above wait for it. For parallel work, use separate sessions (one process each) or the language's own tools inside a cell: R's `parallel` / `callr` / `future`, Python's threads, asyncio and process pools, Stata/MP's multiple cores.
 - **Interrupts cannot break native code** that never returns to the interpreter, nor a read blocked on `input()`.
 - **History is in-memory**, holds inputs only, and is lost on restart.
 - **No debugger protocol**, no `input_reply` password prompts (`password` is always `false`).

@@ -1,6 +1,6 @@
 # The playground
 
-`tools/playground` is a browser UI (Next.js + React) for driving **real** R and Python sessions through jovian's public `Session` API — every session is an actual `elara` / `carpo` process spawned by `themisto`. Use it to try an installation, reproduce a kernel bug, or see how the API behaves. Its own [README](../../tools/playground/README.md) is the reference; this page is the short version.
+`tools/playground` is a browser UI (Next.js + React) for driving **real** R, Python and Stata sessions through jovian's public `Session` API — every session is an actual `elara` / `carpo` / `callisto` process spawned by `themisto`. Use it to try an installation, reproduce a kernel bug, or see how the API behaves. Its own [README](../../tools/playground/README.md) is the reference; this page is the short version.
 
 ```sh
 npm run build                # once: native binaries + dist/lib (the playground uses both)
@@ -12,7 +12,7 @@ npm run playground           # http://127.0.0.1:4173
 
 | Feature | How |
 |---|---|
-| New R / Python session | *New Kernel Session*: pick the kernel type, R home / Python home (pre-filled from auto-discovery), library paths, and a **working directory** (empty = the server's). |
+| New R / Python / Stata session | *New Kernel Session*: pick the kernel type, R home / Python home / Stata home and edition (pre-filled from auto-discovery), library paths, and a **working directory** (empty = the server's). |
 | Run code | `Shift+Enter`. `input()` / `readline()` show an input box. R plots render as images. |
 | Completion | **As you type**: about 180 ms after you pause with the caret at the end of an identifier of two or more characters (or right after `$`, `@`, `::`, `.`), a list of candidates appears without touching your text. `Tab` accepts, `↑/↓` move, `Enter` accepts only after you have arrowed into the list, `Esc` closes. `Tab` also asks explicitly (completing the common prefix first, then a picker). Uses `session.complete()`. |
 | Inspect | Automatic: rest the mouse (~450 ms) on a word in the input or in a cell's echoed code, or rest the caret on a word after moving it (arrows, `Home`/`End`, click), and its documentation appears; it closes when the pointer leaves. Explicit: `Shift+Tab` (or `Ctrl+I`) shows help for the symbol at the caret (`mean(` works); double-click a word in the output window, or drag-select an expression and use the *Inspect* chip. Uses `session.inspect()`. |
@@ -26,7 +26,7 @@ Cells run **without a timeout** by default — press Interrupt to stop one. The 
 
 ## Configuration
 
-Environment variables (`PLAYGROUND_PORT`, `R_HOME`, `R_PATH`, `R_LIBS`, `PYTHONHOME`, `PYTHONPATH`, `VIRTUAL_ENV`, `JOVIAN_NATIVE_DIR`, `JOVIAN_DIST_DIR`) are listed in the playground README. The server binds to `127.0.0.1` only and rejects cross-origin state-changing requests — it executes arbitrary code, so never expose it beyond localhost.
+Environment variables (`PLAYGROUND_PORT`, `R_HOME`, `R_PATH`, `R_LIBS`, `PYTHONHOME`, `PYTHONPATH`, `VIRTUAL_ENV`, `STATA_HOME`, `JOVIAN_NATIVE_DIR`, `JOVIAN_DIST_DIR`) are listed in the playground README. The server binds to `127.0.0.1` only and rejects cross-origin state-changing requests — it executes arbitrary code, so never expose it beyond localhost.
 
 ## As a reference for your own app
 

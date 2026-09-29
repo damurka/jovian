@@ -2,7 +2,7 @@
 
 You do not need this to use Jovian from Node.js: `npm install @damurka/jovian` brings prebuilt binaries for Windows x64, Linux x64 and arm64, and macOS x64 and arm64 (see the [README](../README.md#install)). Build from source to work on Jovian itself, or to run it on a platform without a prebuilt package (Windows on ARM, 32-bit ARM Linux, other Unixes) — see [Using your own build](#using-your-own-build).
 
-Jovian builds C++ (Adrastea, Elara, Carpo, Themisto) and TypeScript. R and Python are **runtime** dependencies of the kernels, not build-time ones: Elara and Carpo load R's and Python's shared libraries dynamically when a session starts, so the binaries build without either installed (R's headers are still needed to compile Elara).
+Jovian builds C++ (Adrastea, Elara, Carpo, Callisto, Themisto) and TypeScript. R, Python and Stata are **runtime** dependencies of the kernels, not build-time ones: Elara, Carpo and Callisto load R's, Python's and Stata's shared libraries dynamically when a session starts, so the binaries build without any of them installed (R's headers are still needed to compile Elara).
 
 ## Requirements
 
@@ -18,6 +18,7 @@ Jovian builds C++ (Adrastea, Elara, Carpo, Themisto) and TypeScript. R and Pytho
 | **R** (to run R sessions, and its headers to build Elara) | Developed against R 4.6; CI uses the latest release. On Windows, R ≥ 4.2 is needed for `readline()` to work over the stdin channel (older R still starts, but `readline()` cannot be answered). |
 | **The R package `hera`** and its dependencies | Every R session needs it. Its `Imports` (from `packages/hera/DESCRIPTION`) are `cli`, `evaluate`, `glue`, `IRdisplay`, `jsonlite`, `R6`, `repr`, `rlang`, `tools`, `utils`. In a source checkout nothing installs it for you: install those packages from CRAN and run **`npm run hera:install`** (`R CMD INSTALL packages/hera`). CI does the same with `r-lib/actions/setup-r-dependencies` and `packages: local::packages/hera`. Alternatively pass `heraSrcPath: 'packages/hera'` to `createSession()`: before the first R session the library then installs `hera` and its dependencies itself, exactly as it does for an npm install. Use `hera` >= 0.6.0.9001: earlier versions work but only show the output of one long-running R expression when it ends, not as it is produced — re-run `npm run hera:install` after pulling. |
 | **Python** (optional) | Only needed to run Python sessions and to run `CarpoTest`. Carpo does not include Python's headers or link Python at build time. A CPython 3 installation with its shared library: `python3NN.dll` on Windows, `libpython3.*.so` on Linux, `libpython3.*.dylib` on macOS. |
+| **Stata** (optional) | Only needed to run Stata sessions and `CallistoTest` (set `STATA_HOME` for it). Stata 17 or newer, licensed; nothing of Stata's is needed to build Callisto. |
 
 ### Windows
 
@@ -46,7 +47,7 @@ Jovian builds C++ (Adrastea, Elara, Carpo, Themisto) and TypeScript. R and Pytho
 
 ```sh
 npm install --legacy-peer-deps   # CI uses `npm ci --legacy-peer-deps` (typescript and the eslint plugin disagree on peer versions)
-npm run build                    # native (elara + carpo + themisto, Release) into dist/native, then TypeScript into dist/lib
+npm run build                    # native (elara + carpo + callisto + themisto, Release) into dist/native, then TypeScript into dist/lib
 ```
 
 `npm run build` configures with `VCPKG_ROOT`'s toolchain file when the variable is set. The individual steps are `npm run build:native` (only `cmake --build`, after a configure) and `npm run build:lib` (`tsc --build`).
@@ -71,7 +72,7 @@ Variables that matter when building and developing (the ones for *using* the pac
 | `R_HOME` | tests, examples | R installation for the tests and examples when `rHome` is not passed. `R RHOME` is the fallback. |
 | `R_PATH`, `R_LIBS` | examples, playground | Passed as `rPath` / `rLibs`. |
 | `PYTHONHOME` | tests | Python installation prefix for the tests when `pythonHome` is not passed. |
-| `JOVIAN_NATIVE_DIR` | `lib/` | Directory holding `themisto`, `elara` and `carpo`. Use it to run against a *copy* of the binaries while rebuilding (Windows will not let you overwrite a running `.exe`), or to point the library at your own build. |
+| `JOVIAN_NATIVE_DIR` | `lib/` | Directory holding `themisto`, `elara`, `carpo` and `callisto`. Use it to run against a *copy* of the binaries while rebuilding (Windows will not let you overwrite a running `.exe`), or to point the library at your own build. |
 | `ELARA_HERA_SRC` | Elara | Set for you from the `heraSrcPath` option: where Elara installs `hera` from if it is missing or older than the source. |
 
 ## Using your own build
@@ -83,4 +84,4 @@ npm run build
 JOVIAN_NATIVE_DIR=/path/to/jovian/dist/native/Release node your-app.js
 ```
 
-`dist/native/Release` needs `themisto`, `elara` and (for Python sessions) `carpo`, plus on Windows the DLLs next to them. `scripts/release.mjs platform --version X` shows exactly which files a platform package takes from that directory.
+`dist/native/Release` needs `themisto`, `elara` and (for Python and Stata sessions) `carpo` and `callisto`, plus on Windows the DLLs next to them. `scripts/release.mjs platform --version X` shows exactly which files a platform package takes from that directory.

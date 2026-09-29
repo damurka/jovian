@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Messages below are quoted from the code. **First habit:** a kernel that fails to start reports only a generic error to your code; the real cause is on stderr, prefixed `[elara]` (R) or `[carpo]` (Python) — the supervisor re-prints everything the kernel writes. Read that output first.
+Messages below are quoted from the code. **First habit:** a kernel that fails to start reports only a generic error to your code; the real cause is on stderr, prefixed `[elara]` (R), `[carpo]` (Python) or `[callisto]` (Stata) — the supervisor re-prints everything the kernel writes. Read that output first.
 
 ## Building
 
@@ -25,7 +25,12 @@ Messages below are quoted from the code. **First habit:** a kernel that fails to
 | `version 'GLIBC_2.xx' not found` on Linux | The prebuilt Linux binaries need a glibc at least as new as the one they were built with (Ubuntu 24.04: 2.39). Build from source on the older system. |
 | `Supervisor process exited before it was ready (code 1)` | `themisto` refused to start — typically `[themisto] FATAL: kernel executable not found at … (pass --kernel-exe to override)`: `elara` is missing next to `themisto`. |
 | `no kernel executable is configured for kernelType 'python' …` | `carpo` was not built (or not found beside `themisto`). It is built by default; check `dist/native/Release/carpo[.exe]` and Themisto's `[themisto] NOTE: no Python kernel executable found` line. R sessions are unaffected. |
+| `no kernel executable is configured for kernelType 'stata' …` | The same for `callisto` (`[themisto] NOTE: no Stata kernel executable found`). |
 | `workingDirectory does not exist or is not a directory: <path>` | Create the directory first, or fix the path. |
+| `401 missing or wrong access token` / WebSocket closed with 4401 | Something called Themisto without the token from its ready line. The library sends it; a tool calling the API directly must send `Authorization: Bearer <token>` (or `?token=` on the WebSocket). See [Protocol](protocol.md#access). |
+| `403 requests from web pages are not accepted` / close code 4403 | The request had an `Origin` header, as every browser request does. Call the API from Node, not from a page. |
+| `kernelType 'ark' needs arkPath …` | No Ark was found: install Positron, or pass `arkPath` / set `ARK_PATH`. |
+| `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c` when a Node process exits (Windows) | A Node bug on Windows ([nodejs/node#56645](https://github.com/nodejs/node/issues/56645)): `process.exit()` right after network activity. It happens only as the process ends; with `persistent`, the sessions are unaffected. Let the process end on its own, or wait a moment before `process.exit()`. |
 | `Kernel process exited before it could register -- check its stderr output for the actual error.` | The kernel crashed at start-up. The exception's message ends with `Kernel output:` and the kernel's own error lines; for the full output run with `JOVIAN_LOG_LEVEL=debug` (or `new SessionManager({ kernelOutput: true })`). See the R / Python sections below. |
 | `Did not receive kernel configuration within 60s -- the kernel process is still running but never registered. Check its stderr output for what it's doing.` | The kernel started but hung before registering — e.g. R blocked loading packages, a very slow disk, or a security product scanning the process. Run with `JOVIAN_LOG_LEVEL=debug` to print the kernel's output and see how far it got. |
 | `WebSocket connection to session <id> failed` / `Session <id> closed before it was ready` | The supervisor accepted the session but the WebSocket could not be established/kept — usually the supervisor died. Look for its exit. |
@@ -82,7 +87,7 @@ There is **no bundled fallback**: `heraSrcPath` has no default, whatever older c
 | A script never exits | Call `await manager.stopAll()` — the supervisor's pipes keep the event loop alive. |
 | `execute()` never resolves while a Shiny app runs | `shiny::runApp()` blocks the kernel; use `createShiny()` (which passes `timeout: 0`) and `interrupt()` to stop it. |
 | `interrupt()` returned `false` | The kernel did not answer within 5 s: it is blocked waiting for `input()`, stuck in native code, or dead. See [Interrupting](guides/interrupting.md#limits). |
-| A request (`complete`, `kernelInfo`, …) times out after 10 s | The kernel is busy running code — requests other than interrupt wait for the running execution. |
+| A request (`complete`, `kernelInfo`, …) times out after 10 s | The kernel is busy running code — requests other than interrupt wait for the running execution (Python sessions answer `complete` / `inspect` / `isComplete` during one; Stata sessions `isComplete`; R sessions `complete` / `inspect` of package functions, through a helper R process). Pass a larger `timeout`, or `waitForCell: false` to get an immediate "busy" answer instead. |
 | `Timed out waiting for a <x>_reply after <n>ms` | Same, or the kernel is hung. |
 | Comm messages seem lost | Attach the `'comm'` listener before running the R code that opens the comm; register the target before `new_comm()` (an unregistered target yields `NULL`). Comms only exist in R sessions. |
 

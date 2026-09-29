@@ -1,4 +1,4 @@
-# R and Python environments
+# R, Python and Stata environments
 
 Jovian does not bundle R or Python. Each session points at an installation you choose, so different sessions (or a restarted one) can use different versions.
 
@@ -66,14 +66,35 @@ await manager.createSession({
 
 **No Python installed?** Sessions of `kernelType: 'python'` fail to create: `createSession()` rejects with `Kernel process exited before it could register …` and the kernel's stderr (`[carpo] …`) says `No python3NN.dll was found directly under python_home …` / `No libpython3.*.so*/.dylib was found under …`. A Python without its shared library (some Linux/pyenv builds without `--enable-shared`) will not work either.
 
+## Stata
+
+```typescript
+await manager.createSession({
+    kernelType: 'stata',
+    stataHome: 'C:\\Program Files\\StataNow19', // optional: the directory holding Stata's executable
+    stataEdition: 'se',                          // optional: when that directory has more than one edition
+});
+```
+
+Stata sessions need **Stata 17 or newer**, installed and licensed. Callisto does not drive Stata's executable: it loads the shared library Stata ships next to it for its Python integration (pystata), and starts Stata inside the kernel process.
+
+| Option | Effect |
+|---|---|
+| `stataHome` | Becomes `STATA_HOME` in the kernel (and `SYSDIR_STATA`, which Stata itself reads). When omitted it is `$STATA_HOME`, else the newest directory named `Stata<N>` / `StataNow<N>` under Program Files (Windows), `Stata*` under `/Applications` (macOS) or `stata*` under `/usr/local` (Linux) that has Stata's shared library in it; at the same version StataNow wins. |
+| `stataEdition` | Which library to load: `mp-64.dll` / `se-64.dll` / `be-64.dll` (Windows), `libstata-mp.so` / `libstata-se.so` / `libstata.so` (Linux), `Stata<ED>.app/Contents/MacOS/libstata-<ed>.dylib` (macOS). Default: the first of MP, SE, BE present. |
+
+**Ado-files and settings** are Stata's own: `sysdir`, `adopath`, `profile.do` and `net install`ed packages behave as in Stata's own console.
+
+**Stata not usable?** `createSession()` rejects with `Kernel process exited before it could register …`, and the kernel's stderr (`[callisto] …`) says why: `No Stata shared library found in <dir> (Stata 17 or newer is needed)` for a Stata 16 or older (or a wrong directory), `Stata … could not start: Cannot find license file` when it is not licensed.
+
 ## Where kernels look for things — summary
 
-| Setting | R | Python |
-|---|---|---|
-| Installation | `rHome` | `pythonHome` |
-| Extra packages | `rLibs` | `venvPath` (+ `pythonPath`) |
-| Shared-library path (POSIX) | `<rHome>/lib` added to `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` by the supervisor before the kernel starts | `<pythonHome>/lib`, likewise |
-| Working directory | `workingDirectory` | `workingDirectory` |
+| Setting | R | Python | Stata |
+|---|---|---|---|
+| Installation | `rHome` | `pythonHome` | `stataHome` (+ `stataEdition`) |
+| Extra packages | `rLibs` | `venvPath` (+ `pythonPath`) | Stata's `adopath` |
+| Shared-library path (POSIX) | `<rHome>/lib` added to `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` by the supervisor before the kernel starts | `<pythonHome>/lib`, likewise | loaded by full path from `stataHome` |
+| Working directory | `workingDirectory` | `workingDirectory` | `workingDirectory` |
 
 ## Choosing at runtime
 
