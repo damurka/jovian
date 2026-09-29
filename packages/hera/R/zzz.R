@@ -100,9 +100,22 @@ is_elara <- function() {
   !is.null(embedding) && "elara_kernel_info_request" %in% names(getDLLRegisteredRoutines(embedding)$.Call)
 }
 
-hera_dot_call <- function(fn, ..., error_call = caller_env()) {
-  call <- rlang::call2(".Call", fn, ..., PACKAGE = "(embedding)")
+# is_elara() lists every loaded DLL and all of Elara's registered routines,
+# which cost more than the routine call itself on every message a cell
+# printed; whether R is running inside Elara cannot change, so a yes is kept.
+in_elara <- function() {
+  if (isTRUE(the$in_elara)) return(TRUE)
+  yes <- is_elara()
+  if (yes) the$in_elara <- TRUE
+  yes
+}
 
+hera_dot_call <- function(fn, ..., error_call = caller_env()) {
+  if (in_elara()) {
+    return(.Call(fn, ..., PACKAGE = "(embedding)"))
+  }
+
+  call <- rlang::call2(".Call", fn, ..., PACKAGE = "(embedding)")
   if (!is_elara()) {
     cli::cli_abort(c(
       "The {.val {fn}} routine must be called inside an Elara kernel.",

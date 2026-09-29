@@ -1,13 +1,13 @@
 # evaluate captures stdout into a temporary file and only hands it over when a
 # top-level expression finishes (or a message/warning/plot happens), so one
 # long expression -- for (i in 1:1e6) print(i), purrr::walk(x, print) -- shows
-# nothing until it is over. Making evaluate's sink a *split* sink
-# (sink(con, split = TRUE)) tees the same output to R's console too, and the
-# console (Elara's WriteConsoleEx hook) publishes it to the client at once.
-# evaluate only does that through its debug flag, which also echoes every
-# expression's source, so the one internal function that creates the sink is
-# wrapped instead. try()'s output is redirected to the same place (evaluate
-# points it at the sink's file, which the tee does not cover).
+# nothing until it is over. Instead, when the execution is not silent, the one
+# internal function that creates evaluate's sink is wrapped so that there is
+# no sink at all: output goes to R's console, which Elara's WriteConsoleEx
+# hook publishes to the client at once, and try()'s output with it. (An
+# earlier version kept evaluate's sink and teed it to the console, which also
+# streamed live but paid for writing and re-reading a file copy that was then
+# thrown away.)
 #
 # Returns whether the wrapper is in place; when it is not (a different
 # evaluate), output simply keeps arriving per expression, as before.
@@ -19,14 +19,24 @@ patch_evaluate_sink <- function() {
     return(FALSE)
   }
 
+  defer <- get0("defer", envir = ns, inherits = FALSE)
+  if (!is.function(defer)) {
+    return(FALSE)
+  }
+
   patched <- function(debug = FALSE, frame = parent.frame()) {
-    tee <- isTRUE(the$tee_stdout)
-    reader <- original(debug = debug || tee, frame = frame)
-    if (tee) {
-      # evaluate saved the previous value and restores it when it finishes.
-      options(try.outFile = stdout())
+    if (!isTRUE(the$tee_stdout)) {
+      return(original(debug = debug, frame = frame))
     }
-    reader
+    # Output goes straight to R's console, which Elara streams live, and
+    # evaluate's copy of it is discarded (the text handler is silenced). So
+    # nothing is captured: sinking it into a file and reading that back after
+    # every expression cost ~150 ms per MB of output and gave nothing.
+    # try() output goes to the console too; the old value comes back when
+    # evaluate finishes.
+    old <- options(try.outFile = stdout())
+    defer(options(old), frame)
+    function() NULL
   }
 
   tryCatch({
