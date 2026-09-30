@@ -49,7 +49,7 @@ What you must already have on the machine:
 - **Stata 17 or newer**, licensed (optional, for Stata sessions); any edition (MP, SE, BE) and StataNow. If `stataHome` is not passed, it is found from `$STATA_HOME`, then the newest Stata in the standard location (`Stata19`, `StataNow19`, … under Program Files; `/Applications/Stata*`; `/usr/local/stata*`); pass `stataHome` (the directory holding Stata's executable) to choose one, and `stataEdition` when that directory has more than one edition.
 - **Linux:** `libuuid` (`libuuid1`, present on nearly every system) and a glibc at least as new as the one the binaries were built against (Ubuntu 24.04's, 2.39). On an older distribution, [build from source](docs/building.md).
 - **macOS:** 14 or newer.
-- **Windows:** the [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist) (x64, 2015–2022) — the binaries use the dynamic C++ runtime; most machines already have it.
+- **Windows:** 10 or 11, 64-bit. The Visual C++ runtime the binaries use ships with them, so the Visual C++ Redistributable does not have to be installed.
 
 ## Features
 

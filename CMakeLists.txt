@@ -152,3 +152,24 @@ else ()
 endif()
 
 add_subdirectory(native)
+
+# Windows: the kernels link the dynamic Visual C++ runtime (/MD, to match
+# vcpkg's x64-windows triplet), which a clean Windows does not have -- without
+# the "Microsoft Visual C++ Redistributable" they exit with 0xC0000135 (DLL
+# not found) before they start. Microsoft allows the runtime DLLs to be
+# shipped next to the executables ("app-local"), so they are copied into the
+# output folder, where scripts/release.mjs packages every DLL it finds.
+if (MSVC)
+    set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
+    set(CMAKE_INSTALL_UCRT_LIBRARIES FALSE)  # the UCRT is part of Windows 10 and 11
+    include(InstallRequiredSystemLibraries)
+    if (NOT CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)
+        message(FATAL_ERROR "The Visual C++ runtime DLLs were not found, so the kernels could not be shipped with them.")
+    endif ()
+    message(STATUS "VC++ runtime     = ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}")
+    add_custom_target(vc_runtime ALL
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
+        COMMENT "Copying the Visual C++ runtime next to the kernels"
+        VERBATIM)
+endif ()
