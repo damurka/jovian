@@ -21,7 +21,7 @@ The repository's own `package.json` is `"private": true` — it is the developme
 
 ## The first release is published by hand
 
-npm's staged publishing (below) only works for a package that **already exists** on the registry; a first-time publish of a new package cannot be staged. So the very first version (`0.1.0`) is published from your machine, where npm can ask for your 2FA code:
+A trusted publisher can only be registered for a package that **already exists** on the registry, so the workflow cannot publish a package's very first version. That one (`0.1.0`) is published from your machine, where npm can ask for your 2FA code:
 
 ```bash
 npm login
@@ -46,8 +46,9 @@ The main package goes last so nothing depends on a version that is not there yet
    ```
 
 4. `release.yml` runs. It calls `ci.yml` for the work, so nothing is built twice: for each of the five platforms that is one native build, the native tests, the unit and integration tests, then staging and packing the packages and **smoke-testing the packed tarballs** (`scripts/release-smoke.mjs` installs the platform tarball and the main tarball into an empty project, outside the repository, with an **empty R library** so the first-run install of `hera` and its packages is part of the test, and starts a real R kernel and a real Python kernel from them). The same `ci.yml` runs on every push to `main` and pull request, without the packaging steps.
-5. Only if every platform passed does the `publish` job run (in `release.yml` itself, which is why it must keep that name). It **stages** the packages with `npm stage publish` (npm requires this for CI; needs npm ≥ 11.15, which the job installs), platform packages first, then the main package. Nothing is public yet.
-6. **Approve them**, with 2FA, in the same order: `npm stage list` shows the queue, `npm stage approve <stage-id>` publishes one (or approve on npmjs.com). Approve the main package last. `npm stage reject <stage-id>` discards one.
+5. Only if every platform passed does the `publish` job run (in `release.yml` itself, which is why it must keep that name). It **publishes** the packages with `npm publish --provenance` (trusted publishing: no token, no approval), platform packages first, then the main package, which depends on them. A version already on npm is skipped, so a run that failed half way can be re-run.
+
+   If npm refuses with a message about staged publishing or 2FA, the package's settings on npmjs.com require it: in each package's **Settings** > **Publishing access**, allow publishing from its trusted publisher without approval.
 
 A version with a hyphen (`v0.2.0-rc.1`) is published under the `next` dist-tag, so it does not become what `npm install` picks by default.
 
@@ -83,7 +84,7 @@ Their users get `jovian: there are no prebuilt kernels for <os>-<cpu>` and can b
 1. Add the target to `TARGETS` in `scripts/release.mjs` and to `SUPPORTED_PLATFORMS` in `lib/session/native-paths.ts` (a unit test fails if they differ).
 2. Add it to the build matrix in `.github/workflows/ci.yml` (release.yml reuses it).
 3. Run the workflow by hand (a dry run) and fix what the smoke test finds before tagging a release.
-4. A new platform is a **new package on npm**, and npm cannot stage the first version of a package: publish it by hand once (see [The first release is published by hand](#the-first-release-is-published-by-hand)) before the main package that depends on it is approved. The workflow prints a warning naming each such package and does not fail.
+4. A new platform is a **new package on npm**, whose first version the workflow cannot publish: publish it by hand once (see [The first release is published by hand](#the-first-release-is-published-by-hand)) and register `release.yml` as its trusted publisher. Until then the publish job stops with an error naming it, before the main package is published.
 
 ## Things to know
 

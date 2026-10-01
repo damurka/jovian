@@ -52,17 +52,15 @@ jobs:
 
       # No token anywhere: each package is registered on npmjs.com with this
       # repository and workflow (release.yml) as its trusted publisher, and npm
-      # (>= 11.5.1) trades this job's OIDC identity for a credential.
-      #
-      # npm requires staged publishing for CI: `npm stage publish` puts each
-      # package in a queue; a maintainer then approves it with 2FA (`npm stage
-      # list`, `npm stage approve <id>`, or on npmjs.com). It only works for a
-      # package that already exists on the registry, so the very first version of
-      # a new package is published by hand (docs/releasing.md). Needs npm >= 11.15.
+      # (>= 11.5.1) trades this job's OIDC identity for a credential. The
+      # packages are published straight away (no staged queue to approve), with
+      # provenance. The very first version of a new package is published by hand
+      # (docs/releasing.md), since a trusted publisher can only be registered on
+      # a package that exists.
       - name: Update npm
         run: npm install -g npm@latest && npm --version
 
-      - name: Stage (platform packages first, then the main package)
+      - name: Publish (platform packages first, then the main package)
         shell: bash
         run: |
           ls -l tarballs
@@ -72,26 +70,21 @@ jobs:
           TAG_ARGS=()
           if [[ "$VERSION" == *-* ]]; then TAG_ARGS=(--tag next); fi
 
-          NEW_PACKAGES=()
-          stage_one() {
-            local f="$1" name out
+          publish_one() {
+            local f="$1" name version out
             name=$(tar -xzOf "$f" package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).name')
-            if out=$(npm view "$name" version 2>&1); then
-              npm stage publish "./$f" --access public --provenance "${TAG_ARGS[@]}"
-            elif grep -q E404 <<< "$out"; then
-              # npm cannot stage the first version of a package that does not exist yet.
-              echo "::warning::$name is not on npm yet, and npm cannot stage a package's first version. Publish it by hand from the tarball in this run's artifacts: npm publish ./$(basename "$f") --access public --provenance=false"
-              NEW_PACKAGES+=("$name")
+            version=$(tar -xzOf "$f" package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')
+            if out=$(npm view "$name@$version" version 2>&1) && [ -n "$out" ]; then
+              # a re-run after a partial publish: this one is out already
+              echo "$name@$version is already published, skipped"
+            elif grep -q E404 <<< "$out" && ! npm view "$name" version > /dev/null 2>&1; then
+              echo "::error::$name is not on npm yet: publish its first version by hand (docs/releasing.md), register this workflow as its trusted publisher, then re-run."
+              exit 1
             else
-              echo "::error::could not look up $name on npm: $out"; exit 1
+              npm publish "./$f" --access public --provenance "${TAG_ARGS[@]}"
             fi
           }
 
-          for f in tarballs/damurka-jovian-*-*-*.tgz; do stage_one "$f"; done
-          for f in tarballs/damurka-jovian-[0-9]*.tgz; do stage_one "$f"; done
-
-          echo "Staged. Approve each (platform packages first, the main package last) with 2FA:"
-          echo "  npm stage list && npm stage approve <stage-id>   (or on npmjs.com)"
-          if [ ${#NEW_PACKAGES[@]} -gt 0 ]; then
-            echo "Publish these NEW packages by hand BEFORE approving the main package: ${NEW_PACKAGES[*]}"
-          fi
+          # the main package last: it depends on the platform packages at the same version
+          for f in tarballs/damurka-jovian-*-*-*.tgz; do publish_one "$f"; done
+          for f in tarballs/damurka-jovian-[0-9]*.tgz; do publish_one "$f"; done
