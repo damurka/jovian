@@ -34,7 +34,10 @@
     ragg::agg_record(width = width, height = height, units = "in", res = res,
       pointsize = .jv.graphics.option("pointsize"), background = .jv.graphics.option("bg"))
   } else {
-    grDevices::png(switch(.jv.utils.os(), win = "NUL", "/dev/null"), width = width, height = height, units = "in",
+    # macOS's Quartz png() cannot write to /dev/null (R 4.5: "QuartzBitmap_Output - unable to open file"): a file in
+    # the session's temporary directory there, overwritten by each page
+    nowhere <- switch(.jv.utils.os(), win = "NUL", osx = file.path(tempdir(), "jv-device.png"), "/dev/null")
+    grDevices::png(nowhere, width = width, height = height, units = "in",
       res = res, pointsize = .jv.graphics.option("pointsize"), bg = .jv.graphics.option("bg"))
   }
   the$device <- grDevices::dev.cur()
