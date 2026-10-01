@@ -1,8 +1,17 @@
 name: CI
 
-# One build per platform, used for everything: the tests, and -- when release.yml
-# calls this workflow with `package: true` -- the npm packages. Nothing is built
-# twice.
+# Built once, tested in parallel, as r-universe does:
+#
+#   library (TypeScript, unit tests)  --+
+#   native, one per platform ----------+-> integration tests, per platform x (R, Python) version
+#                                      +-> package smoke test, per platform (release.yml only)
+#
+# Each platform's kernels are built (and their native tests run) once; the
+# integration tests then run against that build in parallel, on the oldest
+# R and Python the kernels support and on the current ones -- the kernels load
+# R and Python at run time, so a version they were not built with is what
+# breaks. When release.yml calls this workflow with `package: true`, the
+# npm packages are packed from the same builds. Nothing is built twice.
 
 on:
   push:
@@ -21,8 +30,65 @@ on:
         default: ''
 
 jobs:
-  build-and-test:
-    name: ${{ matrix.target }}
+  # ---- Build -------------------------------------------------------------------
+
+  # The TypeScript library and its unit tests: the same on every platform, so once.
+  library:
+    name: library
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      # A real, pre-existing version conflict: package.json pins typescript@^7.0.2, but
+      # @typescript-eslint/eslint-plugin@^8.0.0's peer dependency wants typescript <6.1.0.
+      # --legacy-peer-deps doesn't change any declared version, just how npm resolves the conflict.
+      - name: npm ci
+        run: npm ci --legacy-peer-deps
+
+      - name: Build TypeScript
+        run: npx tsc --build
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Upload the library
+        uses: actions/upload-artifact@v7
+        with:
+          name: library
+          path: dist/lib
+          if-no-files-found: error
+
+      # The main package is the same on every platform: packed here, once.
+      - name: Pack the main package
+        if: inputs.package
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          VERSION_NUMBER="${VERSION#v}"
+          if ! [[ "$VERSION_NUMBER" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$VERSION' is not a version tag like v0.1.0"; exit 1
+          fi
+          node scripts/release.mjs main --version "$VERSION_NUMBER"
+          mkdir -p dist/release/tarballs
+          (cd dist/release/jovian && npm pack --pack-destination ../tarballs)
+
+      - name: Upload the main package
+        if: inputs.package
+        uses: actions/upload-artifact@v7
+        with:
+          name: tarballs-main
+          path: dist/release/tarballs/*.tgz
+          if-no-files-found: error
+
+  # The kernels, one build per platform, and their native tests.
+  native:
+    name: native ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
@@ -74,15 +140,6 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.x'
-
-      # The R kernel carries its own R code (hera) and needs no R package to
-      # run code. These are for what the tests exercise beyond that: 'later'
-      # (callbacks run while a session is idle) and IRdisplay (data frames and
-      # widgets shown as HTML). The package smoke test below deliberately does
-      # NOT use this library: it starts from an empty one, and checks it stays so.
-      - uses: r-lib/actions/setup-r-dependencies@v2
-        with:
-          packages: any::later, any::IRdisplay
 
       - name: Install libuuid (Linux)
         if: runner.os == 'Linux'
@@ -136,6 +193,18 @@ jobs:
       - name: Run native tests (ctest)
         run: ctest --test-dir dist/native -C Release --output-on-failure --timeout 180
 
+      # tar keeps the kernels' executable bit, which an artifact on its own loses (relative paths: Windows' GNU tar
+      # reads "D:\..." as a remote host)
+      - name: Bundle the kernels
+        shell: bash
+        run: tar -cf native.tar -C dist/native Release
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-${{ matrix.target }}
+          path: native.tar
+          if-no-files-found: error
+
       # A real, pre-existing version conflict, unrelated to anything else
       # in this workflow: package.json pins typescript@^7.0.2, but
       # @typescript-eslint/eslint-plugin@^8.0.0's peer dependency wants
@@ -143,66 +212,137 @@ jobs:
       # surfaces this. --legacy-peer-deps doesn't change any declared
       # version, just how npm resolves the conflict; the real fix is a version
       # decision for whoever owns that choice.
-      - name: npm ci
-        run: npm ci --legacy-peer-deps
+      # ---- The platform package: only when release.yml asks for it -------------
 
-      - name: Build TypeScript
-        run: npx tsc --build
-
-      - name: Unit tests
-        run: npm run test:unit
-
-      - name: Integration tests
-        run: node --test --test-force-exit test/integration/*.test.ts
-
-      # ---- Packages: only when release.yml asks for them ----------------------
-
-      - name: Resolve the version
+      - name: Pack the platform package
         if: inputs.package
         shell: bash
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          VERSION_NUMBER="${VERSION#v}"
-          if ! [[ "$VERSION_NUMBER" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::'$VERSION' is not a version tag like v0.1.0"; exit 1
-          fi
-          echo "VERSION_NUMBER=$VERSION_NUMBER" >> "$GITHUB_ENV"
-
-      - name: Stage and pack the packages
-        if: inputs.package
-        shell: bash
-        run: |
-          node scripts/release.mjs platform --version "$VERSION_NUMBER" --target ${{ matrix.target }}
-          node scripts/release.mjs main --version "$VERSION_NUMBER"
+          node scripts/release.mjs platform --version "${VERSION#v}" --target ${{ matrix.target }}
           mkdir -p dist/release/tarballs
           (cd dist/release/jovian-${{ matrix.target }} && npm pack --pack-destination ../tarballs)
-          (cd dist/release/jovian && npm pack --pack-destination ../tarballs)
 
-      # Installs both tarballs into an empty project and runs real R and Python
-      # kernels from them, starting from an R library with nothing in it -- which
-      # it must leave empty: nothing is installed for the kernel to run.
-      - name: Smoke test the packed packages (empty R library)
-        if: inputs.package
-        env:
-          R_LIBS_USER: ${{ runner.temp }}/jovian-empty-r-library
-        run: node scripts/release-smoke.mjs --dir dist/release/tarballs --python
-
-      # Every job packs the same main package; keep one copy.
-      - name: Keep the tarballs
-        if: inputs.package
-        shell: bash
-        run: |
-          mkdir -p upload
-          cp dist/release/tarballs/*-${{ matrix.target }}-*.tgz upload/
-          if [ "${{ matrix.target }}" = "linux-x64" ]; then
-            cp dist/release/tarballs/damurka-jovian-[0-9]*.tgz upload/
-          fi
-
-      - name: Upload the tarballs
+      - name: Upload the platform package
         if: inputs.package
         uses: actions/upload-artifact@v7
         with:
           name: tarballs-${{ matrix.target }}
-          path: upload/*.tgz
+          path: dist/release/tarballs/*-${{ matrix.target }}-*.tgz
           if-no-files-found: error
+
+  # ---- Test, in parallel ---------------------------------------------------------
+
+  # The integration tests against each platform's build, on the oldest R and Python the kernels support and on the
+  # current ones. R-devel runs too, on Linux, as an early warning that does not hold a release back.
+  integration:
+    name: integration ${{ matrix.target }} (R ${{ matrix.r }}, Python ${{ matrix.python }})
+    needs: [library, native]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    continue-on-error: ${{ matrix.r == 'devel' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [win32-x64, linux-x64, linux-arm64, darwin-arm64, darwin-x64]
+        r: [oldrel-1, release]
+        include:
+          - { target: win32-x64,    os: windows-latest }
+          - { target: linux-x64,    os: ubuntu-24.04 }
+          - { target: linux-arm64,  os: ubuntu-24.04-arm }
+          - { target: darwin-arm64, os: macos-latest }
+          - { target: darwin-x64,   os: macos-15-intel }
+          - { r: oldrel-1, python: '3.10' }
+          - { r: release,  python: '3.x' }
+          - { target: linux-x64, os: ubuntu-24.04, r: devel, python: '3.x' }
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ matrix.r }}
+          windows-path-include-rtools: false
+          windows-path-include-mingw: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+
+      # What the tests exercise beyond running code: 'later' (callbacks while a session is idle) and IRdisplay
+      # (data frames and widgets as HTML)
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: any::later, any::IRdisplay
+
+      - name: npm ci
+        run: npm ci --legacy-peer-deps
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: library
+          path: dist/lib
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-${{ matrix.target }}
+
+      - name: Unpack the kernels
+        shell: bash
+        run: mkdir -p dist/native && tar -xf native.tar -C dist/native
+
+      - name: Integration tests
+        run: node --test --test-force-exit test/integration/*.test.ts
+
+  # The packed packages, installed into an empty project and run from there, starting from an R library with nothing
+  # in it -- which they must leave empty: nothing is installed for the kernel to run.
+  smoke:
+    name: smoke ${{ matrix.target }}
+    if: inputs.package
+    needs: [library, native]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: win32-x64,    os: windows-latest }
+          - { target: linux-x64,    os: ubuntu-24.04 }
+          - { target: linux-arm64,  os: ubuntu-24.04-arm }
+          - { target: darwin-arm64, os: macos-latest }
+          - { target: darwin-x64,   os: macos-15-intel }
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: 'release'
+          windows-path-include-rtools: false
+          windows-path-include-mingw: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.x'
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: tarballs-*
+          path: tarballs
+          merge-multiple: true
+
+      - name: Smoke test the packed packages (empty R library)
+        shell: bash
+        env:
+          R_LIBS_USER: ${{ runner.temp }}/jovian-empty-r-library
+        run: |
+          mkdir -p smoke
+          cp tarballs/damurka-jovian-[0-9]*.tgz tarballs/*-${{ matrix.target }}-*.tgz smoke/
+          node scripts/release-smoke.mjs --dir smoke --python
