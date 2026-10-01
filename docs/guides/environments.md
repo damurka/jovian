@@ -21,22 +21,13 @@ await manager.createSession({
 | `rLibs` | Sets `R_LIBS` and `R_LIBS_USER` (and `R_LIBS_SITE` on Windows). Packages — including `hera` — are looked up and auto-installed here. |
 | `pandocPath` | Sets `RSTUDIO_PANDOC` and prepends the directory to `PATH`, so R Markdown-style rendering works without a system pandoc. |
 
-### The `hera` package (required)
+### The `hera` package (built in)
 
-Elara delegates code execution, completion, inspection and comms to the R package `hera` (`packages/hera`). **Without it R code cannot run**: the kernel still starts (it logs `WARNING: 'hera' package could not be loaded`), but every `execute` fails with `R evaluation of hera:::hera_call("execute", ...) failed (is the 'hera' package installed?)`.
+Elara delegates code execution, rich output, completion, inspection and comms to `hera` (`packages/hera`), R code that is built into the kernel and loaded at start-up as the namespace `hera`, as Ark carries its own R code. Nothing is installed into R and nothing has to be: `hera` imports no CRAN package, so a new session has only R's base packages and `hera` loaded. Its exports are attached as `tools:hera` (`View()`, `display()`, `cell_options()`, ...), and `hera::` works as for a package. A `hera` installed in your R library from older versions is not used.
 
-Install it once into the library the session uses:
+`IRdisplay` (with `repr`), when installed, is loaded the first time something needs it: a data frame, an HTML widget, `display()`, `View()`. Without it these show as text.
 
-```r
-install.packages(c("cli", "evaluate", "glue", "IRdisplay", "jsonlite", "R6", "repr", "rlang"))
-```
-```sh
-npm run hera:install                   # = R CMD INSTALL packages/hera, from the repo root
-```
-
-or let Elara install it: set `heraSrcPath` to the `packages/hera` directory (needs the `remotes` package). At start-up Elara then installs `hera` if it is missing **or older than the source** (it compares source-file modification times with the installed `DESCRIPTION`, so editing `packages/hera/R/*.R` takes effect on the next session start). The kernel log (Themisto re-prints it with an `[elara]` prefix) says what happened: `Successfully loaded 'hera' package`, `auto-installed from ELARA_HERA_SRC`, `older than ELARA_HERA_SRC -- reinstalled`, or `WARNING: 'hera' package could not be loaded (status: …)` with one of `no_source_configured`, `source_not_found`, `remotes_unavailable`, `install_failed`.
-
-`heraSrcPath` has **no default** — without it an R session uses whichever `hera` is already installed. Keep that copy current (`npm run hera:install`, or `heraSrcPath`): `hera` >= 0.6.0.9001 streams the output of a single long-running expression live (see [Kernels](../kernels.md#executing-code-hera)); an older one still works but shows such output only when the expression ends.
+For developing `hera`: set `heraSrcPath` to the `packages/hera` directory and Elara reads the files from there instead of its built-in copy, so an edit takes effect at the next session without rebuilding the kernel. The kernel log (Themisto re-prints it with an `[elara]` prefix) says which: `Loaded hera <version> (built in)` or `(… path …)`.
 
 ### Notes
 

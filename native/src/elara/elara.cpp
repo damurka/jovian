@@ -10,6 +10,7 @@
 // native/src/adrastea/transport/server/handshaking.cpp's sendConnectionInfo, which
 // already implements the "kernel dials home with its bound ports" protocol
 // used here -- it existed unused until this executable started calling it.
+#include "elara/log.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -123,11 +124,22 @@ int main(int argc, char* argv[])
 
     if (!standaloneJupyterMode && (opts.registrationPort.empty() || opts.key.empty()))
     {
-        std::cerr << "[elara] --registration-port and --key are required unless -f/--connection-file is "
-                     "given (this executable is meant to be launched by themisto, or directly by a "
-                     "Jupyter frontend via its kernelspec)"
-                  << std::endl;
+        elara::log::error("--registration-port and --key are required unless -f/--connection-file is given (this "
+                          "executable is meant to be launched by themisto, or directly by a Jupyter frontend via its "
+                          "kernelspec)");
         return 1;
+    }
+
+    if (!standaloneJupyterMode)
+    {
+        // Run by Jovian's supervisor, whose client answers every question for the host's UI (hera's host_ask(),
+        // rstudioapi's prompts) -- with nothing when nobody listens -- so they are asked whether or not the
+        // execution allows input (routine.cpp's uiAsk(); a Shiny app's runApp() allows none)
+#ifdef _WIN32
+        _putenv_s("JOVIAN_SUPERVISED", "1");
+#else
+        setenv("JOVIAN_SUPERVISED", "1", 1);
+#endif
     }
 
     elara::EnvironmentConfig envConfig;
@@ -155,16 +167,14 @@ int main(int argc, char* argv[])
         }
         catch (const std::exception& e)
         {
-            std::cerr << "[elara] FATAL: failed to read connection file " << opts.connectionFile << ": "
-                      << e.what() << std::endl;
+            elara::log::error("fatal: failed to read connection file " + opts.connectionFile + ": " + e.what());
             return 1;
         }
         if (!std::holds_alternative<adrastea::KernelConfiguration>(parsed))
         {
-            std::cerr << "[elara] FATAL: " << opts.connectionFile
-                      << " is a registration-style connection file (has registration_ip) -- that mode is for "
-                         "themisto, launched via --registration-port/--key instead of -f."
-                      << std::endl;
+            elara::log::error("fatal: " + opts.connectionFile + " is a registration-style connection file (has "
+                              "registration_ip) -- that mode is for themisto, launched via --registration-port/--key "
+                              "instead of -f.");
             return 1;
         }
         kernelConfig = std::get<adrastea::KernelConfiguration>(parsed);
@@ -195,9 +205,8 @@ int main(int argc, char* argv[])
                 // needs; it discovers liveness the same way it does for
                 // any other kernel (polling kernel_info_request until one
                 // succeeds), not an explicit handshake.
-                std::cerr << "[elara] ready (Jupyter connection-file mode), shell=" << kernelConfig.m_shellPort
-                          << " control=" << kernelConfig.m_controlPort << " iopub=" << kernelConfig.m_iopubPort
-                          << std::endl;
+                elara::log::info("ready (Jupyter connection-file mode), shell=" + kernelConfig.m_shellPort
+                                 + " control=" + kernelConfig.m_controlPort + " iopub=" + kernelConfig.m_iopubPort);
             });
         }
         else
@@ -221,14 +230,13 @@ int main(int argc, char* argv[])
                 auto auth = adrastea::makeAuthentication("hmac-sha256", opts.key);
 
                 adrastea::sendConnectionInfo(zmqContext, regConfig, kernelConfig, *auth, adrastea::json::error_handler_t::strict);
-                std::cerr << "[elara] registered with supervisor at "
-                          << opts.registrationIp << ":" << opts.registrationPort << std::endl;
+                elara::log::info("registered with supervisor at " + opts.registrationIp + ":" + opts.registrationPort);
             });
         }
     }
     catch (const std::exception& e)
     {
-        std::cerr << "[elara] FATAL: " << e.what() << std::endl;
+        elara::log::error(std::string("fatal: ") + e.what());
         return 1;
     }
 

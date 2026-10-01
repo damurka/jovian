@@ -1,12 +1,8 @@
 #' @importFrom grDevices pdf png
-#' @importFrom jsonlite toJSON unbox fromJSON
 #' @importFrom utils head tail capture.output
-#' @importFrom R6 R6Class
-#' @importFrom rlang caller_env
-#' @import glue
 NULL
 
-print_vignette <- function(x, ...) {
+.jv.display.vignette <- function(x, ...) {
   file <- x$PDF
   if (nzchar(file) == 0) {
     warning(gettextf("vignette %s has no PDF/HTML", sQuote(x$Topic)), call. = FALSE, domain = NA)
@@ -39,29 +35,25 @@ NAMESPACE <- environment()
 the <- NULL
 
 .onLoad <- function(libname, pkgname) {
-    # Elara verification/handshake now happens via is_elara()/hera_dot_call()
+    # Elara verification/handshake now happens via is_elara()/.jv.elara.call()
     # below, not here -- this used to be a bare TODO for that, predating
     # those functions.
     NAMESPACE$the <- new.env()
-    the$frame_cell_execute <- NULL
-    the$last_plot <- NULL
-    the$last_visible <- TRUE
-    the$last_error <- NULL
+    the$cell_exit <- list()
 
     ns_utils <- asNamespace("utils")
     get("unlockBinding", envir = baseenv())("print.vignette", ns_utils)
 
-    assign("print.vignette", print_vignette, ns_utils)
+    assign("print.vignette", .jv.display.vignette, ns_utils)
     get("lockBinding", envir = baseenv())("print.vignette", ns_utils)
 
-    NAMESPACE$CommManager <- CommManagerClass$new()
 
-    init_options()   
+    .jv.init.options()   
 }
 
-init_options <- function() {
+.jv.init.options <- function() {
   options(
-    device = get_null_device(),
+    device = .jv.graphics.null_device(),
     cli.num_colors = 256L,
     jupyter.plot_mimetypes = c('text/plain', 'image/png'),
     jupyter.plot_scale = 2,
@@ -79,12 +71,8 @@ init_options <- function() {
 }
 
 NAMESPACE <- environment()
-hera_call <- function(fn, ...) {
+.jv.call <- function(fn, ...) {
     get(fn, envir = NAMESPACE)(...)
-}
-
-hera_new <- function(class, xp, ...) {
-    get(class, envir = NAMESPACE)$new(xp, ...)
 }
 
 #' Is this a running Elara jupyter kernel
@@ -103,39 +91,41 @@ is_elara <- function() {
 # is_elara() lists every loaded DLL and all of Elara's registered routines,
 # which cost more than the routine call itself on every message a cell
 # printed; whether R is running inside Elara cannot change, so a yes is kept.
-in_elara <- function() {
+.jv.elara.running <- function() {
   if (isTRUE(the$in_elara)) return(TRUE)
   yes <- is_elara()
   if (yes) the$in_elara <- TRUE
   yes
 }
 
-hera_dot_call <- function(fn, ..., error_call = caller_env()) {
-  if (in_elara()) {
+.jv.elara.call <- function(fn, ...) {
+  if (.jv.elara.running()) {
     return(.Call(fn, ..., PACKAGE = "(embedding)"))
   }
-
-  call <- rlang::call2(".Call", fn, ..., PACKAGE = "(embedding)")
-  if (!is_elara()) {
-    cli::cli_abort(c(
-      "The {.val {fn}} routine must be called inside an Elara kernel.",
-      i   = "Full internal call to the Elara routine:",
-      " " = "{deparse(call)}"
-    ), call = error_call)
-  }
-  eval.parent(call)
+  stop(sprintf("The \"%s\" routine must be called inside an Elara kernel.", fn), call. = FALSE)
 }
 
-get_null_device <- function() {
-  os <- get_os()
-
-  ok_device     <- switch(os, win = png,   osx = pdf,  unix = png)
-  null_filename <- switch(os, win = 'NUL', osx = NULL, unix = '/dev/null')
-
-  null_device <- function(filename = null_filename, ...) ok_device(filename, ...)
-  null_device
+# The device R opens when code first draws (options(device)): the session's plot device -- see graphics.R
+.jv.graphics.null_device <- function() {
+  function(...) .jv.graphics.open_device()
 }
 
-#' @importFrom IRdisplay display
+#' Display an object
+#'
+#' IRdisplay's `display()`: IRdisplay (and repr) are loaded when it is first used, not with hera, so a session loads
+#' no package it doesn't use.
+#'
+#' @param ... passed to [IRdisplay::display()]: the object, and optionally `metadata`, `mimetypes`, `error_handler`
+#'
+#' @examples
+#' \dontrun{
+#'   display(mtcars)
+#' }
+#'
 #' @export
-IRdisplay::display
+display <- function(...) {
+  if (!requireNamespace("IRdisplay", quietly = TRUE)) {
+    stop("display() needs the IRdisplay package: install.packages(\"IRdisplay\")", call. = FALSE)
+  }
+  IRdisplay::display(...)
+}

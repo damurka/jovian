@@ -109,7 +109,9 @@ TEST(ElaraTest, ExitsCleanlyWithAnActionableMessageWhenRCannotBeLoaded)
     std::filesystem::remove(outputFile);
 
     EXPECT_EQ(exitCode, 1);
-    EXPECT_NE(output.find("[elara] FATAL"), std::string::npos) << "actual output was:\n" << output;
+    EXPECT_NE(output.find("error: fatal:"), std::string::npos) << "actual output was:\n" << output;
+    // said once
+    EXPECT_EQ(output.find("error: fatal:"), output.rfind("error: fatal:")) << "actual output was:\n" << output;
     EXPECT_NE(output.find("Is R installed"), std::string::npos) << "actual output was:\n" << output;
 #endif
 }

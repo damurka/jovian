@@ -1,6 +1,7 @@
 #ifndef ADRASTEA_IOPUB_CLIENT_HPP
 #define ADRASTEA_IOPUB_CLIENT_HPP
 
+#include <atomic>
 #include <queue>
 #include <mutex>
 
@@ -28,9 +29,18 @@ namespace adrastea
 
         void run();
 
+        // Readable once a message was queued since the last
+        // clearQueuedSignal(); for the one thread that waits (and pops).
+        zmq::socket_t& queuedSignal();
+        void clearQueuedSignal();
+
     private:
         zmq::socket_t m_iopub;
         zmq::socket_t m_controller;
+        // inproc pair: the receiving thread signals, the waiting thread is woken
+        zmq::socket_t m_signalSend;
+        zmq::socket_t m_signalReceive;
+        std::atomic<bool> m_signalled{ false };
 
         std::string m_iopubEndPoint;
 

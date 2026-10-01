@@ -219,7 +219,11 @@ namespace adrastea
                 return;
             }
             Message msg = ZmqSerializer::deserialize(wire_msg, *p_auth);
-            if (m_interruptHandler && msg.header().value("msg_type", "") == "interrupt_request")
+            const std::string msg_type = msg.header().value("msg_type", "");
+            // Answered now, on this thread, while the code runs: an interrupt, and a debug request (the debugger's
+            // client talks to a running -- or stopped at a breakpoint -- cell: see Interpreter::debugRequest()).
+            // The rest waits for the code to finish.
+            if (m_interruptHandler && (msg_type == "interrupt_request" || msg_type == "debug_request"))
             {
                 m_interruptHandler(std::move(msg));
             }

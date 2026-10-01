@@ -5,7 +5,6 @@ import * as release from '../../../scripts/release.mjs';
 import {
     PACKAGE_NAME,
     SUPPORTED_PLATFORMS,
-    bundledHeraSource,
     locateNativeDirectory,
     platformPackageName,
     type NativeLookup
@@ -97,35 +96,6 @@ test('locateNativeDirectory', async (t) => {
         );
     });
 });
-
-test('bundledHeraSource', async (t) => {
-    const installedDir = join('app', 'node_modules', '@damurka', 'jovian', 'lib', 'session');
-    const hera = join(installedDir, '..', '..', 'packages', 'hera');
-
-    await t.test('points at the copy shipped in the package when installed under node_modules', () => {
-        const found = bundledHeraSource(installedDir, (p) => p === join(hera, 'DESCRIPTION'));
-        assert.strictEqual(found, join('app', 'node_modules', '@damurka', 'jovian', 'packages', 'hera'));
-    });
-
-    await t.test('in an Electron app: the unpacked copy beside the asar archive, which R can read', () => {
-        const inAsar = join('app', 'resources', 'app', 'node_modules.asar', '@damurka', 'jovian', 'lib', 'session');
-        const unpacked = join('app', 'resources', 'app', 'node_modules.asar.unpacked', '@damurka', 'jovian', 'packages', 'hera');
-        assert.strictEqual(bundledHeraSource(inAsar, (p) => p === join(unpacked, 'DESCRIPTION')), unpacked);
-        // loaded from the unpacked folder itself
-        const fromUnpacked = join('app', 'resources', 'app', 'node_modules.asar.unpacked', '@damurka', 'jovian', 'lib', 'session');
-        assert.strictEqual(bundledHeraSource(fromUnpacked, (p) => p === join(unpacked, 'DESCRIPTION')), unpacked);
-    });
-
-    await t.test('is undefined in a source checkout so development controls which hera loads', () => {
-        const checkout = join('repo', 'dist', 'lib', 'session');
-        assert.strictEqual(bundledHeraSource(checkout, () => true), undefined);
-    });
-
-    await t.test('is undefined if the package carries no hera', () => {
-        assert.strictEqual(bundledHeraSource(installedDir, () => false), undefined);
-    });
-});
-
 test('the published package.json', async (t) => {
     const manifest = release.mainManifest('1.2.3');
 

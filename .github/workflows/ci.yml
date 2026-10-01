@@ -75,15 +75,14 @@ jobs:
         with:
           python-version: '3.x'
 
-      # hera is required for actually running code: SessionRegistryTest's
-      # real-kernel tests call hera:::hera_call("execute", ...) to evaluate
-      # anything at all. All of hera's Imports (packages/hera/DESCRIPTION) are
-      # on CRAN -- local::<path> installs both those and hera itself. (The
-      # package smoke test below deliberately does NOT use this library: it
-      # starts from an empty one.)
+      # The R kernel carries its own R code (hera) and needs no R package to
+      # run code. These are for what the tests exercise beyond that: 'later'
+      # (callbacks run while a session is idle) and IRdisplay (data frames and
+      # widgets shown as HTML). The package smoke test below deliberately does
+      # NOT use this library: it starts from an empty one, and checks it stays so.
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          packages: local::packages/hera
+          packages: any::later, any::IRdisplay
 
       - name: Install libuuid (Linux)
         if: runner.os == 'Linux'
@@ -111,7 +110,7 @@ jobs:
             ~/.cache/vcpkg/archives
             ~/Library/Caches/vcpkg/archives
             ~\AppData\Local\vcpkg\archives
-          key: vcpkg-archives-${{ matrix.target }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-archives-${{ matrix.target }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg-overlays/**') }}
           restore-keys: |
             vcpkg-archives-${{ matrix.target }}-
 
@@ -181,8 +180,8 @@ jobs:
           (cd dist/release/jovian && npm pack --pack-destination ../tarballs)
 
       # Installs both tarballs into an empty project and runs real R and Python
-      # kernels from them, starting from an R library with nothing in it: the
-      # first-run install of hera and its packages is part of what is tested.
+      # kernels from them, starting from an R library with nothing in it -- which
+      # it must leave empty: nothing is installed for the kernel to run.
       - name: Smoke test the packed packages (empty R library)
         if: inputs.package
         env:

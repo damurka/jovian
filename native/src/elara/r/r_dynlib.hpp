@@ -38,6 +38,7 @@
 #include "Rembedded.h"
 #include "R_ext/Parse.h"
 #include "R_ext/Rdynload.h"
+#include "R_ext/GraphicsEngine.h"
 
 #ifndef _WIN32
 // Rinterface.h guards its ptr_R_WriteConsole/ptr_R_WriteConsoleEx/
@@ -94,6 +95,14 @@ namespace elara { namespace r {
     // the flag.
     bool requestRInterrupt();
 
+    // Takes back an interrupt R has not acted on (one that came in while the cell was finishing).
+    void clearRInterrupt();
+
+    // Lets R service what it would while its own console waited for input: its event loop (R_ProcessEvents()) and,
+    // on Unix, the input handlers on its sockets -- R's help server (tools::startDynamicHelp()) among them. The
+    // kernel's console loop calls it when idle. Each part only if this R has it.
+    void serviceREvents();
+
 #ifdef _WIN32
     // Whether R.dll exports everything RInterpreter's Windows startup needs
     // (R_DefParamsEx and friends, all resolved by loadRApi() but -- unlike
@@ -148,6 +157,22 @@ extern "C" {
     using INTEGER_ELT_t = int (*)(SEXP, R_xlen_t);
     using Rf_protect_t = SEXP (*)(SEXP);
     using Rf_unprotect_t = void (*)(int);
+    // for converting R values to and from JSON (routine.cpp)
+    using TYPEOF_t = int (*)(SEXP);
+    using REAL_ELT_t = double (*)(SEXP, R_xlen_t);
+    using SET_INTEGER_ELT_t = void (*)(SEXP, R_xlen_t, int);
+    using SET_REAL_ELT_t = void (*)(SEXP, R_xlen_t, double);
+    using SET_LOGICAL_ELT_t = void (*)(SEXP, R_xlen_t, int);
+    using Rf_getAttrib_t = SEXP (*)(SEXP, SEXP);
+    using Rf_translateCharUTF8_t = const char* (*)(SEXP);
+    using Rf_mkCharLenCE_t = SEXP (*)(const char*, int, cetype_t);
+    using R_IsNA_t = int (*)(double);
+    // the current graphics device, for whether its plot changed (routine.cpp's displayListId())
+    using GEcurrentDevice_t = pGEDevDesc (*)(void);
+    // R's own console loop, which the kernel lets own the main thread (RInterpreter::runMainLoop())
+    using run_Rmainloop_t = void (*)(void);
+    using SETCDR_t = SEXP (*)(SEXP, SEXP);
+    using R_ReleaseObject_t = void (*)(SEXP);
 }
 
 #ifndef _WIN32
@@ -246,9 +271,30 @@ namespace elara { namespace r { namespace api {
     extern INTEGER_ELT_t p_INTEGER_ELT;
     extern Rf_protect_t p_Rf_protect;
     extern Rf_unprotect_t p_Rf_unprotect;
+    extern TYPEOF_t p_TYPEOF;
+    extern REAL_ELT_t p_REAL_ELT;
+    extern SET_INTEGER_ELT_t p_SET_INTEGER_ELT;
+    extern SET_REAL_ELT_t p_SET_REAL_ELT;
+    extern SET_LOGICAL_ELT_t p_SET_LOGICAL_ELT;
+    extern Rf_getAttrib_t p_Rf_getAttrib;
+    extern Rf_translateCharUTF8_t p_Rf_translateCharUTF8;
+    extern Rf_mkCharLenCE_t p_Rf_mkCharLenCE;
+    extern R_IsNA_t p_R_IsNA;
+    extern GEcurrentDevice_t p_GEcurrentDevice;
+    extern run_Rmainloop_t p_run_Rmainloop;
+    extern SETCDR_t p_SETCDR;
+    extern R_ReleaseObject_t p_R_ReleaseObject;
 
     extern SEXP* p_R_GlobalEnv;
     extern SEXP* p_R_NilValue;
+    // NA_STRING, NA_REAL and NA_INTEGER/NA_LOGICAL (R's headers define them as these)
+    extern SEXP* p_R_NaString;
+    extern double* p_R_NaReal;
+    extern int* p_R_NaInt;
+    // whether the last evaluation's value is visible (Rboolean R_Visible)
+    extern int* p_R_Visible;
+    // the statement being evaluated (the debugger's current line)
+    extern SEXP* p_R_Srcref;
     // R_interrupts_pending (Unix) / UserBreak (Windows); resolved
     // leniently, may be null. Use requestRInterrupt() rather than this.
     extern int* p_interruptFlag;
@@ -314,9 +360,25 @@ namespace elara { namespace r { namespace api {
 #define INTEGER_ELT (*::elara::r::api::p_INTEGER_ELT)
 #define Rf_protect (*::elara::r::api::p_Rf_protect)
 #define Rf_unprotect (*::elara::r::api::p_Rf_unprotect)
+#define TYPEOF (*::elara::r::api::p_TYPEOF)
+#define REAL_ELT (*::elara::r::api::p_REAL_ELT)
+#define SET_INTEGER_ELT (*::elara::r::api::p_SET_INTEGER_ELT)
+#define SET_REAL_ELT (*::elara::r::api::p_SET_REAL_ELT)
+#define SET_LOGICAL_ELT (*::elara::r::api::p_SET_LOGICAL_ELT)
+#define Rf_getAttrib (*::elara::r::api::p_Rf_getAttrib)
+#define Rf_translateCharUTF8 (*::elara::r::api::p_Rf_translateCharUTF8)
+#define Rf_mkCharLenCE (*::elara::r::api::p_Rf_mkCharLenCE)
+#define R_IsNA (*::elara::r::api::p_R_IsNA)
+#define GEcurrentDevice (*::elara::r::api::p_GEcurrentDevice)
+#define run_Rmainloop (*::elara::r::api::p_run_Rmainloop)
+#define SETCDR (*::elara::r::api::p_SETCDR)
+#define R_ReleaseObject (*::elara::r::api::p_R_ReleaseObject)
 
 #define R_GlobalEnv (*::elara::r::api::p_R_GlobalEnv)
 #define R_NilValue (*::elara::r::api::p_R_NilValue)
+#define R_NaString (*::elara::r::api::p_R_NaString)
+#define R_NaReal (*::elara::r::api::p_R_NaReal)
+#define R_NaInt (*::elara::r::api::p_R_NaInt)
 
 #ifndef _WIN32
 #define ptr_R_WriteConsole (*::elara::r::api::p_ptr_R_WriteConsole)

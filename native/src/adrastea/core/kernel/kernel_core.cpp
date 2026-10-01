@@ -2,6 +2,7 @@
 #include <exception>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <tuple>
 
@@ -44,6 +45,7 @@ namespace adrastea
         m_handler["kernel_info_request"] = handler_type{ &KernelCore::kernelInfoRequest, true };
         m_handler["shutdown_request"] = handler_type{ &KernelCore::shutdownRequest, true };
         m_handler["interrupt_request"] = handler_type{ &KernelCore::interruptRequest, true };
+        m_handler["debug_request"] = handler_type{ &KernelCore::debugRequest, true };
 
         // Server bindings
         p_server->registerShellListener(std::bind(&KernelCore::dispatchShell, this, _1));
@@ -250,8 +252,20 @@ namespace adrastea
         // executeRequestImpl throwing when hera isn't loaded/loadable used
         // to vanish into this function's old catch block, which only
         // logged to stderr and sent nothing back at all).
-        auto reply_callback = [this, RequestContext, config, stop_on_error, code](json reply)
+        // From here until the reply is sent, the server also reads the control channel (interrupt_request) on a
+        // watcher thread -- see ServerZmqImpl::beginExecution(). Until the reply, not until the interpreter's
+        // executeRequest() returns: an interpreter whose language runs its own loop (R's REPL) only queues the
+        // code there, and runs it, and replies, later.
+        p_server->beginExecution();
+        auto executionEnded = std::make_shared<bool>(false);
+
+        auto reply_callback = [this, RequestContext, config, stop_on_error, code, executionEnded](json reply)
             {
+                if (!*executionEnded)
+                {
+                    *executionEnded = true;
+                    p_server->endExecution();
+                }
                 int execution_count = 1;
                 execution_count = reply.value("execution_count", 1);
                 std::string status;
@@ -289,16 +303,6 @@ namespace adrastea
                 // idle
                 publishStatus(RequestContext.header(), "idle", channel::SHELL);
             };
-
-        // From here until the code finishes, the server also reads the control
-        // channel (interrupt_request) on a watcher thread -- see
-        // ServerZmqImpl::beginExecution().
-        struct ExecutionScope
-        {
-            Server* server;
-            explicit ExecutionScope(Server* s) : server(s) { server->beginExecution(); }
-            ~ExecutionScope() { server->endExecution(); }
-        } executionScope(p_server);
 
         try
         {
@@ -407,6 +411,14 @@ namespace adrastea
         std::string reply_status = reply["status"];
         publishMessage("interrupt", request.header(), json::object(), reply, buffer_sequence(), channel::CONTROL);
         sendReply(request.identities(), "interrupt_reply", request.header(), json::object(), std::move(reply), c);
+    }
+
+    // The Jupyter debug protocol (JEP 47). Comes on the control channel, so also while a cell runs (the control
+    // watcher thread then calls this): the interpreter answers what it can from there.
+    void KernelCore::debugRequest(Message request, channel c)
+    {
+        json reply = p_interpreter->debugRequest(request.content());
+        sendReply(request.identities(), "debug_reply", request.header(), json::object(), std::move(reply), c);
     }
 
     void KernelCore::publishStatus(json parent_header, const std::string& status, channel c)

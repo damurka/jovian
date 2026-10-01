@@ -223,6 +223,37 @@ namespace adrastea
         }
     }
 
+    void ClientZmqImpl::waitForActivity(std::chrono::milliseconds timeout)
+    {
+        // The shell/control/stdin sockets are used by other threads too (to
+        // send), so they are not polled here: their OS handles are, which a
+        // socket makes readable when its state may have changed. That signal
+        // is edge-triggered and a send from another thread can consume it,
+        // so whether a message is waiting is asked first, and a missed
+        // signal costs at most `timeout`.
+        if (m_iopubClient.iopubQueueSize() > 0 || m_shellClient.hasMessage() || m_controlClient.hasMessage()
+            || m_stdinClient.hasMessage())
+        {
+            m_iopubClient.clearQueuedSignal();
+            return;
+        }
+        zmq::pollitem_t items[] = {
+            { m_iopubClient.queuedSignal().handle(), 0, ZMQ_POLLIN, 0 },
+            { nullptr, m_shellClient.pollHandle(), ZMQ_POLLIN, 0 },
+            { nullptr, m_controlClient.pollHandle(), ZMQ_POLLIN, 0 },
+            { nullptr, m_stdinClient.pollHandle(), ZMQ_POLLIN, 0 }
+        };
+        try
+        {
+            zmq::poll(&items[0], 4, timeout);
+        }
+        catch (const zmq::error_t&)
+        {
+            // interrupted: the caller looks and waits again
+        }
+        m_iopubClient.clearQueuedSignal();
+    }
+
     void ClientZmqImpl::waitForMessage()
     {
         std::optional<PubMessage> pending_message = popIopubMessage();

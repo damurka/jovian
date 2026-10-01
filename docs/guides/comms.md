@@ -21,7 +21,7 @@ await comm.send({ text: 'ping' });
 await comm.close();
 ```
 
-The callback receives the new `comm` and the `comm_open` `message`; `comm$on_message()` registers a handler for the client's `comm_msg`s, `comm$send()` / `comm$open()` / `comm$close()` send to the client (data is serialised with `jsonlite`).
+The callback receives the new `comm` and the `comm_open` `message`; `comm$on_message()` registers a handler for the client's `comm_msg`s, `comm$send()` / `comm$open()` / `comm$close()` send to the client, `comm$on_close()` is called when the client closes it. A received `message` is a list (`message$content$data`, `$header`, `$parent_header`, `$metadata`, `$buffers`). The comms, their targets and these handlers are held by the kernel itself (Elara's `comm_r.cpp`), which also converts the data to and from JSON; an error in a handler is logged (`[elara] error: a comm message handler failed: …`), and the session goes on.
 
 If the kernel has no such target, it answers with a `comm_close` and the returned `Comm` emits `'close'`. (You can also check with `await session.commInfo('echo')`.)
 

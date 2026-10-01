@@ -17,10 +17,23 @@ import type {
     LogLevel,
     LoggerFunction,
     LogThreshold,
+    RPackageCheck,
+    RPackageInfo,
+    RPackageInstallResult,
+    RPackageOptions,
+    RPackageSearchResult,
+    RPackageUpdate,
+    DapResponse,
     SessionManagerOptions,
+    UiRequest,
     SessionStatusInfo,
     ShinyAppHandle,
-    ShinyAppOptions
+    SessionVariable,
+    ShinyAppOptions,
+    StataDataOptions,
+    StataDataPage,
+    StataDataset,
+    TablePage
 } from '../types/index.js';
 import type { ExecutionState, JupyterMessage } from '../types/messages.js';
 import { Logger, defaultLogLevel } from '../utils/logger.js';
@@ -38,10 +51,8 @@ import { SupervisorClient, sessionSocketUrl, supervisorHeaders, type SessionConn
 import { homedir } from 'os';
 import { join as joinPath } from 'path';
 import { withAbsolutePaths, withDiscoveredRuntime } from './runtimes.js';
-import { ensureRPackages } from './r-setup.js';
 import { analyzeR, type RCodeFacts } from './r-static.js';
 import { RHelper, R_STATE_EXPRESSION, R_STATE_KEY, mergeCompletions, parseRState, type RSessionState } from './r-helper.js';
-import { bundledHeraSource } from './native-paths.js';
 import { Comm } from './comm.js';
 
 // Reuses lib/types/engine.ts's ShinyAppHandle instead of declaring a
@@ -124,7 +135,13 @@ const MAX_EXECUTION_HISTORY_ENTRIES = 200;
 // kept.
 const MAX_HISTORY_STREAM_CHARS = 500_000;
 
+/** R code calling a hera RPC (.jv.rpc.call()) with its arguments as JSON: a JSON string is a valid R string. */
+function rpcCode(method: string, args: Record<string, unknown>): string {
+    return `hera:::.jv.rpc.call(${JSON.stringify(method)}, ${JSON.stringify(JSON.stringify(args))})`;
+}
+
 export class Session extends EventEmitter {
+    private debugSeq = 0;
     private ws: WebSocket | undefined;
     // Public (not just for this class's own use): callers that need to
     // talk to the supervisor's HTTP API directly for something this class
@@ -201,6 +218,28 @@ export class Session extends EventEmitter {
         this.router.registerHandler('execute_result', new ResultHandler());
         this.router.registerHandler('display_data', new DisplayHandler());
         this.router.registerHandler('error', new ErrorHandler());
+        // a question of the R code to the host's UI (rstudioapi): 'ui', not 'input_request' (see UiRequest)
+        this.router.registerHandler('input_request', {
+            handle: async (message: JupyterMessage) => {
+                const content = message.content as { prompt?: string; password?: boolean; jovian_ui?: { method?: string; params?: Record<string, unknown> } };
+                if (!content?.jovian_ui) {
+                    return false; // an ordinary prompt (readline()): the 'input_request' event
+                }
+                let answered = false;
+                const reply = (answer: unknown) => {
+                    if (answered) return;
+                    answered = true;
+                    this.sendInputReply(answer === undefined || answer === null ? '' : JSON.stringify(answer));
+                };
+                if (this.listenerCount('ui') === 0) {
+                    reply(null);
+                    return true;
+                }
+                const request: UiRequest = { method: content.jovian_ui.method ?? '', params: content.jovian_ui.params ?? {}, reply };
+                this.emit('ui', request);
+                return true;
+            }
+        });
 
         this.middleware = new MiddlewareChain();
         if (options.enableLogging) {
@@ -337,7 +376,6 @@ export class Session extends EventEmitter {
         this.readyPromise = (async () => {
             try {
                 const mergedOptions = merged ? await withDiscoveredRuntime(merged) : undefined;
-                if (mergedOptions) await ensureRPackages(mergedOptions, this.logger);
                 await this.supervisor.restartSession(this.info, mergedOptions);
                 if (mergedOptions) {
                     this.currentOptions = mergedOptions;
@@ -671,7 +709,7 @@ export class Session extends EventEmitter {
 
         const id = randomUUID();
         const timeoutMs = options.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS;
-        const channel = msgType === 'interrupt_request' ? 'control' : 'shell';
+        const channel = msgType === 'interrupt_request' || msgType === 'debug_request' ? 'control' : 'shell';
         const replyType = replyTypeOf(msgType);
 
         return new Promise<T>((resolve, reject) => {
@@ -725,6 +763,14 @@ export class Session extends EventEmitter {
                 }
                 const comm = new Comm(commId, content?.target_name ?? '', this);
                 this.comms.set(commId, comm);
+                if (content?.target_name === 'jovian.ui') {
+                    // the R kernel's notifications to the host's UI (rstudioapi): 'ui' events (see UiRequest)
+                    comm.on('message', (data: { method?: string; params?: Record<string, unknown> }) => {
+                        const request: UiRequest = { method: data?.method ?? '', params: data?.params ?? {} };
+                        this.emit('ui', request);
+                    });
+                    break;
+                }
                 this.emit('comm', comm, content?.data ?? {});
                 break;
             }
@@ -898,6 +944,171 @@ export class Session extends EventEmitter {
     }
 
     /** comm_info_request: the comms currently open in the kernel, optionally only those for one target. */
+    // ---- R packages (the R kernel's hera: .jv.rpc.* in packages/hera/R/packages.R) ----------------------------
+
+    /** The packages installed in an R session's libraries. */
+    async listPackages(options: Pick<RPackageOptions, 'timeout'> = {}): Promise<RPackageInfo[]> {
+        return this.callRpc<RPackageInfo[]>('pkg_list', {}, options.timeout ?? 60_000);
+    }
+
+    /** Whether the packages are installed, at least at the versions given (`{ dplyr: '1.1.4' }`). */
+    async packagesInstalled(packages: string[], minVersions: Record<string, string> = {}): Promise<RPackageCheck[]> {
+        const rows = await this.callRpc<Array<Partial<RPackageCheck>>>('is_installed', { packages, min_versions: minVersions }, 60_000);
+        return rows.map((row) => ({ name: row.name ?? '', version: row.version ?? null, installed: row.installed === true }));
+    }
+
+    /** Installed packages with a newer version in the repositories. */
+    async outdatedPackages(options: RPackageOptions = {}): Promise<RPackageUpdate[]> {
+        return this.callRpc<RPackageUpdate[]>('pkg_outdated', { repos: options.repos ?? [] }, options.timeout ?? 120_000);
+    }
+
+    /** Packages in the repositories whose name matches `query` (an exact match first). */
+    async searchPackages(query: string, options: RPackageOptions & { limit?: number } = {}): Promise<RPackageSearchResult[]> {
+        return this.callRpc<RPackageSearchResult[]>('pkg_search', { query, repos: options.repos ?? [], limit: options.limit ?? 100 }, options.timeout ?? 120_000);
+    }
+
+    /**
+     * Installs packages, and what they need, from the repositories (the session's own, after `options.repos`). Run
+     * as a cell: what install.packages() prints arrives as the session's 'stdout' / 'stderr' events as it is written.
+     * The session loads no package of its own besides R's, so any package can be installed or updated -- unless the
+     * user's code has it loaded (on Windows a loaded package's DLL cannot be replaced).
+     */
+    async installPackages(packages: string[], options: RPackageOptions = {}): Promise<RPackageInstallResult> {
+        const args: Record<string, unknown> = { packages, repos: options.repos ?? [] };
+        if (options.lib) args.lib = options.lib;
+        const result = await this.execute(rpcCode('install_packages', args), { storeHistory: false, timeout: options.timeout ?? 30 * 60_000 });
+        if (!result.success) throw new Error(`installing ${packages.join(', ')} failed: ${result.error?.message ?? 'error'}`);
+        const value = result.output.find((m) => m.msgType === 'execute_result')?.content?.data?.['text/plain'];
+        const parsed = JSON.parse(String(value ?? '{}')) as Partial<RPackageInstallResult>;
+        return {
+            installed: (parsed.installed ?? []).map((row) => ({ name: row.name, version: row.version ?? null })),
+            failed: parsed.failed ?? [],
+            warnings: parsed.warnings ?? []
+        };
+    }
+
+    /** Removes packages from the library they are installed in. */
+    async removePackages(packages: string[], options: Pick<RPackageOptions, 'lib' | 'timeout'> = {}): Promise<string[]> {
+        const args: Record<string, unknown> = { packages };
+        if (options.lib) args.lib = options.lib;
+        const result = await this.callRpc<{ removed: string[] }>('remove_packages', args, options.timeout ?? 120_000);
+        return result.removed ?? [];
+    }
+
+    /**
+     * R's own help server in the session (tools::startDynamicHelp()), started if need be: its port and base
+     * address. It answers while the session is idle.
+     */
+    async helpServer(): Promise<{ port: number; url: string }> {
+        return this.callRpc<{ port: number; url: string }>('help_server', {}, 30_000);
+    }
+
+    /** The help server's address for a help topic (in `pkg`, else wherever it is found), or null. */
+    async helpUrl(topic: string, pkg?: string): Promise<string | null> {
+        const args: Record<string, unknown> = { topic };
+        if (pkg) args.package = pkg;
+        return this.callRpc<string | null>('help_url', args, 30_000);
+    }
+
+    /**
+     * The Jupyter debug protocol (JEP 47): a Debug Adapter Protocol request (`command`, `args`), sent as a
+     * debug_request on the control channel -- so also while a cell runs or is stopped at a breakpoint -- and its DAP
+     * response. The kernel's DAP events ("stopped", "continued", ...) arrive as 'debug_event' events. R sessions
+     * (Elara) have a debugger: see docs/guides/debugging.md.
+     */
+    async debugRequest<T = any>(command: string, args: Record<string, unknown> = {}, options: { timeout?: number | undefined } = {}): Promise<DapResponse<T>> {
+        this.debugSeq += 1;
+        return this.request<DapResponse<T>>('debug_request', { seq: this.debugSeq, type: 'request', command, arguments: args }, options);
+    }
+
+    // ---- the session's variables, for a variables pane and a data viewer (R: hera's variables.R; Python: Carpo) ----
+
+    /**
+     * The objects of an R session's global environment, or a Python session's `__main__` (not modules, not names
+     * starting with `_`): name, type, size, a one-line preview, and whether it is a table readTable() reads. Stata
+     * sessions have a dataset instead: stataDataset().
+     */
+    async listVariables(options: { timeout?: number | undefined } = {}): Promise<SessionVariable[]> {
+        const timeout = options.timeout ?? 60_000;
+        if (this.currentOptions.kernelType === 'python') {
+            return this.callCarpo<SessionVariable[]>('.jovian_variables', '', timeout);
+        }
+        return this.callRpc<SessionVariable[]>('var_list', {}, timeout);
+    }
+
+    /**
+     * Rows of a table in the session -- an R data frame or matrix, a pandas DataFrame or Series, a numpy array, a
+     * polars DataFrame -- as text, as the language prints them: `count` rows (default 100, at most 100 000) from
+     * `start` (1, the first), with its columns and number of rows.
+     */
+    async readTable(name: string, options: { start?: number | undefined; count?: number | undefined; timeout?: number | undefined } = {}): Promise<TablePage> {
+        const request = { name, start: options.start ?? 1, count: options.count ?? 100 };
+        const timeout = options.timeout ?? 120_000;
+        if (this.currentOptions.kernelType === 'python') {
+            return this.callCarpo<TablePage>('.jovian_table', JSON.stringify(request), timeout);
+        }
+        return this.callRpc<TablePage>('var_table', request, timeout);
+    }
+
+    // A request Carpo answers itself, as a user expression of a silent execution: no output, no execution count.
+    private async callCarpo<T>(key: string, expression: string, timeout: number): Promise<T> {
+        const result = await this.execute('', { silent: true, userExpressions: { [key]: expression }, timeout });
+        const reply = result.userExpressions?.[key] as { status?: string; ename?: string; evalue?: string; data?: Record<string, unknown> } | undefined;
+        if (!reply || reply.status !== 'ok') {
+            throw new Error(`${key.slice(1)} failed: ${reply?.evalue || reply?.ename || 'no reply'}`);
+        }
+        return JSON.parse(String(reply.data?.['text/plain'] ?? 'null')) as T;
+    }
+
+    // ---- the Stata dataset (Callisto's Mata library and plugin, native/src/callisto) ------------------------------
+
+    /** The dataset in a Stata session's memory: its frame, size, file, variables and value labels. */
+    async stataDataset(options: { timeout?: number | undefined } = {}): Promise<StataDataset> {
+        return this.callCallisto<StataDataset>('.callisto_dataset', '', options.timeout ?? 60_000);
+    }
+
+    /**
+     * Observations of the dataset in a Stata session's memory: `count` (default 100, at most 100 000) from `start`
+     * (1, the first), of `variables` (default all). Raw values -- numbers, `null` for the missing value `.`, `".a"` to
+     * `".z"` for the extended ones, strings -- or, `formatted`, strings as Stata's Data Editor shows them (value labels,
+     * display formats such as `%td` dates).
+     */
+    async stataData(options: StataDataOptions = {}): Promise<StataDataPage> {
+        const request: Record<string, unknown> = {};
+        if (options.start !== undefined) request.start = options.start;
+        if (options.count !== undefined) request.count = options.count;
+        if (options.variables !== undefined) request.variables = options.variables;
+        if (options.formatted !== undefined) request.formatted = options.formatted;
+        return this.callCallisto<StataDataPage>('.callisto_data', JSON.stringify(request), options.timeout ?? 120_000);
+    }
+
+    // A request Callisto answers itself, as a user expression of a silent execution: no output, no execution count.
+    private async callCallisto<T>(key: string, expression: string, timeout: number): Promise<T> {
+        if (this.currentOptions.kernelType !== 'stata') {
+            throw new Error(`${key.slice(1)}: only for Stata sessions (Callisto)`);
+        }
+        const result = await this.execute('', { silent: true, userExpressions: { [key]: expression }, timeout });
+        const reply = result.userExpressions?.[key] as { status?: string; evalue?: string; data?: Record<string, unknown> } | undefined;
+        if (!reply || reply.status !== 'ok') {
+            throw new Error(`${key.slice(1)} failed: ${reply?.evalue ?? 'no reply'}`);
+        }
+        return JSON.parse(String(reply.data?.['text/plain'] ?? 'null')) as T;
+    }
+
+    // A hera RPC, answered as a user expression of a silent execution: no output, no execution count.
+    private async callRpc<T>(method: string, args: Record<string, unknown>, timeout: number): Promise<T> {
+        if ((this.currentOptions.kernelType ?? 'r') !== 'r') {
+            throw new Error(`${method}: only for R sessions (Elara)`);
+        }
+        const key = '.jovian_rpc';
+        const result = await this.execute('', { silent: true, userExpressions: { [key]: rpcCode(method, args) }, timeout });
+        const reply = result.userExpressions?.[key] as { status?: string; evalue?: string; data?: Record<string, unknown> } | undefined;
+        if (!reply || reply.status !== 'ok') {
+            throw new Error(`${method} failed: ${reply?.evalue ?? 'no reply'}`);
+        }
+        return JSON.parse(String(reply.data?.['text/plain'] ?? 'null')) as T;
+    }
+
     commInfo(targetName?: string): Promise<CommInfoReplyContent> {
         return this.request<CommInfoReplyContent>('comm_info_request', targetName === undefined ? {} : { target_name: targetName });
     }
@@ -1150,12 +1361,9 @@ export class SessionManager {
     async createSession(requested: EngineOptions = {}): Promise<Session> {
         // Paths made absolute against this process's working directory, then
         // R / Python / Stata found when rHome / pythonHome / stataHome were not
-        // given (see runtimes.ts). An installed package brings its own copy of
-        // hera (none in a source checkout).
-        const withHera = requested.heraSrcPath ? requested : { ...requested, heraSrcPath: bundledHeraSource() };
-        const options = await withDiscoveredRuntime(withAbsolutePaths(withHera));
-        // First R session only: installs hera and what it needs (see r-setup.ts).
-        await ensureRPackages(options, this.logger);
+        // given (see runtimes.ts). Nothing is installed first: the R kernel
+        // carries its own R code (hera) and needs no R package.
+        const options = await withDiscoveredRuntime(withAbsolutePaths(requested));
         const info = await this.supervisor.createSession(options);
         const session = new Session(info, options, this.supervisor, { level: this.logLevel, logger: this.customLogger },
             (current) => this.rHelperFor(current));

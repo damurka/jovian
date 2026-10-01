@@ -1,4 +1,4 @@
-inspect <- function(code, cursor_pos, eval_env = rlang::global_env()) {
+.jv.inspect.request <- function(code, cursor_pos, eval_env = globalenv()) {
     # This is the approach used in IRkernel, it would perhaps
     # be better to use parsing instead, e.g. with the internal R
     # parser, but the expression has to be complete, or a more
@@ -10,7 +10,7 @@ inspect <- function(code, cursor_pos, eval_env = rlang::global_env()) {
     # check them by a loop. Use get since R CMD check does not like :::
     token <- ''
     for (i in seq(cursor_pos, nchar(code))) {
-        token_candidate <- utils___guessTokenFromLine(code, i)
+        token_candidate <- .jv.complete.guess_token(code, i)
         if (nchar(token_candidate) == 0) break
         token <- token_candidate
     }
@@ -22,6 +22,10 @@ inspect <- function(code, cursor_pos, eval_env = rlang::global_env()) {
     )
 
     add_new_section <- function(data, section_name, new_data) {
+        # a section without HTML (base R's text) is shown as such in the HTML, so that has every section
+        if (is.null(new_data[["text/html"]]) && !is.null(new_data[["text/plain"]])) {
+            new_data[["text/html"]] <- paste0("<pre>", .jv.utils.html_escape(new_data[["text/plain"]]), "</pre>")
+        }
         for (mime in names(title_templates)) {
             new_content <- new_data[[mime]]
             if (is.null(new_content)) next
@@ -32,23 +36,34 @@ inspect <- function(code, cursor_pos, eval_env = rlang::global_env()) {
         return(data)
     }
 
-    data <- namedlist()
+    # repr's text, HTML and LaTeX when repr is loaded already (the session displayed a data frame, say); otherwise base
+    # R's text, with help pages as HTML too -- so hovering over a name loads nothing the session hasn't
+    bundle <- function(x) {
+        if (isNamespaceLoaded("repr") && requireNamespace("IRdisplay", quietly = TRUE)) return(IRdisplay::prepare_mimebundle(x)$data)
+        if (inherits(x, "help_files_with_topic")) return(mime_bundle(x)$data)
+        list("text/plain" = paste(utils::capture.output(print(x)), collapse = "\n"))
+    }
+
+    data <- .jv.utils.named_list()
     if (nchar(token) != 0) {
         # In many cases `get(token)` works, but it does not
         # in the cases such as `token` is a numeric constant or a reserved word.
         # Therefore `eval()` is used here.
         obj <- tryCatch(eval(parse(text = token), envir = eval_env), error = function(e) NULL)
-        class_data <- if (!is.null(obj)) IRdisplay::prepare_mimebundle(class(obj))$data
-        print_data <- if (!is.null(obj)) IRdisplay::prepare_mimebundle(obj)$data
+        class_data <- if (!is.null(obj)) bundle(class(obj))
+        print_data <- if (!is.null(obj)) bundle(obj)
 
         # `help(token)` is not used here because it does not works
         # in the cases `token` is in `pkg::topic`or `pkg:::topic` form.
         help_data <- tryCatch({
             help_obj <- eval(parse(text = paste0('?', token)))
             if (length(help_obj) > 0) {
-                IRdisplay::prepare_mimebundle(help_obj)$data
+                bundle(help_obj)
             }
-        }, error = function(e) NULL)
+        }, error = function(e) {
+            .jv.log.debug("no help for '", token, "': ", conditionMessage(e))
+            NULL
+        })
 
         # only show help if we have a function
         if ('function' %in% class(obj) && !is.null(help_data)) {
@@ -61,13 +76,8 @@ inspect <- function(code, cursor_pos, eval_env = rlang::global_env()) {
         }
     }
 
-    for (mime in names(data)) {
-        data[[mime]] <- unbox(data[[mime]])
-    }
-
     list(found = length(data) > 0L, 
-        # data = toJSON(data, auto_unbox = TRUE), 
-        data = enc2utf8(toJSON(data, auto_unbox = TRUE)),
+        data = .jv.json.prepare(data),
         metadata = NULL
     )
 }

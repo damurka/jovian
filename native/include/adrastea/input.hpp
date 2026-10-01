@@ -2,6 +2,7 @@
 #define XINPUT_HPP
 
 #include <string>
+#include "json.hpp"
 
 #include "adrastea.hpp"
 
@@ -18,7 +19,8 @@ namespace adrastea
     std::string blockingInputRequest(
         const std::string& prompt,
         bool password,
-        bool allowStdin
+        bool allowStdin,
+        const json& ui = json()
     );
 }
 

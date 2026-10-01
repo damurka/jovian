@@ -94,6 +94,16 @@ namespace adrastea
         m_idleListener = l;
     }
 
+    void Server::setMainLoop(main_loop loop)
+    {
+        m_mainLoop = std::move(loop);
+    }
+
+    bool Server::pollOnce(long timeoutMs)
+    {
+        return pollOnceImpl(timeoutMs);
+    }
+
     void Server::notifyIdle()
     {
         if (m_idleListener) {

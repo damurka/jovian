@@ -89,6 +89,7 @@ namespace carpo
         void* m_bootstrapCompleteFn;   // owned (one strong ref), null after finalizeIfOwned()
         void* m_bootstrapInspectFn;    // owned (one strong ref), null after finalizeIfOwned()
         void* m_bootstrapEvalExprFn;   // owned (one strong ref), null after finalizeIfOwned()
+        void* m_bootstrapAnswerFn;     // __carpo_answer: the user expressions Carpo answers itself; owned likewise
         void* m_bootstrapIdleFn = nullptr; // owned (one strong ref), null after finalizeIfOwned()
         std::string m_languageVersion;
         bool m_ownsInterpreter;

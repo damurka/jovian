@@ -95,12 +95,10 @@ export interface EngineOptions {
     /** Directory containing the pandoc binary, for bundled R installs that don't ship it on PATH. */
     pandocPath?: string | undefined;
     /**
-     * Source directory of the 'hera' R package (packages/hera in this repo).
-     * When set, Elara installs it via remotes::install_local() if it is
-     * missing or older than these sources (needs the 'remotes' package).
-     * There is no default: without it, R sessions use whichever 'hera' is
-     * already installed in the library -- install or update it with
-     * `npm run hera:install`.
+     * For developing hera, the R kernel's own R code (packages/hera in this
+     * repo): Elara reads it from this directory instead of the copy built
+     * into it, so an edit takes effect at the next session without
+     * rebuilding the kernel. Nothing is installed either way.
      */
     heraSrcPath?: string | undefined;
 
@@ -382,4 +380,167 @@ export interface InterruptReplyContent {
 export interface ShutdownReplyContent {
     status: 'ok' | 'error';
     restart: boolean;
+}
+
+/** An object of an R or Python session (Session.listVariables()). */
+export interface SessionVariable {
+    name: string;
+    /** R: its class (`data.frame`, `numeric`, `function`); Python: its type's name (`DataFrame`, `int`). */
+    type: string;
+    /** Rows × columns of a table or an array, the length of a vector or a container; empty when it has none. */
+    size: string;
+    /** What it holds, in one line (at most about 200 characters). */
+    summary: string;
+    /** Session.readTable() reads it: an R data frame or matrix, a pandas DataFrame or Series, a numpy array, a polars DataFrame. */
+    table: boolean;
+}
+
+/** Rows of a table (Session.readTable()): `rows[i][j]` is column `columns[j]` of row `start + i`, as text. */
+export interface TablePage {
+    name: string;
+    /** All the rows the table has. */
+    rowCount: number;
+    /** Its columns: name, and type (R: class; Python: dtype). */
+    columns: Array<{ name: string; type: string }>;
+    start: number;
+    /** How many rows came back (fewer than asked at the end). */
+    count: number;
+    /** The rows' names when they are more than their numbers (R row names, a pandas index), else null. */
+    rowLabels: string[] | null;
+    rows: string[][];
+}
+
+/** A variable of a Stata dataset (Session.stataDataset()). */
+export interface StataVariable {
+    name: string;
+    /** Storage type: `byte`, `int`, `long`, `float`, `double`, `str18`, `strL`. */
+    type: string;
+    /** Display format: `%9.0g`, `%td`, `%-18s` ... */
+    format: string;
+    /** Variable label (empty when none). */
+    label: string;
+    /** Name of its value label (a key of StataDataset.valueLabels when it is defined), or null. */
+    valueLabel: string | null;
+}
+
+/** The dataset in a Stata session's memory (Session.stataDataset()). */
+export interface StataDataset {
+    /** The current frame (`default` unless the user changed frames). */
+    frame: string;
+    observations: number;
+    /** The file it was loaded from (c(filename)), empty when none. */
+    filename: string;
+    /** Whether it changed since it was loaded or saved (c(changed)). */
+    changed: boolean;
+    variables: StataVariable[];
+    /** Value labels by name: their values and texts (at most 1000 of each). */
+    valueLabels: Record<string, { values: number[]; labels: string[] }>;
+}
+
+/** What Session.stataData() reads. */
+export interface StataDataOptions {
+    /** First observation, from 1 (default 1). */
+    start?: number | undefined;
+    /** How many observations (default 100, at most 100 000). */
+    count?: number | undefined;
+    /** Which variables, in this order (default all). */
+    variables?: string[] | undefined;
+    /** Values as Stata's Data Editor shows them: strings with value labels and display formats applied. */
+    formatted?: boolean | undefined;
+    timeout?: number | undefined;
+}
+
+/**
+ * Observations of a Stata dataset (Session.stataData()): `rows[i][j]` is variable `variables[j]` of observation
+ * `start + i`. Raw values are numbers, strings (string variables), `null` (the missing value `.`) or, in a numeric
+ * variable, `".a"` to `".z"` (extended missing values); formatted ones are all strings.
+ */
+export interface StataDataPage {
+    start: number;
+    /** How many rows came back (fewer than asked at the end of the data). */
+    count: number;
+    /** The dataset's number of observations. */
+    observations: number;
+    variables: string[];
+    formatted: boolean;
+    rows: Array<Array<number | string | null>>;
+}
+
+/**
+ * A request of the R code to the host's UI: Session's 'ui' event. What R's rstudioapi asks of RStudio (the R kernel's
+ * .rs.api.* functions): open a file (`navigateToFile`), show a URL (`viewer`), ask a question (`showPrompt`,
+ * `showQuestion`, `askForPassword`), read the editor (`getActiveDocumentContext`) ... A notification has no
+ * `reply`; a question has one, and the R code waits for it: call it with the answer (null for none, which gives the
+ * R function its default). A question nobody listens for is answered with none.
+ */
+export interface UiRequest {
+    method: string;
+    params: Record<string, unknown>;
+    reply?: ((answer: unknown) => void) | undefined;
+}
+
+/** A Debug Adapter Protocol response: Session.debugRequest(). */
+export interface DapResponse<T = any> {
+    type: 'response';
+    seq: number;
+    request_seq: number;
+    success: boolean;
+    command: string;
+    message?: string | undefined;
+    body?: T | undefined;
+}
+
+/** An installed R package: Session.listPackages(). */
+export interface RPackageInfo {
+    name: string;
+    version: string;
+    /** The library it is installed in (the one R loads it from, when in several). */
+    library: string;
+    /** 'base' or 'recommended' for the packages that come with R, else ''. */
+    priority: string;
+    loaded: boolean;
+    attached: boolean;
+}
+
+/** Whether an R package is installed (at least at the version asked for): Session.packagesInstalled(). */
+export interface RPackageCheck {
+    name: string;
+    /** The installed version, or null. */
+    version: string | null;
+    installed: boolean;
+}
+
+/** An installed R package with a newer version available: Session.outdatedPackages(). */
+export interface RPackageUpdate {
+    name: string;
+    installed: string;
+    available: string;
+    library: string;
+    repository: string;
+}
+
+/** An R package in the repositories: Session.searchPackages(). */
+export interface RPackageSearchResult {
+    name: string;
+    version: string;
+    repository: string;
+}
+
+export interface RPackageOptions {
+    /** Repositories to look in before the session's own (an r-universe, say); CRAN's cloud mirror when it has none. */
+    repos?: string[] | undefined;
+    /** The library to install into (or remove from); the session's first by default. */
+    lib?: string | undefined;
+    /** How long to wait, in ms; installs default to 30 minutes. */
+    timeout?: number | undefined;
+}
+
+/** What Session.installPackages() did. */
+export interface RPackageInstallResult {
+    /** The version now installed of each package asked for (null: not installed). */
+    installed: Array<{ name: string; version: string | null }>;
+    /** The packages that could not be installed. */
+    failed: string[];
+    /** R's warnings while installing (why a package failed, usually). */
+    warnings: string[];
 }

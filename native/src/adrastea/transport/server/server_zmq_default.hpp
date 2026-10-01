@@ -19,6 +19,9 @@ namespace adrastea
 
         void startImpl(PubMessage msg) override;
         void stopImpl() override;
+        bool pollOnceImpl(long timeoutMs) override;
+
+        bool m_channelsStopped = false;
     };
 }
 

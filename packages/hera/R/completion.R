@@ -1,12 +1,13 @@
-triple_colon <- function(pkg, fun) {
-  eval(rlang::call2(":::", as.symbol(pkg), as.symbol(fun)))
+# pkg:::fun, for the internal functions of utils that complete code
+.jv.complete.internal <- function(pkg, fun) {
+  get(fun, envir = asNamespace(pkg))
 }
 
-utils___assignLineBuffer    <- triple_colon("utils", ".assignLinebuffer")
-utils___assignEnd           <- triple_colon("utils", ".assignEnd")
-utils___guessTokenFromLine  <- triple_colon("utils", ".guessTokenFromLine")
-utils___completeToken       <- triple_colon("utils", ".completeToken")
-utils___retrieveCompletions <- triple_colon("utils", ".retrieveCompletions")
+.jv.complete.assign_line_buffer    <- .jv.complete.internal("utils", ".assignLinebuffer")
+.jv.complete.assign_end           <- .jv.complete.internal("utils", ".assignEnd")
+.jv.complete.guess_token  <- .jv.complete.internal("utils", ".guessTokenFromLine")
+.jv.complete.complete_token       <- .jv.complete.internal("utils", ".completeToken")
+.jv.complete.retrieve <- .jv.complete.internal("utils", ".retrieveCompletions")
 
 #' Code completion
 #'
@@ -37,15 +38,15 @@ complete <- function(code, cursor_pos = nchar(code)) {
         line <- ''
     }
 
-    utils___assignLineBuffer(line)
-    utils___assignEnd(cursor_pos)
+    .jv.complete.assign_line_buffer(line)
+    .jv.complete.assign_end(cursor_pos)
 
-    info <- utils___guessTokenFromLine(update = FALSE)
-    utils___guessTokenFromLine()
-    utils___completeToken()
+    info <- .jv.complete.guess_token(update = FALSE)
+    .jv.complete.guess_token()
+    .jv.complete.complete_token()
 
     start_position <- chars_before_line + info$start
-    comps <- utils___retrieveCompletions()
+    comps <- .jv.complete.retrieve()
 
     list(
       comps,

@@ -7,9 +7,9 @@
 //
 // rHome / pythonHome are deliberately not passed: the library has to find R and
 // Python itself, as it does for a user.
-// R_LIBS is pointed at an empty scratch library, so the bundled hera is
-// installed from the package on the kernel's first start instead of using
-// (or touching) whatever hera is already in your R library.
+// R_LIBS is pointed at an empty scratch library, which has to stay empty: the R
+// kernel carries its own R code (hera) and installs nothing, and a hera in your
+// own R library is not what it runs.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -122,13 +122,14 @@ if (quiet.status === 0 && noise.length === 0) {
     console.error(`FAIL quiet by default (exit ${quiet.status}); noisy lines:\n${noise.slice(0, 5).join('\n')}\n${quiet.status === 0 ? '' : `${quiet.stdout}${quiet.stderr}`.slice(-600)}`);
 }
 
-// hera must have been installed from the package into the scratch library. Without
-// this a hera already in your own R library would let a broken bundle pass.
+// Nothing may have been installed into the scratch library: the kernel's own R
+// code is built in.
 let exitCode = smoke.status ?? 1;
 if (cjs.status !== 0) exitCode = 1;
 if (quiet.status !== 0 || noise.length > 0) exitCode = 1;
-if (!existsSync(join(rlib, 'hera'))) {
-    console.error('FAIL hera was not installed from the package into the scratch R library');
+const installed = existsSync(rlib) ? readdirSync(rlib) : [];
+if (installed.length > 0) {
+    console.error(`FAIL the kernel installed R packages into the scratch R library: ${installed.join(', ')}`);
     exitCode = 1;
 }
 if (!process.env.JOVIAN_KEEP_SMOKE) rmSync(project, { recursive: true, force: true });

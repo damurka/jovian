@@ -1,10 +1,20 @@
 #include "elara/r/r_dynlib.hpp"
 #include "elara/r/rtools.hpp"
+#include "elara/r/json_convert.hpp"
+#include "elara/r/comm_r.hpp"
+#include "elara/log.hpp"
 #include "elara/interpreter_r.hpp"
 #include "adrastea/json.hpp"
+#include "adrastea/input.hpp"
 #include "adrastea/message.hpp"
 #include "adrastea/comm.hpp"
 #include "adrastea/logger.hpp"
+#include <climits>
+#include <cmath>
+#include <cstdio>
+#include <cstdint>
+#include <cstring>
+#include <string>
 
 namespace elara
 {
@@ -39,10 +49,10 @@ namespace elara
             return R_NilValue;
         }
 
-        SEXP displayData(SEXP js_data, SEXP js_metadata)
+        SEXP displayData(SEXP data_, SEXP metadata_)
         {
-            auto data = adrastea::json::parse(CHAR(STRING_ELT(js_data, 0)));
-            auto metadata = adrastea::json::parse(CHAR(STRING_ELT(js_metadata, 0)));
+            auto data = jsonFromR(data_);
+            auto metadata = jsonFromR(metadata_);
 
             getRInterpreter()->displayData(
                 std::move(data), std::move(metadata), /* transient = */ adrastea::json::object());
@@ -50,10 +60,10 @@ namespace elara
             return R_NilValue;
         }
 
-        SEXP updateDisplayData(SEXP js_data, SEXP js_metadata)
+        SEXP updateDisplayData(SEXP data_, SEXP metadata_)
         {
-            auto data = adrastea::json::parse(CHAR(STRING_ELT(js_data, 0)));
-            auto metadata = adrastea::json::parse(CHAR(STRING_ELT(js_metadata, 0)));
+            auto data = jsonFromR(data_);
+            auto metadata = jsonFromR(metadata_);
 
             getRInterpreter()->updateDisplayData(
                 std::move(data), std::move(metadata), /* transient = */ adrastea::json::object());
@@ -79,74 +89,16 @@ namespace elara
             return out;
         }
 
+        // hera's log_*(): a line in the kernel's log (log.hpp), at the level given ("debug", "info", "warning",
+        // "error"), when that level is written.
         SEXP elaraLog(SEXP level_, SEXP msg_)
         {
-            std::string level = CHAR(STRING_ELT(level_, 0));
-            std::string msg = CHAR(STRING_ELT(msg_, 0));
-
-            // TODO: actually do some logging
-            return R_NilValue;
-        }
-
-        SEXP CommManager__registerTarget(SEXP name_)
-        {
-            std::string name = CHAR(STRING_ELT(name_, 0));
-
-            auto callback = [name](adrastea::Comm &&comm, adrastea::Message request)
+            auto level = log::parseLevel(Rf_translateCharUTF8(STRING_ELT(level_, 0)), log::Level::info);
+            if (log::enabled(level))
             {
-                // comm
-                auto ptr_comm = new adrastea::Comm(std::move(comm));
-                SEXP xp_comm = PROTECT(R_MakeExternalPtr(
-                    reinterpret_cast<void *>(ptr_comm), R_NilValue, R_NilValue));
-                R_RegisterCFinalizerEx(xp_comm, [](SEXP xp)
-                                       { delete reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp)); }, FALSE);
-                SEXP r6_comm = PROTECT(r::newHeraR6("Comm", xp_comm));
-
-                // request
-                auto ptr_request = new adrastea::Message(std::move(request));
-                SEXP xptr_request = PROTECT(R_MakeExternalPtr(
-                    reinterpret_cast<void *>(ptr_request), R_NilValue, R_NilValue));
-                R_RegisterCFinalizerEx(xptr_request, [](SEXP xp)
-                                       { delete reinterpret_cast<adrastea::Message *>(R_ExternalPtrAddr(xp)); }, FALSE);
-                SEXP r6_request = PROTECT(r::newHeraR6("Message", xptr_request));
-
-                // callback
-                r::invokeHeraFn(".CommManager__register_target_callback", r6_comm, r6_request);
-
-                UNPROTECT(4);
-            };
-
-            adrastea::getInterpreter().getCommManager().registerCommTarget(name, callback);
-            return R_NilValue;
-        }
-
-        SEXP CommManager__unregisterTarget(SEXP name_)
-        {
-            std::string name = CHAR(STRING_ELT(name_, 0));
-
-            adrastea::getInterpreter().getCommManager().unregisterCommTarget(name);
-            return R_NilValue;
-        }
-
-        SEXP CommManager__newComm(SEXP target_name_, SEXP s_description)
-        {
-            auto target = adrastea::getInterpreter().getCommManager().target(CHAR(STRING_ELT(target_name_, 0)));
-            if (target == nullptr)
-            {
-                return R_NilValue;
+                log::write(level, std::string("hera: ") + Rf_translateCharUTF8(STRING_ELT(msg_, 0)));
             }
-
-            auto id = adrastea::newGuid();
-            auto comm = new adrastea::Comm(target, id);
-            SEXP xp_comm = PROTECT(R_MakeExternalPtr(
-                reinterpret_cast<void *>(comm), R_NilValue, R_NilValue));
-            R_RegisterCFinalizerEx(xp_comm, [](SEXP xp)
-                                   { delete reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp)); }, FALSE);
-            SEXP r6_comm = PROTECT(r::newHeraR6("Comm", xp_comm, s_description));
-
-            UNPROTECT(2);
-
-            return r6_comm;
+            return R_NilValue;
         }
 
         SEXP CommManager__getCommInfo(SEXP target_name_)
@@ -200,148 +152,404 @@ namespace elara
             return info;
         }
 
-        SEXP Comm__id(SEXP xp_comm)
-        {
-            auto comm = reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp_comm));
-            return Rf_mkString(comm->id().toString().c_str());
-        }
+        // ---- R values to and from JSON ----------------------------------------------------------------------------
+        //
+        // What hera used jsonlite for -- display data, comm messages, inspect replies -- so a session needs no CRAN
+        // package for it. The rules are jsonlite's toJSON(auto_unbox = TRUE) and fromJSON(), for what goes through
+        // here: a length-one vector is a scalar (unless I()), longer ones arrays; a named list is an object, an
+        // unnamed one an array; NA, NaN and Inf are null; a factor is its labels; a matrix is an array of its rows;
+        // a data frame an array of row objects (an NA field left out); a raw vector a base64 string (unwrapped:
+        // jsonlite's had line breaks a strict decoder rejects); a "json" string is embedded as is.
 
-        SEXP Comm__targetName(SEXP xp_comm)
+        static std::string base64Encode(const unsigned char *data, size_t n)
         {
-            auto comm = reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp_comm));
-            return Rf_mkString(comm->target().name().c_str());
-        }
-
-        namespace
-        {
-            adrastea::buffer_sequence toBufferSequence(SEXP r_buffers)
+            static const char *const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            std::string out;
+            out.reserve(((n + 2) / 3) * 4);
+            size_t i = 0;
+            for (; i + 2 < n; i += 3)
             {
-                adrastea::buffer_sequence out;
-                if (r_buffers == R_NilValue)
+                unsigned v = (unsigned(data[i]) << 16) | (unsigned(data[i + 1]) << 8) | unsigned(data[i + 2]);
+                out += chars[(v >> 18) & 63];
+                out += chars[(v >> 12) & 63];
+                out += chars[(v >> 6) & 63];
+                out += chars[v & 63];
+            }
+            if (i < n)
+            {
+                unsigned v = unsigned(data[i]) << 16;
+                if (i + 1 < n) v |= unsigned(data[i + 1]) << 8;
+                out += chars[(v >> 18) & 63];
+                out += chars[(v >> 12) & 63];
+                out += i + 1 < n ? chars[(v >> 6) & 63] : '=';
+                out += '=';
+            }
+            return out;
+        }
+
+        static SEXP attribute(SEXP x, const char *name)
+        {
+            return Rf_getAttrib(x, Rf_install(name));
+        }
+
+        static SEXP mkCharUtf8(const std::string &s)
+        {
+            return Rf_mkCharLenCE(s.data(), static_cast<int>(s.size()), CE_UTF8);
+        }
+
+        // Element i of an atomic vector (a factor's when `levels` isn't R_NilValue) as a JSON scalar.
+        static adrastea::json atomicElement(SEXP x, R_xlen_t i, SEXP levels)
+        {
+            switch (TYPEOF(x))
+            {
+            case LGLSXP:
+            {
+                int v = LOGICAL_ELT(x, i);
+                return v == NA_LOGICAL ? adrastea::json() : adrastea::json(v != 0);
+            }
+            case INTSXP:
+            {
+                int v = INTEGER_ELT(x, i);
+                if (v == NA_INTEGER) return adrastea::json();
+                if (levels != R_NilValue)
                 {
-                    return out;
+                    return v >= 1 && v <= XLENGTH(levels) ? adrastea::json(Rf_translateCharUTF8(STRING_ELT(levels, v - 1))) : adrastea::json();
                 }
-                R_xlen_t n = Rf_xlength(r_buffers);
-                out.reserve(n);
-                for (R_xlen_t i = 0; i < n; ++i)
+                return v;
+            }
+            case REALSXP:
+            {
+                double v = REAL_ELT(x, i);
+                return std::isfinite(v) ? adrastea::json(v) : adrastea::json();
+            }
+            case STRSXP:
+            {
+                SEXP s = STRING_ELT(x, i);
+                return s == NA_STRING ? adrastea::json() : adrastea::json(Rf_translateCharUTF8(s));
+            }
+            default:
+                return adrastea::json();
+            }
+        }
+
+        static bool isAtomic(int type)
+        {
+            return type == LGLSXP || type == INTSXP || type == REALSXP || type == STRSXP;
+        }
+
+        // `nullAsObject`: what NULL becomes -- {} (jsonlite's default) or null.
+        adrastea::json sexpToJson(SEXP x, bool nullAsObject)
+        {
+            if (x == R_NilValue) return nullAsObject ? adrastea::json::object() : adrastea::json();
+            int type = TYPEOF(x);
+
+            if (type == STRSXP && XLENGTH(x) == 1 && Rf_inherits(x, "json"))
+            {
+                return adrastea::json::parse(Rf_translateCharUTF8(STRING_ELT(x, 0)), nullptr, false);
+            }
+            if (type == RAWSXP)
+            {
+                return base64Encode(RAW(x), static_cast<size_t>(XLENGTH(x)));
+            }
+            if (type == VECSXP && Rf_inherits(x, "data.frame"))
+            {
+                SEXP names = attribute(x, "names");
+                // row names of its own (mtcars' car names, not 1, 2, ...) go in each row as "_row", as jsonlite does
+                SEXP rowNames = attribute(x, "row.names");
+                bool namedRows = TYPEOF(rowNames) == STRSXP;
+                R_xlen_t columns = XLENGTH(x);
+                R_xlen_t rows = columns ? Rf_xlength(VECTOR_ELT(x, 0)) : 0;
+                adrastea::json out = adrastea::json::array();
+                for (R_xlen_t r = 0; r < rows; ++r)
                 {
-                    SEXP raw = VECTOR_ELT(r_buffers, i);
-                    R_xlen_t len = Rf_xlength(raw);
-                    out.emplace_back(RAW(raw), RAW(raw) + len);
+                    adrastea::json row = adrastea::json::object();
+                    if (namedRows && r < XLENGTH(rowNames)) row["_row"] = atomicElement(rowNames, r, R_NilValue);
+                    for (R_xlen_t c = 0; c < columns; ++c)
+                    {
+                        SEXP column = VECTOR_ELT(x, c);
+                        std::string name = Rf_translateCharUTF8(STRING_ELT(names, c));
+                        if (TYPEOF(column) == VECSXP)
+                        {
+                            row[name] = sexpToJson(VECTOR_ELT(column, r), nullAsObject);
+                        }
+                        else if (isAtomic(TYPEOF(column)))
+                        {
+                            auto value = atomicElement(column, r, Rf_inherits(column, "factor") ? attribute(column, "levels") : R_NilValue);
+                            if (!value.is_null()) row[name] = std::move(value);
+                        }
+                    }
+                    out.push_back(std::move(row));
                 }
                 return out;
             }
-        }
-
-        SEXP Comm__open(SEXP xp_comm, SEXP js_metadata, SEXP js_data, SEXP r_buffers)
-        {
-            auto metadata = adrastea::json::parse(CHAR(STRING_ELT(js_metadata, 0)));
-            auto data = adrastea::json::parse(CHAR(STRING_ELT(js_data, 0)));
-
-            auto *comm = reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp_comm));
-            comm->open(metadata, data, toBufferSequence(r_buffers));
-
-            return R_NilValue;
-        }
-
-        SEXP Comm__close(SEXP xp_comm, SEXP js_metadata, SEXP js_data, SEXP r_buffers)
-        {
-            auto metadata = adrastea::json::parse(CHAR(STRING_ELT(js_metadata, 0)));
-            auto data = adrastea::json::parse(CHAR(STRING_ELT(js_data, 0)));
-
-            auto *comm = reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp_comm));
-            comm->close(metadata, data, toBufferSequence(r_buffers));
-
-            return R_NilValue;
-        }
-
-        SEXP Comm__send(SEXP xp_comm, SEXP js_metadata, SEXP js_data, SEXP r_buffers)
-        {
-            auto metadata = adrastea::json::parse(CHAR(STRING_ELT(js_metadata, 0)));
-            auto data = adrastea::json::parse(CHAR(STRING_ELT(js_data, 0)));
-
-            auto *comm = reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp_comm));
-            comm->send(metadata, data, toBufferSequence(r_buffers));
-
-            return R_NilValue;
-        }
-
-        class CommMessageHandler
-        {
-        public:
-            CommMessageHandler(SEXP handler) : m_handler(handler) {}
-
-            inline void operator()(adrastea::Message message)
+            if (type == VECSXP)
             {
-                auto ptr_message = new adrastea::Message(std::move(message));
-                SEXP xptr_message = PROTECT(R_MakeExternalPtr(
-                    reinterpret_cast<void *>(ptr_message), R_NilValue, R_NilValue));
-                R_RegisterCFinalizerEx(xptr_message, [](SEXP xp)
-                                       { delete reinterpret_cast<adrastea::Message *>(R_ExternalPtrAddr(xp)); }, FALSE);
-
-                SEXP call = PROTECT(r::rCall(
-                    m_handler,
-                    r::newHeraR6("Message", xptr_message)));
-
-                Rf_eval(call, R_GlobalEnv);
-
-                UNPROTECT(2);
+                SEXP names = attribute(x, "names");
+                R_xlen_t n = XLENGTH(x);
+                if (names != R_NilValue)
+                {
+                    adrastea::json out = adrastea::json::object();
+                    for (R_xlen_t i = 0; i < n; ++i)
+                    {
+                        out[Rf_translateCharUTF8(STRING_ELT(names, i))] = sexpToJson(VECTOR_ELT(x, i), nullAsObject);
+                    }
+                    return out;
+                }
+                adrastea::json out = adrastea::json::array();
+                for (R_xlen_t i = 0; i < n; ++i)
+                {
+                    out.push_back(sexpToJson(VECTOR_ELT(x, i), nullAsObject));
+                }
+                return out;
             }
-
-        private:
-            SEXP m_handler;
-        };
-
-        SEXP Comm__onClose(SEXP xp_comm, SEXP handler)
-        {
-            reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp_comm))->onClose(CommMessageHandler(handler));
-            return R_NilValue;
-        }
-
-        SEXP Comm__onMessage(SEXP xp_comm, SEXP handler)
-        {
-            reinterpret_cast<adrastea::Comm *>(R_ExternalPtrAddr(xp_comm))->onMessage(CommMessageHandler(handler));
-            return R_NilValue;
-        }
-
-        SEXP Message__getContent(SEXP xptr_msg)
-        {
-            auto ptr_msg = reinterpret_cast<adrastea::Message *>(R_ExternalPtrAddr(xptr_msg));
-            return toRJson(ptr_msg->content());
-        }
-
-        SEXP Message__getHeader(SEXP xptr_msg)
-        {
-            auto ptr_msg = reinterpret_cast<adrastea::Message *>(R_ExternalPtrAddr(xptr_msg));
-            return toRJson(ptr_msg->header());
-        }
-
-        SEXP Message__getParentHeader(SEXP xptr_msg)
-        {
-            auto ptr_msg = reinterpret_cast<adrastea::Message *>(R_ExternalPtrAddr(xptr_msg));
-            return toRJson(ptr_msg->parentHeader());
-        }
-
-        SEXP Message__getMetadata(SEXP xptr_msg)
-        {
-            auto ptr_msg = reinterpret_cast<adrastea::Message *>(R_ExternalPtrAddr(xptr_msg));
-            return toRJson(ptr_msg->metadata());
-        }
-
-        SEXP Message__getBuffers(SEXP xptr_msg)
-        {
-            auto *msg = reinterpret_cast<adrastea::Message *>(R_ExternalPtrAddr(xptr_msg));
-            const auto &bufs = msg->buffers();
-            SEXP out = PROTECT(Rf_allocVector(VECSXP, bufs.size()));
-            for (size_t i = 0; i < bufs.size(); ++i)
+            if (isAtomic(type))
             {
-                SEXP raw = PROTECT(Rf_allocVector(RAWSXP, bufs[i].size()));
-                std::memcpy(RAW(raw), bufs[i].data(), bufs[i].size());
-                SET_VECTOR_ELT(out, i, raw);
+                SEXP levels = Rf_inherits(x, "factor") ? attribute(x, "levels") : R_NilValue;
+                SEXP dim = attribute(x, "dim");
+                if (dim != R_NilValue && XLENGTH(dim) == 2)
+                {
+                    int nrow = INTEGER_ELT(dim, 0), ncol = INTEGER_ELT(dim, 1);
+                    adrastea::json out = adrastea::json::array();
+                    for (int r = 0; r < nrow; ++r)
+                    {
+                        adrastea::json row = adrastea::json::array();
+                        for (int c = 0; c < ncol; ++c)
+                        {
+                            row.push_back(atomicElement(x, r + static_cast<R_xlen_t>(c) * nrow, levels));
+                        }
+                        out.push_back(std::move(row));
+                    }
+                    return out;
+                }
+                R_xlen_t n = XLENGTH(x);
+                if (n == 1 && !Rf_inherits(x, "AsIs")) return atomicElement(x, 0, levels);
+                adrastea::json out = adrastea::json::array();
+                for (R_xlen_t i = 0; i < n; ++i)
+                {
+                    out.push_back(atomicElement(x, i, levels));
+                }
+                return out;
+            }
+            // functions, environments, ...: nothing JSON can hold
+            return adrastea::json();
+        }
+
+        // Whether a JSON number is a whole number an R integer holds (INT_MIN is NA_integer_).
+        static bool fitsInteger(const adrastea::json &e)
+        {
+            if (e.is_number_unsigned()) return e.get<std::uint64_t>() <= static_cast<std::uint64_t>(INT_MAX);
+            if (!e.is_number_integer()) return false;
+            auto v = e.get<std::int64_t>();
+            return v > INT_MIN && v <= INT_MAX;
+        }
+
+        // A JSON scalar as R's as.character() writes it: "1", "2.5", "TRUE".
+        static std::string scalarText(const adrastea::json &e)
+        {
+            if (e.is_string()) return e.get<std::string>();
+            if (e.is_boolean()) return e.get<bool>() ? "TRUE" : "FALSE";
+            if (e.is_number_float())
+            {
+                char buffer[32];
+                std::snprintf(buffer, sizeof buffer, "%.15g", e.get<double>());
+                return buffer;
+            }
+            return e.dump();
+        }
+
+        // jsonlite's fromJSON(): an object is a named list; an array of scalars (null as NA) an atomic vector --
+        // logical, integer, double or character, whichever holds them all -- and any other array a list.
+        SEXP jsonToSexp(const adrastea::json &j)
+        {
+            using value_t = adrastea::json::value_t;
+            switch (j.type())
+            {
+            case value_t::boolean:
+                return Rf_ScalarLogical(j.get<bool>() ? 1 : 0);
+            case value_t::number_integer:
+            case value_t::number_unsigned:
+            {
+                if (fitsInteger(j)) return Rf_ScalarInteger(static_cast<int>(j.get<std::int64_t>()));
+                SEXP out = PROTECT(Rf_allocVector(REALSXP, 1));
+                SET_REAL_ELT(out, 0, j.get<double>());
                 UNPROTECT(1);
+                return out;
             }
+            case value_t::number_float:
+            {
+                SEXP out = PROTECT(Rf_allocVector(REALSXP, 1));
+                SET_REAL_ELT(out, 0, j.get<double>());
+                UNPROTECT(1);
+                return out;
+            }
+            case value_t::string:
+            {
+                SEXP out = PROTECT(Rf_allocVector(STRSXP, 1));
+                SET_STRING_ELT(out, 0, mkCharUtf8(j.get_ref<const std::string &>()));
+                UNPROTECT(1);
+                return out;
+            }
+            case value_t::object:
+            {
+                SEXP out = PROTECT(Rf_allocVector(VECSXP, static_cast<R_xlen_t>(j.size())));
+                SEXP names = PROTECT(Rf_allocVector(STRSXP, static_cast<R_xlen_t>(j.size())));
+                R_xlen_t i = 0;
+                for (auto it = j.begin(); it != j.end(); ++it, ++i)
+                {
+                    SET_VECTOR_ELT(out, i, jsonToSexp(it.value()));
+                    SET_STRING_ELT(names, i, mkCharUtf8(it.key()));
+                }
+                Rf_namesgets(out, names);
+                UNPROTECT(2);
+                return out;
+            }
+            case value_t::array:
+            {
+                R_xlen_t n = static_cast<R_xlen_t>(j.size());
+                bool scalars = n > 0, logical = true, integer = true, number = true, string = true;
+                for (const auto &e : j)
+                {
+                    if (e.is_null()) continue;
+                    if (!e.is_primitive()) { scalars = false; break; }
+                    logical = logical && e.is_boolean();
+                    string = string && e.is_string();
+                    number = number && e.is_number();
+                    integer = integer && fitsInteger(e);
+                }
+                if (!scalars)
+                {
+                    SEXP out = PROTECT(Rf_allocVector(VECSXP, n));
+                    for (R_xlen_t i = 0; i < n; ++i) SET_VECTOR_ELT(out, i, jsonToSexp(j[static_cast<size_t>(i)]));
+                    UNPROTECT(1);
+                    return out;
+                }
+                // all null: logical NAs, as jsonlite gives; mixed scalars are coerced as jsonlite does, to character
+                // when there is a string, else to double (true as 1)
+                SEXPTYPE type = logical ? LGLSXP : integer ? INTSXP : number ? REALSXP : string ? STRSXP : VECSXP;
+                if (type == VECSXP)
+                {
+                    bool anyString = false;
+                    for (const auto &e : j) anyString = anyString || e.is_string();
+                    type = anyString ? STRSXP : REALSXP;
+                }
+                SEXP out = PROTECT(Rf_allocVector(type, n));
+                for (R_xlen_t i = 0; i < n; ++i)
+                {
+                    const auto &e = j[static_cast<size_t>(i)];
+                    switch (type)
+                    {
+                    case LGLSXP: SET_LOGICAL_ELT(out, i, e.is_null() ? NA_LOGICAL : (e.get<bool>() ? 1 : 0)); break;
+                    case INTSXP: SET_INTEGER_ELT(out, i, e.is_null() ? NA_INTEGER : static_cast<int>(e.get<std::int64_t>())); break;
+                    case REALSXP: SET_REAL_ELT(out, i, e.is_null() ? NA_REAL : e.is_boolean() ? (e.get<bool>() ? 1.0 : 0.0) : e.get<double>()); break;
+                    case STRSXP: SET_STRING_ELT(out, i, e.is_null() ? NA_STRING : mkCharUtf8(scalarText(e))); break;
+                    default: SET_VECTOR_ELT(out, i, jsonToSexp(e)); break;
+                    }
+                }
+                UNPROTECT(1);
+                return out;
+            }
+            case value_t::null:
+            default:
+                return R_NilValue;
+            }
+        }
+
+        adrastea::json jsonFromR(SEXP x)
+        {
+            if (TYPEOF(x) == STRSXP && XLENGTH(x) == 1 && attribute(x, "names") == R_NilValue)
+            {
+                return adrastea::json::parse(Rf_translateCharUTF8(STRING_ELT(x, 0)));
+            }
+            return sexpToJson(x, true);
+        }
+
+        // What the current device's display list is now, as text that changes whenever something is drawn or the plot
+        // is cleared: the list and its last element (R appends to it) and its length. hera compares it before
+        // recording the plot (recordPlot(), which copies the whole list -- all the points of a big scatter plot)
+        // after each expression: with the plot device kept for the session, that cost every later cell once a big
+        // plot had been drawn. Only called with a device open (GEcurrentDevice() would open one).
+        SEXP displayListId()
+        {
+            pGEDevDesc device = GEcurrentDevice();
+            if (!device) return R_NilValue;
+            char buffer[96];
+            std::snprintf(buffer, sizeof buffer, "%p:%p:%d", static_cast<void *>(device->displayList),
+                          static_cast<void *>(device->DLlastElt), Rf_length(device->displayList));
+            return Rf_mkString(buffer);
+        }
+
+        // hera's .jv.errors.handler(), R's global error handler: whether an error is the running cell's (otherwise
+        // R handles it as usual), and that error's report -- message and traceback lines -- for the cell's reply.
+        SEXP cellErrorWanted()
+        {
+            return Rf_ScalarLogical(getRInterpreter()->wantsCellError() ? 1 : 0);
+        }
+
+        SEXP recordCellError(SEXP evalue_, SEXP traceback_)
+        {
+            std::string evalue = TYPEOF(evalue_) == STRSXP && XLENGTH(evalue_) > 0 ? Rf_translateCharUTF8(STRING_ELT(evalue_, 0)) : "";
+            std::vector<std::string> traceback;
+            if (TYPEOF(traceback_) == STRSXP)
+            {
+                for (R_xlen_t i = 0; i < XLENGTH(traceback_); ++i)
+                {
+                    traceback.push_back(Rf_translateCharUTF8(STRING_ELT(traceback_, i)));
+                }
+            }
+            getRInterpreter()->recordCellError(std::move(evalue), std::move(traceback));
+            return R_NilValue;
+        }
+
+        // hera's .jv.ui.ask(): a question for the host's UI (rstudioapi::showPrompt(), showQuestion(), ...), sent as an
+        // input_request whose content has `jovian_ui: {method, params}`; the answer is the reply's text (JSON), or
+        // NULL when it could not be asked: an execution that allows no input, unless the kernel runs under Jovian's
+        // supervisor (JOVIAN_SUPERVISED, set by elara.cpp), whose client answers every such question.
+        SEXP uiAsk(SEXP method_, SEXP params_, SEXP password_)
+        {
+            adrastea::json ui = {
+                {"method", TYPEOF(method_) == STRSXP && XLENGTH(method_) > 0 ? Rf_translateCharUTF8(STRING_ELT(method_, 0)) : ""},
+                {"params", sexpToJson(params_, false)}};
+            bool password = TYPEOF(password_) == LGLSXP && XLENGTH(password_) > 0 && LOGICAL_ELT(password_, 0) == 1;
+            static const bool supervised = std::getenv("JOVIAN_SUPERVISED") != nullptr;
+            std::string reply;
+            try
+            {
+                reply = adrastea::blockingInputRequest("", password, supervised || getRInterpreter()->allowsStdin(), ui);
+            }
+            catch (const std::exception &e)
+            {
+                log::debug(std::string("a UI question was not asked: ") + e.what());
+                return R_NilValue;
+            }
+            SEXP out = PROTECT(Rf_allocVector(STRSXP, 1));
+            SET_STRING_ELT(out, 0, mkCharUtf8(reply));
             UNPROTECT(1);
             return out;
+        }
+
+        // hera's .jv.debug.on_interrupt(): whether the interrupt is a pause the debugger asked for
+        SEXP debugTakePause()
+        {
+            return Rf_ScalarLogical(getRInterpreter()->takeDebugPause() ? 1 : 0);
+        }
+
+        // hera's to_json(): x as JSON text, NULL as {} or (null = "null") null.
+        SEXP toJson(SEXP x, SEXP null_)
+        {
+            bool nullAsObject = !(TYPEOF(null_) == STRSXP && XLENGTH(null_) == 1 && std::string(Rf_translateCharUTF8(STRING_ELT(null_, 0))) == "null");
+            std::string text = sexpToJson(x, nullAsObject).dump(-1, ' ', false, adrastea::json::error_handler_t::replace);
+            SEXP out = PROTECT(Rf_allocVector(STRSXP, 1));
+            SET_STRING_ELT(out, 0, mkCharUtf8(text));
+            UNPROTECT(1);
+            return out;
+        }
+
+        // hera's from_json(): JSON text as an R value.
+        SEXP fromJson(SEXP text_)
+        {
+            auto parsed = adrastea::json::parse(Rf_translateCharUTF8(STRING_ELT(text_, 0)), nullptr, false);
+            if (parsed.is_discarded()) return R_NilValue;
+            return jsonToSexp(parsed);
         }
 
     }
@@ -364,26 +572,32 @@ namespace elara
             {"elara_log", (DL_FUNC)&routines::elaraLog, 2},
 
             // CommManager
-            {"CommManager__register_target", (DL_FUNC)&routines::CommManager__registerTarget, 1},
-            {"CommManager__unregister_target", (DL_FUNC)&routines::CommManager__unregisterTarget, 1},
-            {"CommManager__new_comm", (DL_FUNC)&routines::CommManager__newComm, 2},
             {"CommManager__get_comm_info", (DL_FUNC)&routines::CommManager__getCommInfo, 1},
 
-            // Comm
-            {"Comm__id", (DL_FUNC)&routines::Comm__id, 1},
-            {"Comm__target_name", (DL_FUNC)&routines::Comm__targetName, 1},
-            {"Comm__open", (DL_FUNC)&routines::Comm__open, 4},
-            {"Comm__close", (DL_FUNC)&routines::Comm__close, 4},
-            {"Comm__send", (DL_FUNC)&routines::Comm__send, 4},
-            {"Comm__on_close", (DL_FUNC)&routines::Comm__onClose, 2},
-            {"Comm__on_message", (DL_FUNC)&routines::Comm__onMessage, 2},
 
-            // Message aka message
-            {"Message__get_content", (DL_FUNC)&routines::Message__getContent, 1},
-            {"Message__get_header", (DL_FUNC)&routines::Message__getHeader, 1},
-            {"Message__get_parent_header", (DL_FUNC)&routines::Message__getParentHeader, 1},
-            {"Message__get_metadata", (DL_FUNC)&routines::Message__getMetadata, 1},
-            {"Message__get_buffers", (DL_FUNC)&routines::Message__getBuffers, 1},
+
+            // JSON (hera's to_json() / from_json())
+            {"elara_to_json", (DL_FUNC)&routines::toJson, 2},
+            {"elara_from_json", (DL_FUNC)&routines::fromJson, 1},
+            {"elara_display_list_id", (DL_FUNC)&routines::displayListId, 0},
+            {"elara_cell_error_wanted", (DL_FUNC)&routines::cellErrorWanted, 0},
+            {"elara_ui_ask", (DL_FUNC)&routines::uiAsk, 3},
+            {"elara_debug_take_pause", (DL_FUNC)&routines::debugTakePause, 0},
+            {"elara_record_cell_error", (DL_FUNC)&routines::recordCellError, 2},
+
+            // comms (comm_r.cpp)
+            {"elara_comm_register_target", (DL_FUNC)&comms::registerTarget, 2},
+            {"elara_comm_unregister_target", (DL_FUNC)&comms::unregisterTarget, 1},
+            {"elara_comm_target_callback", (DL_FUNC)&comms::targetCallback, 1},
+            {"elara_comm_new", (DL_FUNC)&comms::newComm, 2},
+            {"elara_comm_list", (DL_FUNC)&comms::list, 0},
+            {"elara_comm_target_name", (DL_FUNC)&comms::targetName, 1},
+            {"elara_comm_description", (DL_FUNC)&comms::description, 1},
+            {"elara_comm_open", (DL_FUNC)&comms::open, 4},
+            {"elara_comm_send", (DL_FUNC)&comms::send, 4},
+            {"elara_comm_close", (DL_FUNC)&comms::close, 4},
+            {"elara_comm_on_message", (DL_FUNC)&comms::setOnMessage, 2},
+            {"elara_comm_on_close", (DL_FUNC)&comms::setOnClose, 2},
 
             {NULL, NULL, 0}};
 

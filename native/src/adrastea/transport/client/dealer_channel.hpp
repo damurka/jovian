@@ -37,6 +37,13 @@ namespace adrastea
 
         zmq::socket_t& getSocket();
 
+        // For waiting on this channel from another thread without using its
+        // socket there (see ClientZmqImpl::waitForActivity()): the OS handle
+        // that becomes readable when the socket's state may have changed,
+        // and whether a message is waiting now.
+        zmq::fd_t pollHandle();
+        bool hasMessage();
+
     private:
 
         zmq::socket_t m_socket;

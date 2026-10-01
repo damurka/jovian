@@ -58,6 +58,12 @@ namespace adrastea
         json isCompleteRequest(const std::string& code);
         json kernelInfoRequest();
 
+        // The Jupyter debug protocol (JEP 47): a debug_request's content (a Debug Adapter Protocol request) and its
+        // reply (a DAP response). An interpreter without a debugger answers every one with success: false.
+        json debugRequest(const json& request);
+        // A DAP event ("stopped", "continued", ...) on IOPub, as a debug_event
+        void publishDebugEvent(json event, bool flushOutput = true);
+
         json shutdownRequest(bool restart);
         json interruptRequest();
 
@@ -106,7 +112,9 @@ namespace adrastea
         using input_reply_handler_type = std::function<void(const std::string&)>;
         void registerInputHandler(const input_reply_handler_type& handler);
 
-        void inputRequest(const std::string& prompt, bool pwd);
+        // `ui`, when not null, goes in the request's content as `jovian_ui`: a question for the host's UI (an R
+        // kernel's rstudioapi::showPrompt(), say), answered like any input_request
+        void inputRequest(const std::string& prompt, bool pwd, const json& ui = json());
         void inputReply(const std::string& value);
 
         // Set from the current execute_request's allow_stdin at the top of
@@ -157,6 +165,7 @@ namespace adrastea
         virtual json isCompleteRequestImpl(const std::string& code) = 0;
 
         virtual json kernelInfoRequestImpl() = 0;
+        virtual json debugRequestImpl(const json& request);
 
         virtual json shutdownRequestImpl(bool restart) = 0;
         virtual json interruptRequestImpl() = 0;
@@ -186,11 +195,19 @@ namespace adrastea
         void flushStreamsLocked();
         void streamFlusherLoop();
 
+        // Text waiting to go out, one entry per stream (stdout, stderr), in
+        // the order the streams were first written to since the last flush
+        struct PendingStream
+        {
+            std::string name;
+            std::string text;
+            RequestContext context;
+        };
+
         std::mutex m_streamMutex;
         std::condition_variable m_streamCv;
-        std::string m_streamName;
-        std::string m_streamBuffer;
-        RequestContext m_streamContext;
+        std::vector<PendingStream> m_streamPending;
+        std::size_t m_streamPendingBytes = 0;
         std::chrono::steady_clock::time_point m_streamLastFlush{};
         std::thread m_streamFlusher;
         bool m_streamQuit = false;

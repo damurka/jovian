@@ -1,228 +1,121 @@
-.CommManager__register_target_callback <- function(comm, request) {
-    callback <- CommManager$target_callback(request$content$target_name)
-    callback(comm, request)
+# Comms -- kernel <-> frontend channels -- for R code: the Jupyter comm API of IRkernel's and xeus-r's kernels
+# (CommManager$register_comm_target(), comm$send(), msg$content, ...). The comms, their targets and the R functions
+# they call are held by Elara (comm_r.cpp): a comm is its id with class "Comm", a received message a list of class
+# "Message" (content, header, parent_header, metadata, buffers). What is here only passes the calls on.
+
+.jv.comm.call <- function(routine, ...) .Call(routine, ..., PACKAGE = "(embedding)")
+
+# A comm message's buffers: a list of raw vectors
+.jv.comm.check_buffers <- function(buffers) {
+  if (!is.list(buffers) || !all(vapply(buffers, is.raw, logical(1)))) stop("`buffers` must be a list of raw vectors", call. = FALSE)
 }
 
 #' Comm Manager class
 #'
+#' The comm manager, [CommManager], is the one object of this class.
+#'
 #' @rdname CommManager
-CommManagerClass <- R6::R6Class("CommManagerClass",
-  public = list(
-
-    #' @param ... currently unused
-    #' @param error_call see [rlang::args_error_context()]
-    initialize = function(..., error_call = caller_env()) {
-      rlang::check_dots_empty(call = error_call)
-
-      private$env_targets <- new.env()
-      private$env_comms <- new.env()
-    },
-
-    #' @param target_name name of the comm target, e.g. "jupyter.widgets"
-    #' @param callback callback function taking two arguments 'comm' and 'message'.
-    register_comm_target = function(target_name, callback = function(comm, message){}) {
-        private$env_targets[[target_name]] <- callback
-        invisible(hera_dot_call("CommManager__register_target", target_name))
-    },
-
-    #' @param target_name name of the comm target
-    unregister_comm_target = function(target_name) {
-        rm(list = target_name, private$env_targets)
-        invisible(hera_dot_call("CommManager__unregister_target", target_name))
-    },
-
-    #' @param target_name name of the target
-    #' @param description description of the comm
-    new_comm = function(target_name, description = "") {
-        hera_dot_call("CommManager__new_comm", target_name, description)
-    },
-
-    #' @return the list of currently open comms
-    comms = function() {
-        as.list(private$env_comms)
-    },
-
-    #' @param target_name name of the comm target
-    #'
-    #' @return the callback for that target name
-    target_callback = function(target_name) {
-        private$env_targets[[target_name]]
-    },
-
-    #' @param comm [Comm] instance to preserve
-    preserve = function(comm) {
-        assign(comm$id, comm, envir = private$env_comms)
-    },
-
-    #' @param comm [Comm] instance to release
-    release = function(comm) {
-        rm(list = comm$id, envir = private$env_comms)
-    },
-
-    #' @param target_name name of the target to get info about all comm opens. If NULL, info for comms for all targets are returned.
-    get_comm_info = function(target_name = NULL) {
-        hera_dot_call("CommManager__get_comm_info", target_name)
-    }
-  ),
-
-  private = list(
-    env_targets = NULL,
-    env_comms = NULL
-  )
-)
-
-# set later in zzz.R
+CommManagerClass <- structure(list(), class = "CommManagerClass")
 
 #' Comm manager
 #'
-#' Instance of the [CommManagerClass] class.
+#' Keeps the comm targets the kernel answers, and the comms open: `$register_comm_target(target_name, callback)`
+#' (`callback(comm, message)` when the frontend opens a comm to it), `$unregister_comm_target(target_name)`,
+#' `$new_comm(target_name, description)` (a comm the kernel opens, with `$open()`), `$comms()`,
+#' `$target_callback(target_name)`, `$get_comm_info(target_name)`.
 #'
 #' @export
-CommManager <- NULL
+CommManager <- CommManagerClass
+
+#' @export
+`$.CommManagerClass` <- function(x, name) {
+  switch(name,
+    register_comm_target = function(target_name, callback = function(comm, message) {}) {
+      invisible(.jv.comm.call("elara_comm_register_target", target_name, callback))
+    },
+    unregister_comm_target = function(target_name) {
+      invisible(.jv.comm.call("elara_comm_unregister_target", target_name))
+    },
+    new_comm = function(target_name, description = "") {
+      .jv.comm.call("elara_comm_new", target_name, description)
+    },
+    comms = function() .jv.comm.call("elara_comm_list"),
+    target_callback = function(target_name) .jv.comm.call("elara_comm_target_callback", target_name),
+    get_comm_info = function(target_name = NULL) .jv.comm.call("CommManager__get_comm_info", target_name),
+    print = function() print(x),
+    NULL
+  )
+}
+
+#' @export
+print.CommManagerClass <- function(x, ...) {
+  cat("<CommManager> ", length(x$comms()), " comms open\n", sep = "")
+  invisible(x)
+}
 
 #' Comm class
 #'
+#' A comm: made by the kernel when the frontend opens one to a registered target, or by `Comm$new(target_name,
+#' description)` (as `CommManager$new_comm()`). `$open(data, metadata, buffers)`, `$send(...)`, `$close(...)`,
+#' `$on_message(handler)`, `$on_close(handler)` (`handler(message)`), and the fields `$id` and `$target_name`.
+#'
 #' @export
-Comm <- R6::R6Class("Comm",
-  public = list(
+Comm <- structure(list(new = function(target_name, description = "") CommManager$new_comm(target_name, description)),
+  class = "hera_class")
 
-    #' @param xp external pointer to an instance of the C++ class 'adrastea::Comm'
-    #' @param description description of this comm
-    initialize = function(xp, description = "") {
-        private$xp <- xp
-        private$description <- description
-        CommManager$preserve(self)
-    },
+#' @export
+print.hera_class <- function(x, ...) {
+  cat("<Comm> object generator\n")
+  invisible(x)
+}
 
-    #' @param data data
-    #' @param metadata metadata
-    #' @param buffers list of raw vectors to send as binary buffers
-    open = function(data = NULL, metadata = NULL, buffers = list()) {
-        stopifnot(is.list(buffers), all(vapply(buffers, is.raw, logical(1))))
-        js_metadata <- enc2utf8(jsonlite::toJSON(metadata, auto_unbox = TRUE, null = if (is.null(metadata)) "list" else "null"))
-        js_data <- enc2utf8(jsonlite::toJSON(data, auto_unbox = TRUE, null = "null"))
-
-        invisible(hera_dot_call("Comm__open", private$xp, js_metadata, js_data, buffers))
-    },
-
-    #' @param data data
-    #' @param metadata metadata
-    #' @param buffers list of raw vectors to send as binary buffers
-    close = function(data = NULL, metadata = NULL, buffers = list()) {
-        stopifnot(is.list(buffers), all(vapply(buffers, is.raw, logical(1))))
-        js_metadata <- enc2utf8(jsonlite::toJSON(metadata, auto_unbox = TRUE, null = if (is.null(metadata)) "list" else "null"))
-        js_data <- enc2utf8(jsonlite::toJSON(data, auto_unbox = TRUE, null = "null"))
-
-        invisible(hera_dot_call("Comm__close", private$xp, js_metadata, js_data, buffers))
-    },
-
-    #' @param data data
-    #' @param metadata metadata
-    #' @param buffers list of raw vectors to send as binary buffers
-    send = function(data = NULL, metadata = NULL, buffers = list()) {
-        stopifnot(is.list(buffers), all(vapply(buffers, is.raw, logical(1))))
-        js_metadata <- enc2utf8(jsonlite::toJSON(metadata, auto_unbox = TRUE, null = if (is.null(metadata)) "list" else "null"))
-        js_data <- enc2utf8(jsonlite::toJSON(data, auto_unbox = TRUE, null = "null"))
-
-        invisible(hera_dot_call("Comm__send", private$xp, js_metadata, js_data, buffers))
-    },
-
-    #' @param handler function to call when the comm is closed
-    on_close = function(handler) {
-        private$close_handler <- function(request) {
-            handler(request)
-            self$finalize()
-        }
-        invisible(hera_dot_call("Comm__on_close", private$xp, private$close_handler))
-    },
-
-    #' @param handler function to call when receiving a message
-    on_message = function(handler) {
-        private$message_handler <- handler
-        invisible(hera_dot_call("Comm__on_message", private$xp, private$message_handler))
-    },
-
-    #' @return information about the comm
-    print = function() {
-      if (identical(private$description, "")) {
-        writeLines(glue("<Comm id={self$id} target_name='{self$target_name}'>"))
-      } else {
-        writeLines(glue("<Comm id={self$id} target_name='{self$target_name}' description='{private$description}' >"))
-      }
+#' @export
+`$.Comm` <- function(x, name) {
+  id <- unclass(x)
+  message <- function(routine) {
+    function(data = NULL, metadata = NULL, buffers = list()) {
+      .jv.comm.check_buffers(buffers)
+      invisible(.jv.comm.call(routine, id, .jv.json.prepare(data), .jv.json.prepare(metadata), buffers))
     }
-  ),
-
-  active = list(
-
-    #' @field id
-    #' id of the comm. read only.
-    id = function() {
-        hera_dot_call("Comm__id", private$xp)
-    },
-
-    #' @field target_name
-    #' name of the target for this comm
-    target_name = function() {
-        hera_dot_call("Comm__target_name", private$xp)
-    }
-  ),
-
-  private = list(
-    xp = NULL,
-    description = "",
-    close_handler = NULL,
-    message_handler = NULL,
-
-    finalize = function() {
-      CommManager$release(self)
-    }
+  }
+  switch(name,
+    id = id,
+    target_name = .jv.comm.call("elara_comm_target_name", id),
+    open = message("elara_comm_open"),
+    send = message("elara_comm_send"),
+    close = message("elara_comm_close"),
+    on_message = function(handler) invisible(.jv.comm.call("elara_comm_on_message", id, handler)),
+    on_close = function(handler) invisible(.jv.comm.call("elara_comm_on_close", id, handler)),
+    print = function() print(x),
+    NULL
   )
-)
+}
 
-Message <- R6::R6Class("Message",
-  public = list(
-    initialize = function(xp) {
-      private$xp <- xp
-    },
+#' @export
+print.Comm <- function(x, ...) {
+  description <- .jv.comm.call("elara_comm_description", unclass(x))
+  target <- x$target_name
+  if (is.null(target)) {
+    writeLines(sprintf("<Comm id=%s (closed)>", unclass(x)))
+  } else if (!length(description) || identical(description, "")) {
+    writeLines(sprintf("<Comm id=%s target_name='%s'>", unclass(x), target))
+  } else {
+    writeLines(sprintf("<Comm id=%s target_name='%s' description='%s' >", unclass(x), target, description))
+  }
+  invisible(x)
+}
 
-    print = function() {
-      print(cli::rule("$content"))
-      str(self$content)
+# A horizontal rule with a title, as cli::rule() drew it.
+.jv.comm.rule <- function(title) {
+  width <- max(10L, getOption("width", 80L))
+  paste0("-- ", title, " ", strrep("-", max(0L, width - nchar(title) - 4L)))
+}
 
-      print(cli::rule("$header"))
-      str(self$header)
-
-      print(cli::rule("$parent_header"))
-      str(self$parent_header)
-
-      print(cli::rule("$metadata"))
-      str(self$metadata)
-    }
-  ),
-
-  active = list(
-    content = function() {
-      jsonlite::fromJSON(hera_dot_call("Message__get_content", private$xp))
-    },
-
-    header = function() {
-      jsonlite::fromJSON(hera_dot_call("Message__get_header", private$xp))
-    },
-
-    parent_header = function() {
-      jsonlite::fromJSON(hera_dot_call("Message__get_parent_header", private$xp))
-    },
-
-    metadata = function() {
-      jsonlite::fromJSON(hera_dot_call("Message__get_metadata", private$xp))
-    },
-
-    buffers = function() {
-      hera_dot_call("Message__get_buffers", private$xp)
-    }
-  ),
-
-  private = list(
-    xp = NULL
-  )
-)
+#' @export
+print.Message <- function(x, ...) {
+  for (field in c("content", "header", "parent_header", "metadata")) {
+    writeLines(.jv.comm.rule(paste0("$", field)))
+    utils::str(x[[field]])
+  }
+  invisible(x)
+}

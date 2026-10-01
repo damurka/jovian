@@ -52,9 +52,27 @@ namespace api {
     INTEGER_ELT_t p_INTEGER_ELT = nullptr;
     Rf_protect_t p_Rf_protect = nullptr;
     Rf_unprotect_t p_Rf_unprotect = nullptr;
+    TYPEOF_t p_TYPEOF = nullptr;
+    REAL_ELT_t p_REAL_ELT = nullptr;
+    SET_INTEGER_ELT_t p_SET_INTEGER_ELT = nullptr;
+    SET_REAL_ELT_t p_SET_REAL_ELT = nullptr;
+    SET_LOGICAL_ELT_t p_SET_LOGICAL_ELT = nullptr;
+    Rf_getAttrib_t p_Rf_getAttrib = nullptr;
+    Rf_translateCharUTF8_t p_Rf_translateCharUTF8 = nullptr;
+    Rf_mkCharLenCE_t p_Rf_mkCharLenCE = nullptr;
+    R_IsNA_t p_R_IsNA = nullptr;
+    GEcurrentDevice_t p_GEcurrentDevice = nullptr;
+    run_Rmainloop_t p_run_Rmainloop = nullptr;
+    SETCDR_t p_SETCDR = nullptr;
+    R_ReleaseObject_t p_R_ReleaseObject = nullptr;
 
     SEXP* p_R_GlobalEnv = nullptr;
     SEXP* p_R_NilValue = nullptr;
+    SEXP* p_R_NaString = nullptr;
+    double* p_R_NaReal = nullptr;
+    int* p_R_NaInt = nullptr;
+    int* p_R_Visible = nullptr;
+    SEXP* p_R_Srcref = nullptr;
     int* p_interruptFlag = nullptr;
 
 #ifndef _WIN32
@@ -226,6 +244,28 @@ namespace {
 
 bool isRApiLoaded() { return g_loaded; }
 
+namespace {
+    using R_ProcessEvents_t = void (*)(void);
+    using R_checkActivity_t = void* (*)(int, int);
+    using R_runHandlers_t = void (*)(void*, void*);
+    R_ProcessEvents_t p_R_ProcessEvents = nullptr;
+    R_checkActivity_t p_R_checkActivity = nullptr;
+    R_runHandlers_t p_R_runHandlers = nullptr;
+    void** p_R_InputHandlers = nullptr;
+}
+
+void serviceREvents() {
+    if (p_R_ProcessEvents) p_R_ProcessEvents();
+    if (p_R_checkActivity && p_R_runHandlers && p_R_InputHandlers) {
+        void* what = p_R_checkActivity(0, 1);
+        p_R_runHandlers(*p_R_InputHandlers, what);
+    }
+}
+
+void clearRInterrupt() {
+    if (api::p_interruptFlag) *api::p_interruptFlag = 0;
+}
+
 bool requestRInterrupt() {
     if (!api::p_interruptFlag) {
         return false;
@@ -288,9 +328,32 @@ void loadRApi() {
     resolve(handle, "INTEGER_ELT", p_INTEGER_ELT, libPath);
     resolve(handle, "Rf_protect", p_Rf_protect, libPath);
     resolve(handle, "Rf_unprotect", p_Rf_unprotect, libPath);
+    resolve(handle, "TYPEOF", p_TYPEOF, libPath);
+    resolve(handle, "REAL_ELT", p_REAL_ELT, libPath);
+    resolve(handle, "SET_INTEGER_ELT", p_SET_INTEGER_ELT, libPath);
+    resolve(handle, "SET_REAL_ELT", p_SET_REAL_ELT, libPath);
+    resolve(handle, "SET_LOGICAL_ELT", p_SET_LOGICAL_ELT, libPath);
+    resolve(handle, "Rf_getAttrib", p_Rf_getAttrib, libPath);
+    resolve(handle, "Rf_translateCharUTF8", p_Rf_translateCharUTF8, libPath);
+    resolve(handle, "Rf_mkCharLenCE", p_Rf_mkCharLenCE, libPath);
+    resolve(handle, "R_IsNA", p_R_IsNA, libPath);
+    resolve(handle, "GEcurrentDevice", p_GEcurrentDevice, libPath);
+    resolve(handle, "run_Rmainloop", p_run_Rmainloop, libPath);
+    resolve(handle, "SETCDR", p_SETCDR, libPath);
+    resolve(handle, "R_ReleaseObject", p_R_ReleaseObject, libPath);
+    // optional: R's event loop, and (Unix) its input handlers -- see serviceREvents()
+    tryResolve(handle, "R_ProcessEvents", p_R_ProcessEvents);
+    tryResolve(handle, "R_checkActivity", p_R_checkActivity);
+    tryResolve(handle, "R_runHandlers", p_R_runHandlers);
+    tryResolve(handle, "R_InputHandlers", p_R_InputHandlers);
 
     resolveData(handle, "R_GlobalEnv", p_R_GlobalEnv, libPath);
     resolveData(handle, "R_NilValue", p_R_NilValue, libPath);
+    resolveData(handle, "R_NaString", p_R_NaString, libPath);
+    resolveData(handle, "R_NaReal", p_R_NaReal, libPath);
+    resolveData(handle, "R_NaInt", p_R_NaInt, libPath);
+    resolveData(handle, "R_Visible", p_R_Visible, libPath);
+    resolveData(handle, "R_Srcref", p_R_Srcref, libPath);
 
 #ifndef _WIN32
     resolveData(handle, "ptr_R_WriteConsole", p_ptr_R_WriteConsole, libPath);

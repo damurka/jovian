@@ -9,7 +9,7 @@
 // `platform` stages @scope/jovian-<os>-<cpu> (the prebuilt kernels for one
 // platform, which the main package pulls in through optionalDependencies).
 
-import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -34,6 +34,8 @@ export const TARGETS = {
 const DIR_NAME = PACKAGE.split('/').pop();
 const REPOSITORY = 'https://github.com/damurka/jovian';
 const KERNELS = ['themisto', 'elara', 'carpo', 'callisto'];
+// Loaded by a kernel, beside it: callisto's Stata plugin (it hands callisto the dataset's values).
+const PLUGINS = ['callisto_stata.plugin'];
 // Everything else the Windows build puts next to the executables that the
 // kernels need at run time (vcpkg's dynamic libraries). Test binaries,
 // gtest, PDBs and import libraries are not among them.
@@ -83,7 +85,7 @@ export function mainManifest(version) {
             './package.json': './package.json'
         },
         engines: { node: '>=22.13.0' },
-        files: ['lib', 'packages/hera', 'docs', 'README.md', 'LICENSE'],
+        files: ['lib', 'docs', 'README.md', 'LICENSE'],
         optionalDependencies
     };
 }
@@ -124,21 +126,7 @@ export function stageMain(version, out = OUT) {
     // The compiled library, without source maps / incremental build state.
     copyFiltered(dist, join(dir, 'lib'), (p) => !/\.(map|tsbuildinfo)$/.test(p));
 
-    // hera is installed into R from this copy on a session's first start.
-    const hera = join(ROOT, 'packages', 'hera');
-    for (const entry of ['DESCRIPTION', 'NAMESPACE', 'LICENSE', 'LICENSE.md', 'NEWS.md', 'R', 'man']) {
-        if (existsSync(join(hera, entry))) {
-            cpSync(join(hera, entry), join(dir, 'packages', 'hera', entry), { recursive: true });
-        }
-    }
-
-    // Lets elara reinstall hera after an upgrade (npm resets file mtimes, so
-    // the kernel's mtime-based staleness check cannot see one).
-    const description = join(dir, 'packages', 'hera', 'DESCRIPTION');
-    if (existsSync(description)) {
-        const text = readFileSync(description, 'utf8').replace(/^Config\/jovian\/release:.*\r?\n?/m, '');
-        writeFileSync(description, `${text.replace(/\s*$/, '')}\nConfig/jovian/release: ${version}\n`);
-    }
+    // hera, the R kernel's own R code, is built into elara: nothing of it ships here.
 
     cpSync(join(ROOT, 'docs'), join(dir, 'docs'), { recursive: true });
     cpSync(join(ROOT, 'README.md'), join(dir, 'README.md'));
@@ -170,7 +158,7 @@ export function stagePlatform(version, target, from, out = OUT) {
         const path = join(source, name);
         if (!statSync(path).isFile() || NOT_SHIPPED.test(name)) continue;
         const isKernel = KERNELS.some((k) => name === exe(k));
-        if (!isKernel && !(win && RUNTIME_LIB.test(name))) continue;
+        if (!isKernel && !PLUGINS.includes(name) && !(win && RUNTIME_LIB.test(name))) continue;
         cpSync(path, join(bin, name));
         if (!win) chmodSync(join(bin, name), 0o755);
         shipped.push(name);

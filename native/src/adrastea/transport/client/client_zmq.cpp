@@ -62,6 +62,11 @@ namespace adrastea
         return p_clientImpl->iopubQueueSize();
     }
 
+    void ClientZmq::waitForActivity(std::chrono::milliseconds timeout)
+    {
+        p_clientImpl->waitForActivity(timeout);
+    }
+
     std::optional<PubMessage> ClientZmq::popIopubMessage()
     {
         return p_clientImpl->popIopubMessage();

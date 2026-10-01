@@ -120,29 +120,3 @@ export function ensureExecutable(dir: string, platform: string = process.platfor
         }
     }
 }
-
-/**
- * The copy of the 'hera' R package that ships inside the npm package, used to
- * install/refresh it in R on a session's first start when the caller gave no
- * heraSrcPath. Only when running from an installed package (under
- * node_modules): a source checkout leaves hera alone so development and CI
- * control which one is loaded.
- *
- * In an Electron app the package is loaded from `node_modules.asar` (an archive
- * only Electron can read) and its files that others read are unpacked beside
- * it, in `node_modules.asar.unpacked`: R installs hera from there. Without
- * this, an app's first R session on a new computer found no hera to install.
- */
-export function bundledHeraSource(
-    baseDir: string = moduleDir,
-    exists: (path: string) => boolean = existsSync
-): string | undefined {
-    const installed = baseDir.split(sep).some((part) => part === 'node_modules' || part === 'node_modules.asar' || part === 'node_modules.asar.unpacked');
-    if (!installed) return undefined;
-    // <package>/lib/session -> <package>/packages/hera (the published layout), outside the archive
-    const candidate = join(baseDir, '../../packages/hera')
-        .split(sep)
-        .map((part) => (part === 'node_modules.asar' ? 'node_modules.asar.unpacked' : part))
-        .join(sep);
-    return exists(join(candidate, 'DESCRIPTION')) ? candidate : undefined;
-}

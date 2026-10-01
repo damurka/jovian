@@ -20,22 +20,22 @@ Kernel stdout/stderr (start-up notes such as `[R Interpreter] .libPaths() …`) 
 1. `R_HOME`, `PATH` (R's `bin` directory) and `R_LIBS*` are set; R's shared library is loaded (`R.dll` / `libR.so` / `libR.dylib` — see [Architecture](architecture/overview.md#dynamic-loading-of-r-and-python)).
 2. R is started. On Windows (R ≥ 4.2) with the documented `Rstart` embedding sequence and an Elara `ReadConsole` callback, so `readline()` works over the stdin channel and R is marked interactive; on older R via plain `Rf_initEmbeddedR` (no `readline()` support). Elara also calls `GA_initapp` on Windows, without which the first `plot()` crashes the process. On Linux/macOS it sets `R_Interactive` for the same `readline()` reason.
 3. The locale is switched to UTF-8 on Windows.
-4. `hera` is loaded — installed first from `heraSrcPath` if missing or stale (see [Environments](guides/environments.md#the-hera-package-required)). If it cannot be loaded the kernel still starts and only logs a warning.
+4. `hera`, the kernel's R code built into it, is loaded as the namespace `hera` and its exports attached as `tools:hera` (from `heraSrcPath` instead, when given). Nothing is installed (see [Environments](guides/environments.md#the-hera-package-built-in)). If it cannot be loaded the kernel still starts and logs an `ERROR` saying why.
 
 ### Executing code (`hera`)
 
 `RInterpreter::executeRequestImpl` calls `hera:::hera_call("execute", code, count, silent)`, which:
 
 - parses the code (a parse failure is an `error` with `ename` `PARSE ERROR`);
-- runs it with `evaluate::evaluate(…, stop_on_error = 1)` — evaluation stops at the first error in a cell;
-- **stdout** → `stream` `stdout`; **messages** and **warnings** → `stream` `stderr` (warnings formatted as `Warning message in <call>:` followed by the text); **errors** → an `error` message whose `traceback` is a coloured (cli) trace, and the failed `execute_reply`;
-- **plots** are drawn to a null device and, per cell, sent as one `display_data` with `text/plain` and `image/png` (`options(jupyter.plot_mimetypes)`; `ggplot` objects are printed);
-- the **visible value** becomes an `execute_result` whose `data` is a mime bundle from `IRdisplay::prepare_mimebundle` — `text/plain` normally, plus `text/html` for htmlwidgets, Shiny tags and R help pages;
+- runs its top-level expressions one by one with base R — evaluation stops at the first error in a cell;
+- **stdout** → `stream` `stdout`; **messages** → `stream` `stderr` as they happen; **warnings** are R's own, as in its console and Ark: `options(warn)` applies (kept until a top-level expression ends, printed at once with `warn = 1`, ignored with `warn < 0`, errors with `warn >= 2`), reported on `stderr` in R's words (`Warning message:` / `In f() : w`, `There were 50 or more warnings …`), and `warnings()` shows them; **errors** → an `error` message whose `traceback` lists the cell's own calls, outermost first, with where they are in the cell (`f() at [3]#2`) — rlang's own report for an rlang error — and the failed `execute_reply`; afterwards `traceback()` shows the calls and `options(error)` has run, as in R;
+- **plots** are drawn on one null device for the whole session, as R's console has one plot window: a later cell can add to a plot (`abline()` after `plot()`), and `par()` settings last. Each changed plot is sent once complete as a `display_data` with `text/plain` and `image/png` (`options(jupyter.plot_mimetypes)`; also `image/svg+xml`, `image/jpeg`, `application/pdf`), drawn by R's own devices; one drawn before an error is still sent. Whether anything was drawn is checked in constant time (the device's display list, through Elara), so a big plot costs later cells nothing;
+- the **visible value** of the cell's last expression becomes an `execute_result` with what `print()` writes, as R's console and Ark show it — or, for a value whose `print()` draws (a ggplot, a lattice plot), that plot. R help pages come as text and HTML (`tools`' `Rd2txt`/`Rd2HTML`); HTML widgets and Shiny tags through `IRdisplay` (loaded then). A top-level `on.exit()` does nothing, as in R's console;
 - `user_expressions` are evaluated afterwards with `eval(parse(text = expr))` + `print()` capture in the global environment; each fails independently.
 
 Code runs in the **global environment**. R output that goes through R's console writer is streamed as it happens (`WriteConsoleEx` hook), not batched — subject to the ~50 ms / 16 KB coalescing every kernel applies (see [Protocol](protocol.md#1-jupyter-messages-the-kernels-support)).
 
-**Live output inside one long expression.** `evaluate` captures stdout into a temporary file and normally hands it over only when a top-level expression ends (or a message/warning/plot happens), so `for (i in 1:1e6) print(i)` would show nothing until it was over. `hera` (`patch_evaluate_sink()` in `packages/hera/R/execute.R`) wraps the one internal `evaluate` function that creates that sink so that there is no sink: output goes to R's console, and the console hook publishes it immediately; `try()` output goes there too, and `evaluate`'s own stdout handler is silenced. A silent execution keeps `evaluate`'s sink (its output is not shown). This needs **`hera` >= 0.6.0.9001**; with an older installed `hera` everything still works but such output arrives when the expression ends. `hera` 0.6.0.9002 also stops capturing a second copy into a file (0.6.0.9001 teed it, which cost about 150 ms per MB of output: 200 000 printed lines went from 3.6 s to 1.0 s, a single 10 MB `cat()` from 1.7 s to 0.3 s). Update it with `npm run hera:install`.
+**How a cell runs.** `hera` (`packages/hera/R/execute.R`) evaluates the cell's top-level expressions one by one with base R, as R's console does: what they print goes straight to R's console and so is streamed as it is written, even inside one long expression; messages and warnings are published as stderr as they happen; the first error stops the cell, with a traceback of the cell's own calls (`f() at [3]#2`); plots are drawn on a device of the cell's own and sent once each is complete. Values are shown with base R's `print()`, or through `repr` for the objects it draws its own way (data frames, matrices, widgets), loaded only then.
 
 Rich output from R code: `hera::display_data(list("text/html" = "<b>hi</b>"))` publishes a `display_data`; `hera::clear_output(wait = FALSE)` publishes `clear_output`; `hera:::update_display_data()` publishes `update_display_data` (not exported).
 
@@ -51,7 +51,7 @@ Rich output from R code: `hera::display_data(list("text/html" = "<b>hi</b>"))` p
 
 ### Comms
 
-The full comm API is available through `hera` (`CommManager`, `Comm`) — see [Comms](guides/comms.md). `hera` depends on `jsonlite`, `R6`, `glue` and `cli`.
+The full comm API is available through `hera` (`CommManager`, `Comm`) — see [Comms](guides/comms.md). The comms are held by Elara in C++ (`native/src/elara/r/comm_r.cpp`): a comm is its id with class `Comm`, a received message a list of class `Message`, and the R functions they call are kept from R's garbage collector while in use.
 
 ### Interrupt
 
@@ -117,10 +117,12 @@ A real SIGINT delivered to the interpreter thread; Python raises `KeyboardInterr
 
 ### Executing code
 
-`StataInterpreter::executeRequestImpl` writes the cell to a temporary do-file and runs it with `include`:
+`StataInterpreter::executeRequestImpl` runs a cell that is one plain command (one complete line, no comment, no `#delimit`, not `exit`) as typed at Stata's prompt, as pystata runs a single line. Any other cell is written to a temporary do-file and run with `include`:
 
 - `include`, not `do`, so the cell runs in the interactive context: a `local` defined in one cell is still defined in the next, as when typing at Stata's prompt. Being a do-file, everything a do-file allows works: `/* */` and `//` comments, `///` continuations, loops, `program define`, `#delimit ;`.
-- Stata prints into its output buffer; a second thread empties it every 20 ms while the command runs and publishes the text as `stream` `stdout`, so output arrives as it is produced (with the ~50 ms / 16 KB coalescing every kernel applies). Stata's output has no separate error stream: everything is stdout.
+- A do-file echoes its commands (`. cmd`, `> ` continuations, the numbered lines of a loop or program) and Stata 17 and 18 cannot turn that off (`set showcommand` is Stata 19's). The echo is taken out of the output as it streams (`text::EchoFilter`), with the blank line before each command, the final prompt and the return code Stata repeats after an error, so a cell shows what its commands print, whichever way it ran. A line that cannot be echo (a row of `_dots`) goes out before it ends.
+- Stata prints into its output buffer; a second thread empties it every 20 ms while the command runs and publishes the text as `stream` `stdout`, so output arrives as it is produced (with the ~50 ms / 16 KB coalescing every kernel applies). The thread is woken when the command returns, so a cell's end waits for no poll (a trivial cell takes about 2 ms). Stata's output has no separate error stream: everything is stdout.
+- Output is made valid UTF-8 on the way (`text::Utf8Decoder`): a character split between two reads waits for its other bytes, and text that is not UTF-8 (string data saved by Stata 13 or older, in Latin-1) is read as Latin-1, where it used to make the kernel's JSON fail.
 - A non-zero return code is an `error` whose `ename` is Stata's `r(<rc>)` (`r(111)`) and whose `evalue` is the message Stata printed above it (`variable nosuchvar not found`); the `traceback` is those two lines.
 - **Graphs.** `_gr_list on` makes Stata record the graphs a cell draws; afterwards each one is exported with `graph export` to a PNG and published as one `display_data` (`image/png` plus a `text/plain` placeholder), the way pystata shows graphs inline. Silent executions skip this.
 - `user_expressions` are each shown with `display <expr>`; one that fails reports its own `r(<rc>)`.
@@ -129,10 +131,23 @@ There is no `execute_result`: Stata commands print, they do not return a value.
 
 The machinery never changes the user's `r()` results: the graph list is read between `_return hold` and `_return restore`, and completion reads names through Mata.
 
+### The dataset
+
+What the kernel reads from Stata -- names (variables, macros, scalars, stored results, graphs, the adopath), the dataset's description and its values -- does not come from printed output, which Stata wraps at `c(linesize)`. pystata reads these through `sfi`, whose functions live inside Stata and are open to Python only (and Java); a C++ kernel has two documented ways instead:
+
+- **Callisto's Mata library** (`native/src/callisto/stata/stata_mata.hpp`). At start-up the kernel compiles its functions (`callisto_*`) into `lcallisto.mlib` in a folder of its own and adds that folder to the adopath, so Mata loads them again after `clear all` or `mata clear`. Each writes its answer as JSON to a file the kernel reads (`StataInterpreter::mataJson()`). Names, the dataset's description (`callisto_dataset()`: frame, size, file, variables with their type, format, label and value label, value labels) and formatted values (`callisto_rows()`, a column at a time: 10 000 rows of 10 variables in about 0.35 s) come from it.
+- **Callisto's plugin** (`callisto_stata.plugin`, beside `callisto`; `native/src/callisto/plugin/`), written to Stata's plugin interface (`stplugin.h`, `native/third_party/stata/`). Stata runs inside the kernel's process, so the kernel calls it (`plugin call _callisto_plugin <variables> in <a>/<b>, <address>`) with the address of a `CallistoSink` (`native/include/callisto/plugin_sink.h`) and the plugin hands it each value: a number, which of the 27 missing values, or a string's bytes -- nothing printed or written. Raw values come from it (10 000 rows of 10 variables in about 0.18 s); without it (`CALLISTO_PLUGIN` points elsewhere, or it is missing) they come from the Mata library (about 0.55 s).
+
+Jovian asks for the dataset with two user expressions the kernel answers itself, `.callisto_dataset` and `.callisto_data` (JSON parameters), sent with an empty, silent cell: `Session.stataDataset()` and `Session.stataData()` ([Session](api/session.md#the-stata-dataset)).
+
 ### Completion, inspection, is_complete
 
-- `complete_request` → variable names of the dataset in memory for a bare name, global macros after `$` or `${`, local macros after `` ` `` (from Mata's `st_varname()` / `st_dir()`).
-- `inspect_request` → for a variable name, the output of `describe` and `summarize` for it (`text/plain`); anything else is not found.
+- `complete_request` →
+  - the first word of a command (also after `quietly`, `capture`, `by ...:` and the like): commands -- Stata's built-in ones, the ado-files on the adopath (read once, again after a cell that installs or changes the adopath; the parts of other commands, `regress_estat.ado`, left out) and the programs defined in the session;
+  - another bare name: variable names of the dataset in memory, then scalars;
+  - after `$` or `${`: global macros; after `` ` ``: local macros;
+  - inside `r(`, `e(` or `s(`: the names of the stored results (macros, scalars, matrices).
+- `inspect_request` → a variable: the output of `describe` and `summarize` for it; a scalar: its value; `$name`: the global's value; a command: what `which` says (the ado-file and its version line, or built-in). Anything else is not found.
 - `is_complete_request` → `incomplete` while a `{` block or a `/* */` comment is open or the last line ends in `///`, `invalid` for a `}` that closes nothing, otherwise `complete`. Braces inside strings, compound strings and comments are not counted. It never calls Stata, so it is answered while a cell runs; completion and inspection wait for the cell.
 
 ### Interrupt
@@ -159,12 +174,12 @@ It is a way to try Ark's R frontend (its console behaviour, its debugger later) 
 
 | | Elara (R) | Carpo (Python) | Callisto (Stata) |
 |---|---|---|---|
-| Runtime dependency | R (+ the `hera` R package, + CRAN deps) | CPython 3 with its shared library | Stata 17+, licensed |
+| Runtime dependency | R (its R code, `hera`, is built in) | CPython 3 with its shared library | Stata 17+, licensed |
 | Global scope | `.GlobalEnv` | `__main__` | Stata's dataset in memory, interactive-level macros |
 | Rich output | `display_data`, plots (`image/png`), `text/html`, `update_display_data`, `clear_output` (via `hera`) | `execute_result` `text/plain` only — no `display_data` / plots yet | graphs (`image/png`); no `execute_result` |
 | stderr stream | messages and warnings | `sys.stderr` | none — everything is stdout |
-| Completions | R names | `rlcompleter` (with `(` for callables) | variables, globals, locals |
-| Inspect | help pages (HTML + text) | signature / docstring (text) | `describe` + `summarize` of a variable |
+| Completions | R names | `rlcompleter` (with `(` for callables) | commands, variables, scalars, globals, locals, `r()`/`e()`/`s()` results |
+| Inspect | help pages (HTML + text) | signature / docstring (text) | a variable's `describe` + `summarize`, a scalar's or global's value, a command's `which` |
 | Comms | yes (`hera::CommManager`) | no targets can be registered | no |
 | Interrupt | user-break flag | SIGINT → `KeyboardInterrupt` | Stata's Break → `r(1)` |
 | Answered while a cell runs | interrupt; complete and inspect of package functions (helper R process) | interrupt, complete, inspect, is_complete | interrupt, is_complete |

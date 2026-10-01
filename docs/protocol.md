@@ -49,7 +49,7 @@ Without it, R's several writes per line become several messages each, about 70x 
 
 | Request | Elara (R) | Carpo (Python) | Callisto (Stata) |
 |---|---|---|---|
-| execute | `hera:::hera_call("execute", …)` — `evaluate` with output handlers | `__carpo_run(code, globals)` in the bootstrap module (`ast` split; last expression auto-displayed) | the cell as a temporary do-file, `include`d; Stata's output buffer streamed; graphs exported as PNG |
+| execute | `hera:::hera_call("execute", …)` — each top-level expression evaluated with base R | `__carpo_run(code, globals)` in the bootstrap module (`ast` split; last expression auto-displayed) | the cell as a temporary do-file, `include`d; Stata's output buffer streamed; graphs exported as PNG |
 | complete | `hera` → `utils:::.completeToken` | `rlcompleter` | Mata: variable names, global and local macros |
 | inspect | `hera` — class, printed form and help (HTML + text) | `inspect.signature`, `Type:`, docstring or `repr` (text/plain only) | `describe` + `summarize` of a variable (text/plain) |
 | is_complete | `R_ParseVector` status | `codeop.compile_command` | open `{`, `/*` or trailing `///` |
@@ -86,7 +86,7 @@ Request body (every field optional; unset means "empty"):
 | `kernelType` | `"r"` \| `"python"` \| `"stata"` \| `"ark"` | Default `"r"`. A type with no kernel executable available fails just this call. |
 | `rHome`, `rPath`, `rLibs` | string | R installation (`R_HOME`), directory containing `R.dll` (Windows), extra library path (`R_LIBS`). |
 | `pandocPath` | string | Directory of a pandoc binary (`RSTUDIO_PANDOC`, added to `PATH`). |
-| `heraSrcPath` | string | Source of the `hera` package, installed on demand (`ELARA_HERA_SRC`). |
+| `heraSrcPath` | string | Development: a `packages/hera` directory Elara reads its R code from instead of its built-in copy (`ELARA_HERA_SRC`). |
 | `pythonHome`, `pythonPath`, `venvPath` | string | Python prefix (`PYTHONHOME`), extra `PYTHONPATH`, venv whose `site-packages` is added to `sys.path`. |
 | `stataHome`, `stataEdition` | string | Stata directory and edition (`"mp"`, `"se"`, `"be"`). |
 | `arkPath` | string | For `"ark"`: the ark executable (Posit's R kernel, not shipped with Jovian). R comes from `rHome` (`R_HOME`). |

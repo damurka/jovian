@@ -19,12 +19,17 @@
 #endif
 
 #include "elara/r/rtools.hpp"
+#include "elara/r/hera_sources.hpp"
+#include "elara/r/json_convert.hpp"
+#include "elara/log.hpp"
+#include "elara/r/debugger_r.hpp"
 
 #ifndef _WIN32
 #include <pthread.h>
 #include <signal.h>
 #endif
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -71,13 +76,7 @@ namespace elara
 {
 
     void WriteConsoleEx(const char* buf, int buflen, int otype) {
-        std::string output(buf, buflen);
-        if (otype == 1) {
-            p_interpreter->publishStream("stderr", output);
-        }
-        else {
-            p_interpreter->publishStream("stdout", output);
-        }
+        p_interpreter->writeConsole(buf, buflen, otype);
     }
 
     void captureWriteConsoleEx(const char* buf, int buflen, int otype) {
@@ -91,10 +90,14 @@ namespace elara
     }
 
     int ReadConsole(const char* prompt, unsigned char* buffer, int length, int /*addtohistory*/) {
+        return p_interpreter->readConsole(prompt, buffer, length);
+    }
+
+    int RInterpreter::stdinInput(const char* prompt, unsigned char* buffer, int length) {
         std::string res;
         try
         {
-            res = adrastea::blockingInputRequest(prompt, false, p_interpreter->allowsStdin());
+            res = adrastea::blockingInputRequest(prompt, false, allowsStdin());
         }
         catch (const std::exception& e)
         {
@@ -109,7 +112,7 @@ namespace elara
             // input"/EOF signal for this callback) lets R's normal
             // readline()/scan() error handling take over from here,
             // instead of risking undefined behavior.
-            p_interpreter->publishStream("stderr", std::string("input: ") + e.what() + "\n");
+            publishStream("stderr", std::string("input: ") + e.what() + "\n");
             return 0;
         }
 
@@ -147,7 +150,8 @@ namespace elara
     void noopCallBack() {}
     void showMessageCallback(const char* message)
     {
-        std::fprintf(stderr, "[R] %s\n", message ? message : "");
+        // R's alerts (a fatal error at start-up, say), with no one to show them to
+        log::warning(std::string("R: ") + (message ? message : ""));
     }
     // 0 = Cancel (1 Yes, -1 No) -- there's no one to ask.
     int yesNoCancelCallback(const char*) { return 0; }
@@ -244,6 +248,7 @@ namespace elara
         r::loadRApi();
 
 #ifdef _WIN32
+        log::keepCurrentStderr();
         if (AllocConsole()) {
             HWND hwnd = GetConsoleWindow();
             if (hwnd != NULL) {
@@ -259,10 +264,8 @@ namespace elara
         }
 #endif
 
-        // Debug: Print environment before R init
-        printf("[R Interpreter BEFORE Init] R_HOME=%s\n", getenv("R_HOME") ? getenv("R_HOME") : "NOT SET");
-        printf("[R Interpreter BEFORE Init] R_LIBS=%s\n", getenv("R_LIBS") ? getenv("R_LIBS") : "NOT SET");
-        fflush(stdout);
+        log::debug(std::string("starting R: R_HOME=") + (getenv("R_HOME") ? getenv("R_HOME") : "(not set)")
+            + ", R_LIBS=" + (getenv("R_LIBS") ? getenv("R_LIBS") : "(not set)"));
 
         // No R_CStackLimit override needed here (unlike an earlier version
         // of this code, which queried this thread's stack bounds and
@@ -281,7 +284,7 @@ namespace elara
         // era), where that auto-detection is simply wrong, not for R
         // needing help in general.
         //
-        // Rf_initEmbeddedR() itself, and the printfs bracketing it, are
+        // Rf_initEmbeddedR() itself, and the log lines bracketing it, are
         // NOT Windows-specific -- this is R's standard, portable embedding
         // API (Rembedded.h), the same call xeus-r's own interpreter
         // constructor makes on every platform it supports. It used to sit
@@ -310,8 +313,7 @@ namespace elara
         Rf_initEmbeddedR(argc, argv);
 #endif
 
-        printf("[R Interpreter AFTER Init] Rf_initEmbeddedR completed\n");
-        fflush(stdout);
+        log::debug("R started");
 
         registerRRoutines();
 
@@ -392,6 +394,38 @@ namespace elara
     // {status:"error", ename, evalue, traceback:[]}. One bad expression must
     // not sink the others (or the execution itself), so each is evaluated
     // separately and R-level failures come back as that expression's error.
+    // The user expression Jovian adds to every cell for its busy-time helper (R_STATE_KEY in lib/session/r-helper.ts):
+    // what the session has attached and defined. Answered here, from search() and ls(), as {"search": [...],
+    // "globals": [...]} -- not by evaluating the expression it came with, which would parse, run, print and re-read
+    // R code after every cell.
+    static const char* const kSessionStateKey = ".jovian_state";
+
+    static adrastea::json sessionState()
+    {
+        auto strings = [](SEXP x, R_xlen_t max) {
+            adrastea::json out = adrastea::json::array();
+            if (TYPEOF(x) == STRSXP) {
+                for (R_xlen_t i = 0, n = std::min(XLENGTH(x), max); i < n; ++i) {
+                    out.push_back(Rf_translateCharUTF8(STRING_ELT(x, i)));
+                }
+            }
+            return out;
+        };
+        auto call = [](SEXP head, bool withGlobalEnv) {
+            SEXP expr = PROTECT(withGlobalEnv ? r::rCall(head, R_GlobalEnv) : r::rCall(head));
+            int error = 0;
+            SEXP value = R_tryEval(expr, R_GlobalEnv, &error);
+            UNPROTECT(1);
+            return error || !value ? R_NilValue : value;
+        };
+
+        SEXP search = PROTECT(call(Rf_install("search"), false));
+        SEXP globals = PROTECT(call(Rf_install("ls"), true));
+        adrastea::json state = { { "search", strings(search, R_XLEN_T_MAX) }, { "globals", strings(globals, 5000) } };
+        UNPROTECT(2);
+        return { { "status", "ok" }, { "data", { { "text/plain", state.dump() } } }, { "metadata", adrastea::json::object() } };
+    }
+
     static adrastea::json evalUserExpressions(const adrastea::json& user_expressions)
     {
         adrastea::json out = adrastea::json::object();
@@ -406,6 +440,10 @@ namespace elara
             "}, error = function(e) c('error', class(e)[1], conditionMessage(e)))"));
 
         for (auto it = user_expressions.begin(); it != user_expressions.end(); ++it) {
+            if (it.key() == kSessionStateKey) {
+                out[it.key()] = sessionState();
+                continue;
+            }
             const std::string expr = it.value().is_string() ? it.value().get<std::string>() : std::string();
 
             SEXP expr_ = PROTECT(Rf_mkString(expr.c_str()));
@@ -434,11 +472,6 @@ namespace elara
 
     void RInterpreter::configureImpl()
     {
-        // Debug: Print R environment variables
-        printf("[R Interpreter] R_HOME=%s\n", getenv("R_HOME") ? getenv("R_HOME") : "NOT SET");
-        printf("[R Interpreter] R_LIBS=%s\n", getenv("R_LIBS") ? getenv("R_LIBS") : "NOT SET");
-        fflush(stdout);
-
 #ifdef _WIN32
         // Windows R defaults its "native encoding" to the system codepage
         // unless told otherwise, which triggers spurious "strings not
@@ -455,144 +488,168 @@ namespace elara
         evalRString("suppressWarnings(try(Sys.setlocale('LC_ALL', '.UTF-8'), silent = TRUE))");
 #endif
 
-        // Debug: Print .libPaths() from R
-        SEXP get_libpaths = PROTECT(Rf_lang1(Rf_install(".libPaths")));
-        SEXP libpaths = PROTECT(Rf_eval(get_libpaths, R_GlobalEnv));
-        printf("[R Interpreter] .libPaths() count: %d\n", Rf_length(libpaths));
-        for (int i = 0; i < Rf_length(libpaths); i++) {
-            printf("[R Interpreter] .libPaths()[%d] = %s\n", i, CHAR(STRING_ELT(libpaths, i)));
+        if (log::enabled(log::Level::debug)) {
+            SEXP get_libpaths = PROTECT(Rf_lang1(Rf_install(".libPaths")));
+            SEXP libpaths = PROTECT(Rf_eval(get_libpaths, R_GlobalEnv));
+            std::string paths;
+            for (int i = 0; i < Rf_length(libpaths); i++) {
+                paths += (i ? "; " : "") + std::string(CHAR(STRING_ELT(libpaths, i)));
+            }
+            log::debug("R libraries: " + (paths.empty() ? std::string("(none)") : paths));
+            UNPROTECT(2);
         }
-        fflush(stdout);
-        UNPROTECT(2);
 
-        // Try to load hera, auto-installing from the bundled source (via
-        // remotes::install_local, into the already-configured R_LIBS path)
-        // if it's missing -- MAKE IT OPTIONAL FOR NOW, still don't throw if
-        // it ultimately can't be loaded.
-        printf("[R Interpreter] Attempting to load 'hera' package...\n");
-        fflush(stdout);
-
-        // Beyond "missing", an already-installed 'hera' can also be STALE: a
-        // previous session's remotes::install_local() left a compiled copy
-        // in the library, and since its DESCRIPTION Version doesn't change
-        // between dev iterations, a plain require("hera") would keep
-        // silently loading that stale copy forever even after the source
-        // under ELARA_HERA_SRC changes -- exactly what happened here
-        // (an old display_data() that charToRaw()'d its JSON payload before
-        // the .Call(), crashing the C side with "STRING_ELT() ... not a
-        // 'raw'" on every plot, while the fixed source on disk was never
-        // reinstalled). Comparing source file mtimes against the installed
-        // DESCRIPTION's mtime catches that without needing a version bump
-        // on every edit.
-        static const char* load_hera_code = R"(
-            local({
-                status <- "missing"
-                hera_src <- Sys.getenv("ELARA_HERA_SRC", unset = "")
-                has_source <- nzchar(hera_src) && dir.exists(hera_src)
-
-                installed_path <- tryCatch(find.package("hera", quiet = TRUE), error = function(e) character(0))
-                is_installed <- length(installed_path) > 0
-
-                is_stale <- FALSE
-                if (has_source && is_installed) {
-                    installed_desc <- file.path(installed_path, "DESCRIPTION")
-                    src_files <- list.files(file.path(hera_src, "R"), full.names = TRUE, pattern = "\\.[Rr]$")
-                    src_files <- c(src_files, file.path(hera_src, "DESCRIPTION"), file.path(hera_src, "NAMESPACE"))
-                    src_files <- src_files[file.exists(src_files)]
-                    if (file.exists(installed_desc) && length(src_files) > 0) {
-                        installed_mtime <- file.info(installed_desc)$mtime
-                        source_mtime <- max(file.info(src_files)$mtime)
-                        is_stale <- source_mtime > installed_mtime
-                    }
-
-                    # An npm install has normalised (old) file mtimes, so the
-                    # check above never fires for it. The published package
-                    # stamps its hera DESCRIPTION with the release it shipped
-                    # in; a different stamp than the installed copy's means
-                    # an upgrade that brought a new hera.
-                    release_field <- "Config/jovian/release"
-                    src_release <- tryCatch(read.dcf(file.path(hera_src, "DESCRIPTION"), fields = release_field)[1, 1], error = function(e) NA_character_)
-                    if (!is.na(src_release) && file.exists(installed_desc)) {
-                        installed_release <- tryCatch(read.dcf(installed_desc, fields = release_field)[1, 1], error = function(e) NA_character_)
-                        if (!identical(installed_release, src_release)) is_stale <- TRUE
-                    }
+        // hera -- the kernel's own R code: running cells, rich output, comms, completion -- is built into the
+        // kernel (hera_sources.hpp) and loaded here as the namespace 'hera', the way Ark carries its R code:
+        // nothing is installed, so a first session needs no package install (and no Rscript run to do one), and a
+        // session loads only R's base packages besides. With --hera-src-path (development) the same files are
+        // read from that packages/hera folder instead, so an edit to them needs no kernel rebuild.
+        //
+        // The namespace is made as loadNamespace() makes one -- an imports environment, the namespace info
+        // (spec, exports, S3 methods, path), registered by name -- so hera::display(), hera:::hera_call() (how
+        // this kernel calls it) and the S3 methods work as they did for the installed package. Its exports are
+        // attached as "tools:hera", as library(hera) attached them (View() and display() for the user).
+        static const char* hera_loader = R"hera(
+            function(paths, texts) {
+                from <- "built in"
+                src <- Sys.getenv("ELARA_HERA_SRC", unset = "")
+                if (nzchar(src) && dir.exists(file.path(src, "R"))) {
+                    r_files <- sort(list.files(file.path(src, "R"), pattern = "[.][Rr]$"), method = "radix")
+                    paths <- c(file.path("R", r_files), "NAMESPACE", "DESCRIPTION")
+                    texts <- vapply(file.path(src, paths), function(f) {
+                        paste(readLines(f, encoding = "UTF-8", warn = FALSE), collapse = "\n")
+                    }, "")
+                    from <- src
+                }
+                text_of <- function(path) texts[[match(path, paths)]]
+                description <- text_of("DESCRIPTION")
+                version <- read.dcf(textConnection(description), fields = "Version")[1, 1]
+                directives <- strsplit(text_of("NAMESPACE"), "\n", fixed = TRUE)[[1]]
+                directive <- function(name) {
+                    found <- regmatches(directives, regexec(paste0("^", name, "\\(([^,)]+)(?:,([^)]+))?\\)"), directives))
+                    lapply(Filter(length, found), function(m) gsub("[\"`]", "", m[-1]))
                 }
 
-                needs_install <- has_source && (!is_installed || is_stale)
+                # where packageDescription("hera") / packageVersion("hera") look
+                path <- file.path(tempdir(), "hera")
+                dir.create(path, showWarnings = FALSE)
+                writeLines(description, file.path(path, "DESCRIPTION"))
 
-                if (needs_install && requireNamespace("remotes", quietly = TRUE)) {
-                    # remotes::install_local() does not raise an error when the
-                    # package itself fails to install: it warns ("installation of
-                    # package '...hera_x.tar.gz' had non-zero exit status") and
-                    # returns normally, so failures are caught from the warnings.
-                    install_error <- NULL
-                    install_warnings <- character()
-                    install_ok <- tryCatch(withCallingHandlers({
-                        remotes::install_local(hera_src, upgrade = "never", quiet = TRUE, force = TRUE)
-                        TRUE
-                    }, warning = function(w) {
-                        install_warnings <<- c(install_warnings, conditionMessage(w))
-                        invokeRestart("muffleWarning")
-                    }), error = function(e) {
-                        install_error <<- conditionMessage(e)
-                        FALSE
-                    })
-                    if (any(grepl("hera_.*non-zero exit status", install_warnings))) install_ok <- FALSE
+                imports <- new.env(parent = .BaseNamespaceEnv, hash = TRUE)
+                attr(imports, "name") <- "imports:hera"
+                for (m in directive("importFrom")) assign(m[[2]], get(m[[2]], envir = asNamespace(m[[1]])), envir = imports)
 
-                    if (install_ok && suppressWarnings(require("hera", quietly = TRUE))) {
-                        status <- if (is_stale) "reinstalled_stale" else "auto_installed"
-                    } else {
-                        # Re-run the install where its output can be read: that is
-                        # where the actual reason (a missing dependency, a compile
-                        # error, a library that cannot be written to) is printed.
-                        if (is.null(install_error)) {
-                            output <- tryCatch(
-                                suppressWarnings(system2(file.path(R.home("bin"), "R"), c("CMD", "INSTALL", shQuote(hera_src)), stdout = TRUE, stderr = TRUE)),
-                                error = function(e) conditionMessage(e))
-                            important <- grep("ERROR|error|not available|cannot|denied|failed", output, value = TRUE)
-                            install_error <- paste(utils::tail(if (length(important)) important else output, 6), collapse = " | ")
-                        }
-                        reason <- if (!nzchar(install_error)) "it installed but could not be loaded" else substr(gsub("\\s+", " ", install_error), 1, 800)
-                        status <- paste0("install_failed: ", reason)
-                    }
-                } else if (suppressWarnings(require("hera", quietly = TRUE))) {
-                    status <- "already_loaded"
-                } else if (!has_source) {
-                    status <- if (!nzchar(hera_src)) "no_source_configured" else "source_not_found"
-                } else {
-                    status <- "remotes_unavailable"
+                ns <- new.env(parent = imports, hash = TRUE)
+                info <- new.env(parent = baseenv(), hash = TRUE)
+                ns[[".__NAMESPACE__."]] <- info
+                info$spec <- c(name = "hera", version = version)
+                info$exports <- new.env(parent = baseenv(), hash = TRUE)
+                lazydata <- new.env(parent = baseenv(), hash = TRUE)
+                attr(lazydata, "name") <- "lazydata:hera"
+                info$lazydata <- lazydata
+                info$imports <- list(base = TRUE)
+                info$path <- normalizePath(path, "/")
+                info$dynlibs <- character()
+                info$S3methods <- matrix(NA_character_, 0L, 4L)
+                ns[[".__S3MethodsTable__."]] <- new.env(parent = baseenv(), hash = TRUE)
+                ns[[".packageName"]] <- "hera"
+
+                for (file in paths[startsWith(paths, "R/")]) {
+                    for (e in parse(text = text_of(file), keep.source = FALSE, encoding = "UTF-8")) eval(e, ns)
                 }
-                status
-            })
-        )";
+                .Internal(registerNamespace("hera", ns))
+
+                exports <- vapply(directive("export"), `[[`, "", 1L)
+                for (name in exports) assign(name, name, envir = info$exports)
+                for (m in directive("S3method")) {
+                    registerS3method(m[[1]], m[[2]], get(paste0(m[[1]], ".", m[[2]]), envir = ns), envir = ns)
+                }
+                if (exists(".onLoad", envir = ns, inherits = FALSE)) ns$.onLoad(dirname(path), "hera")
+                lockEnvironment(ns, bindings = TRUE)
+
+                attached <- attach(NULL, pos = 2L, name = "tools:hera")
+                for (name in exports) assign(name, get(name, envir = ns), envir = attached)
+                lockEnvironment(attached, bindings = TRUE)
+
+                paste0("hera ", version, " (", from, ")")
+            }
+        )hera";
+
+        const auto& files = hera::sourceFiles();
+        SEXP paths = PROTECT(Rf_allocVector(STRSXP, static_cast<R_xlen_t>(files.size())));
+        SEXP texts = PROTECT(Rf_allocVector(STRSXP, static_cast<R_xlen_t>(files.size())));
+        for (size_t i = 0; i < files.size(); ++i) {
+            SET_STRING_ELT(paths, static_cast<R_xlen_t>(i), Rf_mkChar(files[i].path));
+            SET_STRING_ELT(texts, static_cast<R_xlen_t>(i), Rf_mkCharLenCE(files[i].text.data(), static_cast<int>(files[i].text.size()), CE_UTF8));
+        }
 
         bool had_error = false;
-        SEXP out = PROTECT(evalRString(load_hera_code, &had_error));
-
-        std::string status = (!had_error && Rf_isString(out) && Rf_length(out) > 0)
-            ? CHAR(STRING_ELT(out, 0))
-            : "error";
-
-        if (status == "already_loaded") {
-            printf("[R Interpreter] Successfully loaded 'hera' package\n");
-        } else if (status == "auto_installed") {
-            printf("[R Interpreter] 'hera' was not installed -- auto-installed from ELARA_HERA_SRC and loaded successfully\n");
-        } else if (status == "reinstalled_stale") {
-            printf("[R Interpreter] Installed 'hera' was older than ELARA_HERA_SRC -- reinstalled and loaded successfully\n");
-        } else {
-            printf("[R Interpreter] WARNING: 'hera' package could not be loaded (status: %s). Some features may not work.\n", status.c_str());
-            printf("[R Interpreter] Continuing without 'hera' for testing purposes...\n");
-            // DON'T throw - just warn for now
-            // throw std::runtime_error(
-            //     "Fatal Initialization Error: The mandatory partner library package 'hera' "
-            //     "could not be loaded. Please ensure 'hera' is correctly installed."
-            // );
+        SEXP loader = PROTECT(evalRString(hera_loader, &had_error));
+        int load_error = 1;
+        SEXP out = R_NilValue;
+        if (!had_error) {
+            SEXP call = PROTECT(r::rCall(loader, paths, texts));
+            out = R_tryEval(call, R_GlobalEnv, &load_error);
+            UNPROTECT(1);
         }
-        fflush(stdout);
+        PROTECT(out);
 
-        UNPROTECT(1);
+        if (!load_error && Rf_isString(out) && Rf_length(out) > 0) {
+            log::info(std::string("loaded ") + CHAR(STRING_ELT(out, 0)));
+        } else {
+            // without hera nothing can be run; said loudly, but the kernel still starts so the error can be seen
+            log::error(std::string("the kernel's R code (hera) could not be loaded: ") + R_curErrorBuf());
+        }
+
+        // the print methods of values only a frontend shows (see hera's repl.R); R's global error handler is
+        // installed by R's console loop itself (readConsole()): from here it would last only as long as this call
+        bool install_error = false;
+        evalRString("hera:::.jv.display.install(); hera:::.jv.ui.install()", &install_error);
+        if (install_error) {
+            log::error(std::string("installing the display overrides: ") + R_curErrorBuf());
+        }
+
+        // traceback() reads .Traceback from R's base environment, which hera sets after a cell's error. R creates
+        // that binding itself, when an error reaches a top-level context through its default handler -- never the
+        // case for a cell's error, which hera catches -- and an R-level assign() cannot add it (base is locked). So
+        // one such error now, with error messages off, creates it for hera to set.
+        bool traceback_error = false;
+        evalRString("local({ op <- options(show.error.messages = FALSE); on.exit(options(op)); stop('') })", &traceback_error);
+        if (!traceback_error) {
+            log::warning("could not prepare traceback() for cells' errors");
+        }
+
+        UNPROTECT(4);
     }
 
+    // R's console loop and the cell: see the comment on readConsole().
+    void RInterpreter::attachServer(adrastea::Server* server)
+    {
+        m_server = server;
+        if (!m_debugger) m_debugger = std::make_unique<RDebugger>(*this);
+    }
+
+    adrastea::json RInterpreter::debugRequestImpl(const adrastea::json& request)
+    {
+        if (!m_debugger) m_debugger = std::make_unique<RDebugger>(*this);
+        return m_debugger->request(request);
+    }
+
+    bool RInterpreter::takeDebugPause()
+    {
+        return m_debugger && m_debugger->takePauseRequest();
+    }
+
+    void RInterpreter::runMainLoop()
+    {
+        if (m_debugger) m_debugger->setRThread(std::this_thread::get_id());
+        log::debug("running R's console loop");
+        // Returns only if R does (it exits the process when its input ends: see readConsole())
+        run_Rmainloop();
+    }
+
+    // Queues the cell -- run by readConsole(), in R's console loop -- and returns; the reply is sent when it is
+    // done. Parsed whole first: a syntax error, or incomplete code, is the cell's error at once.
     void RInterpreter::executeRequestImpl(
         send_reply_callback cb,
         int execution_count,
@@ -601,71 +658,288 @@ namespace elara
         adrastea::json user_expressions
     )
     {
-        struct ExecutingScope {
-            std::atomic<bool>& flag;
-            explicit ExecutingScope(std::atomic<bool>& f) : flag(f) { flag = true; }
-            ~ExecutingScope() { flag = false; }
-        } executing(m_executing);
         m_interruptRequested = false;
 
+        // while debugging, the cell is run from the file Jupyter clients know it by (debugInfo, dumpCell), and lines
+        // with breakpoints stop: see debugger_r.cpp
+        bool debugging = m_debugger && m_debugger->started();
+        std::string path = debugging ? m_debugger->cellPath(code) : std::string();
         SEXP code_ = PROTECT(Rf_mkString(code.c_str()));
-        SEXP execution_counter_ = PROTECT(Rf_ScalarInteger(execution_count));
-        SEXP silent_ = PROTECT(Rf_ScalarLogical(config.silent));
-        SEXP result;
+        SEXP count_ = PROTECT(Rf_ScalarInteger(execution_count));
+        SEXP parsed = R_NilValue;
         try {
-            result = PROTECT(r::invokeHeraFn("execute", code_, execution_counter_, silent_));
-        } catch (const std::exception&) {
-            // An interrupt that lands outside the code evaluate() guards (or
-            // while R sits in a blocking call) unwinds straight to top level
-            // and fails the whole hera call. That is the user's interrupt
-            // working, not an internal error.
-            UNPROTECT(3);
-            if (m_interruptRequested.exchange(false)) {
-                publishExecutionError("KeyboardInterrupt", "", {});
-                cb(adrastea::createErrorReply("KeyboardInterrupt", "", {}));
-                return;
+            if (debugging) {
+                std::vector<int> lines = m_debugger->breakpointLines(path);
+                SEXP path_ = PROTECT(Rf_mkString(path.c_str()));
+                SEXP lines_ = PROTECT(Rf_allocVector(INTSXP, static_cast<R_xlen_t>(lines.size())));
+                for (size_t i = 0; i < lines.size(); ++i) SET_INTEGER_ELT(lines_, static_cast<R_xlen_t>(i), lines[i]);
+                parsed = r::invokeHeraFn(".jv.debug.parse", code_, path_, lines_);
+                UNPROTECT(2);
+                PROTECT(parsed);
+            } else {
+                parsed = PROTECT(r::invokeHeraFn(".jv.repl.parse", code_, count_));
             }
-            throw;
+        } catch (const std::exception& e) {
+            UNPROTECT(2);
+            cb(adrastea::createErrorReply("InternalError", e.what(), {}));
+            return;
+        }
+        if (TYPEOF(parsed) == STRSXP) {
+            std::string message = Rf_translateCharUTF8(STRING_ELT(parsed, 0));
+            UNPROTECT(3);
+            if (!config.silent) publishExecutionError("PARSE ERROR", message, {});
+            cb(adrastea::createErrorReply("PARSE ERROR", message, {}));
+            return;
         }
 
-        if (Rf_inherits(result, "error_reply")) {
-            // Matches hera's own construction order exactly (packages/hera/R/execute.R's
-            // handle_error(): structure(list(ename = ..., evalue = ..., trace_back), ...)) --
-            // these two used to be extracted with their names swapped relative to these
-            // indices, compensated for by also swapping them in the publishExecutionError()/
-            // createErrorReply() calls below (both take (ename, evalue, ...)) -- net
-            // behavior was already correct, but it was one accidental un-swap away from
-            // silently reporting every R error with its class name and message flipped.
-            std::string ename = CHAR(STRING_ELT(VECTOR_ELT(result, 0), 0));
-            std::string evalue = CHAR(STRING_ELT(VECTOR_ELT(result, 1), 0));
+        auto cell = std::make_unique<Cell>();
+        cell->reply = std::move(cb);
+        cell->executionCount = execution_count;
+        cell->silent = config.silent;
+        cell->userExpressions = std::move(user_expressions);
+        cell->exprs = parsed;
+        cell->count = static_cast<long>(Rf_xlength(parsed));
+        SETCDR(Rf_install(".jv_cell"), parsed); // alive until the cell is done
+        UNPROTECT(3);
 
-            std::vector<std::string> trace_back;
-            if (XLENGTH(result) > 2) {
-                SEXP trace_back_ = VECTOR_ELT(result, 2);
-                auto n = XLENGTH(trace_back_);
-                for (decltype(n) i = 0; i < n; i++) {
-                    trace_back.push_back(CHAR(STRING_ELT(trace_back_, i)));
+        SEXP silent_ = PROTECT(Rf_ScalarLogical(config.silent));
+        try {
+            r::invokeHeraFn(".jv.repl.cell_start", silent_);
+        } catch (const std::exception& e) {
+            log::error(std::string("starting a cell: ") + e.what());
+        }
+        UNPROTECT(1);
+
+        bool prompt_error = false;
+        SEXP prompt = PROTECT(evalRString("getOption('prompt')", &prompt_error));
+        if (!prompt_error && TYPEOF(prompt) == STRSXP && XLENGTH(prompt) > 0) m_topPrompt = CHAR(STRING_ELT(prompt, 0));
+        UNPROTECT(1);
+        SEXP continuePrompt = PROTECT(evalRString("getOption('continue')", &prompt_error));
+        if (!prompt_error && TYPEOF(continuePrompt) == STRSXP && XLENGTH(continuePrompt) > 0) m_continuePrompt = CHAR(STRING_ELT(continuePrompt, 0));
+        UNPROTECT(1);
+
+        m_executing = true;
+        m_cell = std::move(cell);
+    }
+
+    // R's console asks for input. As in Ark (crates/ark/src/console):
+    //
+    // - Code asks (readline(), menu(), a browser() prompt -- any prompt but R's top-level one): the frontend answers
+    //   through the stdin channel (stdinInput()).
+    // - A cell is under way: its next expression is evaluated here with Rf_eval -- not R_tryEval, whose top-level
+    //   context drops the global calling handlers (hera's error handler) and restores R_Visible -- its value stored
+    //   in base::.jv_last_value, and R is handed that symbol's name (or invisible() of it, as the value was) as its
+    //   next line. R's console then does what it does after any top-level expression -- prints a visible value, sets
+    //   .Last.value, prints the warnings, runs task callbacks -- and asks again. What it prints for the last
+    //   expression is the cell's result (writeConsole()).
+    // - An expression that failed (hera's error handler abandons it; or an interrupt, or an error R handled itself)
+    //   has jumped back to R's top level, past this function: R asks again with an evaluation still marked running.
+    //   As Ark does, R is given one turn first (invisible(.Last.value)) to reset its evaluation state, and the cell
+    //   ends with the error. (Safe because nothing here needs destroying when that jump skips it.)
+    // - No cell: the server's loop turns (requests, idle work) until one comes. Once the server has stopped, the end
+    //   of input: R ends, and the process with it.
+    int RInterpreter::readConsole(const char* prompt, unsigned char* buffer, int length)
+    {
+        // (R's continuation prompt too: a line R took for the start of an expression -- never one of a cell's, which
+        // are parsed here -- is ended by the next)
+        bool topLevel = prompt && (m_topPrompt == prompt || m_continuePrompt == prompt);
+        // R stopped in browser() (a breakpoint, a step) with a debugger attached: the debugger answers
+        if (m_server && !topLevel && m_debugger && m_debugger->started() && prompt && std::strncmp(prompt, "Browse[", 7) == 0) {
+            return m_debugger->stopped(buffer, length);
+        }
+        if (!m_server || !topLevel) {
+            return stdinInput(prompt, buffer, length);
+        }
+        m_inTail = false;
+        m_captureValue = false;
+
+        if (!m_pendingLine.empty() && static_cast<int>(m_pendingLine.size()) + 1 <= length) {
+            std::memcpy(buffer, m_pendingLine.c_str(), m_pendingLine.size() + 1);
+            m_pendingLine.clear();
+            m_inTail = m_pendingTail;
+            m_captureValue = m_pendingCapture;
+            return 1;
+        }
+
+        if (!m_loopStarted) {
+            // R's global calling handlers belong to its top level: installed by its own console loop, as its first
+            // line -- through R_tryEval they would last only as long as that call
+            m_loopStarted = true;
+            static const char install[] = "base::invisible(hera:::.jv.errors.install())\n";
+            if (static_cast<int>(sizeof install) <= length) {
+                std::memcpy(buffer, install, sizeof install);
+                m_inTail = true;
+                return 1;
+            }
+        }
+
+        if (m_evaluating) {
+            m_evaluating = false;
+            if (m_cell) {
+                m_cell->failed = true;
+                if (!m_cell->errorRecorded && !m_interruptRequested) {
+                    // not through hera's handler (a C stack overflow, an error in the handler): R's own words
+                    std::string message = R_curErrorBuf();
+                    while (!message.empty() && (message.back() == '\n' || message.back() == ' ')) message.pop_back();
+                    m_cell->evalue = message;
                 }
             }
-
-            publishExecutionError(ename, evalue, trace_back);
-            cb(adrastea::createErrorReply(ename, evalue, std::move(trace_back)));
-        }
-        else {
-           if (Rf_inherits(result, "execution_result")) {
-                SEXP data_ = VECTOR_ELT(result, 0);
-                SEXP metadata_ = VECTOR_ELT(result, 1);
-                auto data = adrastea::json::parse(CHAR(STRING_ELT(data_, 0)));
-                auto metadata = adrastea::json::parse(CHAR(STRING_ELT(metadata_, 0)));
-                publishExecutionResult(execution_count, data, metadata);
+            static const char recover[] = "base::invisible(base::.Last.value)\n";
+            if (static_cast<int>(sizeof recover) <= length) {
+                std::memcpy(buffer, recover, sizeof recover);
+                m_inTail = true;
+                return 1;
             }
-
-            // Evaluated after the code itself, and only on success, per the
-            // spec (a failed execution's reply carries no user_expressions).
-            cb(adrastea::createSuccessfulReply(adrastea::json::array(), evalUserExpressions(user_expressions)));
         }
 
-        UNPROTECT(4);
+        constexpr long kIdleSliceMs = 20;
+        for (;;) {
+            if (m_cell) {
+                if (m_cell->checkGraphics) {
+                    // a plot the expression drew, or changed (hera's .jv.graphics.after_expression())
+                    m_cell->checkGraphics = false;
+                    if (!m_cell->silent) {
+                        try { r::invokeHeraFn(".jv.graphics.after_expression"); }
+                        catch (const std::exception& e) { log::warning(std::string("checking for a plot: ") + e.what()); }
+                    }
+                }
+                if (!m_cell->failed && !m_interruptRequested && m_cell->next < m_cell->count) {
+                    if (evaluateNext(buffer, length)) return 1;
+                    continue; // it failed
+                }
+                finishCell();
+                continue;
+            }
+            if (!m_server->pollOnce(kIdleSliceMs)) {
+                return 0;
+            }
+        }
+    }
+
+    // Evaluates the expression with R's own evaluator, in the global environment. An error long-jumps past this
+    // and readConsole() (see there): neither may hold anything needing destruction across the call.
+    static SEXP evaluateTopLevel(SEXP expr)
+    {
+        return Rf_eval(expr, R_GlobalEnv);
+    }
+
+    bool RInterpreter::evaluateNext(unsigned char* buffer, int length)
+    {
+        Cell& cell = *m_cell;
+        // where in the cell this expression is (the debugger's <cell> frame: hera's .jv.debug.stack())
+        SEXP srcrefs = Rf_getAttrib(reinterpret_cast<SEXP>(cell.exprs), Rf_install("srcref"));
+        SETCDR(Rf_install(".jv_cell_srcref"), TYPEOF(srcrefs) == VECSXP && cell.next < XLENGTH(srcrefs) ? VECTOR_ELT(srcrefs, cell.next) : R_NilValue);
+        SEXP expr = VECTOR_ELT(reinterpret_cast<SEXP>(cell.exprs), cell.next++);
+        bool last = cell.next == cell.count;
+
+        m_evaluating = true;
+        SEXP value = evaluateTopLevel(expr);
+        m_evaluating = false;
+        bool visible = *r::api::p_R_Visible != 0;
+        SETCDR(Rf_install(".jv_last_value"), value);
+
+        const char* line = visible ? "base::.jv_last_value\n" : "base::invisible(base::.jv_last_value)\n";
+        int size = static_cast<int>(std::strlen(line));
+        if (size + 1 > length) return false;
+        cell.checkGraphics = true;
+
+        if (m_debugger && m_debugger->takeBrowsed()) {
+            // R's browser read its commands through R's console input, which R's console then reads on from: as
+            // Ark does, first a line of nothing to reset it, and this one at the next turn
+            m_pendingLine = line;
+            m_pendingTail = true;
+            m_pendingCapture = last && !cell.silent;
+            static const char reset[] = " \n";
+            std::memcpy(buffer, reset, sizeof reset);
+            return true;
+        }
+
+        std::memcpy(buffer, line, size + 1);
+        m_inTail = true;
+        m_captureValue = last && !cell.silent;
+        return true;
+    }
+
+    void RInterpreter::writeConsole(const char* buf, int buflen, int otype)
+    {
+        if (m_cell && m_cell->silent) return;
+        if (otype == 0 && m_debugger && m_debugger->started() && !(m_inTail && m_captureValue)) {
+            // while debugging, a line at a time: browser()'s own ("Called from: f()", "debug at file#3: x <- 1")
+            // tell the debugger where R is, and are not shown
+            m_debugOutput.append(buf, buflen);
+            size_t end;
+            while ((end = m_debugOutput.find('\n')) != std::string::npos) {
+                std::string line = m_debugOutput.substr(0, end + 1);
+                m_debugOutput.erase(0, end + 1);
+                if (!m_debugger->consoleLine(line.substr(0, end))) {
+                    publishStream("stdout", line);
+                }
+            }
+            return;
+        }
+        if (otype == 0 && m_inTail) {
+            // what R's console prints after an expression: the last expression's value is the cell's result;
+            // an earlier one's is not shown (as in a notebook, and Ark)
+            if (m_captureValue && m_cell) m_cell->valueText.append(buf, buflen);
+            return;
+        }
+        publishStream(otype == 1 ? "stderr" : "stdout", std::string(buf, buflen));
+    }
+
+    bool RInterpreter::wantsCellError() const
+    {
+        return m_cell && !m_cell->errorRecorded && (m_evaluating || m_inTail);
+    }
+
+    void RInterpreter::recordCellError(std::string evalue, std::vector<std::string> traceback)
+    {
+        if (!wantsCellError()) return;
+        m_cell->errorRecorded = true;
+        m_cell->failed = true;
+        m_cell->evalue = std::move(evalue);
+        m_cell->traceback = std::move(traceback);
+    }
+
+    // The cell is done: the plot sent, the warnings of a failed expression printed, cell_options() undone (hera's
+    // .jv.repl.cell_done()), then its result or error, and the reply.
+    void RInterpreter::finishCell()
+    {
+        std::unique_ptr<Cell> cell = std::move(m_cell);
+        m_inTail = false;
+        m_captureValue = false;
+        if (!m_debugOutput.empty() && !cell->silent) publishStream("stdout", m_debugOutput);
+        m_debugOutput.clear();
+        if (m_debugger) m_debugger->takeBrowsed();
+        bool interrupted = m_interruptRequested.exchange(false);
+        m_executing = false;
+        r::clearRInterrupt();
+
+        SEXP silent_ = PROTECT(Rf_ScalarLogical(cell->silent));
+        SEXP failed_ = PROTECT(Rf_ScalarLogical(cell->failed || interrupted));
+        try { r::invokeHeraFn(".jv.repl.cell_done", silent_, failed_); }
+        catch (const std::exception& e) { log::warning(std::string("finishing a cell: ") + e.what()); }
+        UNPROTECT(2);
+        SETCDR(Rf_install(".jv_cell"), R_NilValue);
+        if (m_debugger && m_debugger->started()) {
+            m_debugger->applyBreakpoints();
+        }
+
+        if (interrupted) {
+            if (!cell->silent) publishExecutionError("KeyboardInterrupt", "", {});
+            cell->reply(adrastea::createErrorReply("KeyboardInterrupt", "", {}));
+        } else if (cell->failed && !cell->silent) {
+            publishExecutionError("ERROR", cell->evalue, cell->traceback);
+            cell->reply(adrastea::createErrorReply("ERROR", cell->evalue, cell->traceback));
+        } else {
+            // (a silent execution reports no error, as before)
+            if (!cell->silent && !cell->failed && !cell->valueText.empty()) {
+                std::string text = cell->valueText;
+                if (text.back() == '\n') text.pop_back();
+                publishExecutionResult(cell->executionCount, { { "text/plain", text } }, adrastea::json::object());
+            }
+            cell->reply(adrastea::createSuccessfulReply(adrastea::json::array(),
+                cell->failed ? adrastea::json::object() : evalUserExpressions(cell->userExpressions)));
+        }
     }
 
     adrastea::json RInterpreter::isCompleteRequestImpl(const std::string& code_)
@@ -736,7 +1010,7 @@ namespace elara
     {
         SEXP code_ = PROTECT(Rf_mkString(code.c_str()));
         SEXP cursor_pos_ = PROTECT(Rf_ScalarInteger(cursor_pos));
-        SEXP result = PROTECT(r::invokeHeraFn("inspect", code_, cursor_pos_));
+        SEXP result = PROTECT(r::invokeHeraFn(".jv.inspect.request", code_, cursor_pos_));
 
         bool found = LOGICAL_ELT(VECTOR_ELT(result, 0), 0);
         if (!found) {
@@ -744,20 +1018,24 @@ namespace elara
             return adrastea::createInspectReply(false);
         }
 
-        auto data = adrastea::json::parse(CHAR(STRING_ELT(VECTOR_ELT(result, 1), 0)));
+        auto data = routines::jsonFromR(VECTOR_ELT(result, 1));
         UNPROTECT(3);
         return adrastea::createInspectReply(found, data);
     }
 
     adrastea::json RInterpreter::shutdownRequestImpl(bool restart)
     {
+        // R is not ended here: this runs inside R's console loop (readConsole()), which ends R itself once the
+        // server has stopped (the end of its input), after the reply has gone out
         m_rEnded = true;
-        Rf_endEmbeddedR(0);
         return adrastea::createShutdownReply(restart);
     }
 
     void RInterpreter::idleImpl()
     {
+        // what R's own console does while it waits for input: its events, its help server (see serviceREvents())
+        if (!m_rEnded && m_server) r::serviceREvents();
+
         // R's own console runs the `later` event loop whenever R waits for
         // input; an embedded R never waits for input, so without this,
         // callbacks scheduled with later::later() -- and everything built on
@@ -828,7 +1106,7 @@ namespace elara
         const std::string  banner = "xr";
         const adrastea::json     help_links = adrastea::json::array();
 
-        return adrastea::createInfoReply(
+        auto info = adrastea::createInfoReply(
             implementation,
             implementation_version,
             language_name,
@@ -841,5 +1119,7 @@ namespace elara
             banner,
             help_links
         );
+        info["debugger"] = true; // the Jupyter debug protocol: see debugRequestImpl()
+        return info;
     }
 }

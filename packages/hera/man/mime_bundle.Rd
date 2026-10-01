@@ -21,5 +21,5 @@ mime_bundle(letters)
 
 }
 \seealso{
-IRdisplay::prepare_mimebundle which this currently wraps around
+IRdisplay::prepare_mimebundle, which does it for objects base R can't
 }

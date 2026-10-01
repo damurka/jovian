@@ -3,7 +3,8 @@ import type { JupyterMessage } from '../types/messages.js';
 import { MessageParser } from './message-parser.js';
 
 export interface MessageHandler {
-    handle(message: JupyterMessage, emitter: EventEmitter): Promise<void> | void;
+    /** `true`: the message was consumed -- its msg_type event is not emitted (see route()). */
+    handle(message: JupyterMessage, emitter: EventEmitter): Promise<void | boolean> | void | boolean;
 }
 
 export class MessageRouter {
@@ -26,12 +27,13 @@ export class MessageRouter {
         // "stream" / "execute_result" — `topic` is a kernel-namespaced
         // string like "kernel_core.<id>.stream" and isn't matched here)
         const handler = this.findHandler(message.msgType);
-        if (handler) {
-            await handler.handle(message, this.emitter);
-        }
+        const consumed = handler ? await handler.handle(message, this.emitter) : false;
 
-        // Always emit msg_type-specific event
-        this.emitter.emit(message.msgType, message.content);
+        // The msg_type-specific event, unless the handler consumed the message (an input_request that is really a
+        // question for the host's UI: a 'ui' event instead -- see Session)
+        if (consumed !== true) {
+            this.emitter.emit(message.msgType, message.content);
+        }
     }
 
     private findHandler(msgType: string): MessageHandler | undefined {

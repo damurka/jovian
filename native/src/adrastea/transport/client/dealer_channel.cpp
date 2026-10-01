@@ -79,6 +79,18 @@ namespace adrastea
         }
     }
 
+    zmq::fd_t DealerChannel::pollHandle()
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_socket.get(zmq::sockopt::fd);
+    }
+
+    bool DealerChannel::hasMessage()
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return (m_socket.get(zmq::sockopt::events) & ZMQ_POLLIN) != 0;
+    }
+
     zmq::socket_t& DealerChannel::getSocket()
     {
         return m_socket;

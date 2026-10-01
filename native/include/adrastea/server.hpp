@@ -70,11 +70,23 @@ namespace adrastea
         using idle_listener = std::function<void()>;
         void registerIdleListener(const idle_listener& l);
 
+        // For an interpreter whose language runs its own event loop (R's REPL, which the R kernel lets own the main
+        // thread, as Ark does): start() sets the channels up, then calls this instead of running the server's loop,
+        // and the language's loop calls pollOnce() whenever it waits for input.
+        using main_loop = std::function<void()>;
+        void setMainLoop(main_loop loop);
+
+        // One turn of the server's loop: the next shell or control request handled, or the idle work done, waiting
+        // at most timeoutMs for a request. False once the server is stopped (a shutdown_request): its channels are
+        // closed by then, so what was sent has gone out.
+        bool pollOnce(long timeoutMs);
+
     protected:
 
         Server() = default;
 
         void notifyIdle();
+        main_loop m_mainLoop;
         void notifyShellListener(Message msg);
         void notifyControlListener(Message msg);
         void notifyStdinListener(Message msg);
@@ -95,6 +107,7 @@ namespace adrastea
         virtual void startImpl(PubMessage message) = 0;
         virtual void abortQueueImpl(const listener& l, long polling_interval) = 0;
         virtual void stopImpl() = 0;
+        virtual bool pollOnceImpl(long /*timeoutMs*/) { return false; }
         virtual void updateConfigImpl(KernelConfiguration& config) const = 0;
 
         listener m_shellListener;

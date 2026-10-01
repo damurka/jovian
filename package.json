@@ -32,7 +32,6 @@
     "test": "node scripts/test.js",
     "test:unit": "node --test --test-force-exit --experimental-test-coverage test/unit/lib/*.test.ts",
     "test:integration": "node --test --test-force-exit test/integration/*.test.ts",
-    "hera:install": "R CMD INSTALL packages/hera",
     "playground": "npm --prefix tools/playground run dev",
     "playground:install": "npm --prefix tools/playground install",
     "playground:build": "npm --prefix tools/playground run build",

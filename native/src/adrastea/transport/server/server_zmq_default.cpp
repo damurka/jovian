@@ -21,9 +21,30 @@ namespace adrastea
         // loop -- see Interpreter::idle()), and a reply the busy-shell thread
         // is sending gets the shell socket (see ServerZmqImpl::pollChannels()).
         constexpr long kIdleSliceMs = 20;
-        while (!isStopped())
+        if (m_mainLoop)
         {
-            auto msg = pollChannels(kIdleSliceMs);
+            // the language's own loop (see Server::setMainLoop()), which calls pollOnce()
+            m_mainLoop();
+        }
+        else
+        {
+            while (pollOnceImpl(kIdleSliceMs))
+            {
+            }
+        }
+
+        if (!m_channelsStopped)
+        {
+            m_channelsStopped = true;
+            stopChannels();
+        }
+    }
+
+    bool ServerZmqDefault::pollOnceImpl(long timeoutMs)
+    {
+        if (!isStopped())
+        {
+            auto msg = pollChannels(timeoutMs);
             if (msg)
             {
                 if (msg.value().second == channel::SHELL)
@@ -40,8 +61,18 @@ namespace adrastea
                 notifyIdle();
             }
         }
-
-        stopChannels();
+        if (isStopped())
+        {
+            // closed now, not after the loop: with a language's own loop, the process may end as soon as this
+            // returns (R exits when its REPL reads the end of its input)
+            if (!m_channelsStopped)
+            {
+                m_channelsStopped = true;
+                stopChannels();
+            }
+            return false;
+        }
+        return true;
     }
 
     void ServerZmqDefault::stopImpl()

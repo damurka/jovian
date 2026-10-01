@@ -1,4 +1,5 @@
 #include "elara/engine.hpp"
+#include "elara/log.hpp"
 
 namespace elara
 {
@@ -6,9 +7,6 @@ namespace elara
     // ELARA SERVER IMPLEMENTATION
     // =========================================================================
     void Server::setupEnvironment() {
-        printf("[elara::Server] setup_environment() called\n");
-        fflush(stdout);
-
         // Set R_HOME
         if (!env_config.r_home.empty()) {
             #ifdef _WIN32
@@ -16,10 +14,10 @@ namespace elara
             std::string r_home_win = env_config.r_home;
             std::replace(r_home_win.begin(), r_home_win.end(), '/', '\\');
             _putenv_s("R_HOME", r_home_win.c_str());
-            printf("[elara::Server] Set R_HOME=%s\n", r_home_win.c_str());
-            fflush(stdout);
+            log::debug("R_HOME=" + r_home_win);
             #else
             setenv("R_HOME", env_config.r_home.c_str(), 1);
+            log::debug("R_HOME=" + env_config.r_home);
             // LD_LIBRARY_PATH/DYLD_LIBRARY_PATH are deliberately NOT set here
             // (a first attempt at that lived in this function briefly, and
             // didn't work -- confirmed via real CI evidence: the dynamic
@@ -32,8 +30,7 @@ namespace elara
             // that function's comment for the full story of what this fixes.
             #endif
         } else {
-            printf("[elara::Server] WARNING: R_HOME is empty!\n");
-            fflush(stdout);
+            log::warning("no R_HOME given: R will not start without one");
         }
 
         // Add R bin path to PATH
@@ -44,8 +41,7 @@ namespace elara
             std::string current_path = getenv("PATH") ? getenv("PATH") : "";
             std::string new_path = r_path_win + ";" + current_path;
             _putenv_s("PATH", new_path.c_str());
-            printf("[elara::Server] Added to PATH=%s\n", r_path_win.c_str());
-            fflush(stdout);
+            log::debug("PATH starts with " + r_path_win);
             #else
             std::string current_path = getenv("PATH") ? getenv("PATH") : "";
             std::string new_path = env_config.r_path + ":" + current_path;
@@ -61,13 +57,11 @@ namespace elara
             _putenv_s("R_LIBS", r_libs_win.c_str());
             _putenv_s("R_LIBS_USER", r_libs_win.c_str());
             _putenv_s("R_LIBS_SITE", r_libs_win.c_str());
-            printf("[elara::Server] Set R_LIBS=%s\n", r_libs_win.c_str());
-            printf("[elara::Server] Set R_LIBS_USER=%s\n", r_libs_win.c_str());
-            printf("[elara::Server] Set R_LIBS_SITE=%s\n", r_libs_win.c_str());
-            fflush(stdout);
+            log::debug("R_LIBS, R_LIBS_USER and R_LIBS_SITE=" + r_libs_win);
             #else
             setenv("R_LIBS", env_config.r_libs.c_str(), 1);
             setenv("R_LIBS_USER", env_config.r_libs.c_str(), 1);
+            log::debug("R_LIBS and R_LIBS_USER=" + env_config.r_libs);
             #endif
         }
 
@@ -83,8 +77,7 @@ namespace elara
             std::string current_path = getenv("PATH") ? getenv("PATH") : "";
             std::string new_path = pandoc_path_win + ";" + current_path;
             _putenv_s("PATH", new_path.c_str());
-            printf("[elara::Server] Set RSTUDIO_PANDOC=%s\n", pandoc_path_win.c_str());
-            fflush(stdout);
+            log::debug("RSTUDIO_PANDOC=" + pandoc_path_win);
             #else
             setenv("RSTUDIO_PANDOC", env_config.pandoc_path.c_str(), 1);
             std::string current_path = getenv("PATH") ? getenv("PATH") : "";
@@ -93,22 +86,19 @@ namespace elara
             #endif
         }
 
-        // Point RInterpreter::configureImpl() at the bundled 'hera' source
-        // so it can auto-install it into r_libs if it's missing.
+        // Development: read hera's R code from this packages/hera folder
+        // instead of the copy built into the kernel (see configureImpl()).
         if (!env_config.hera_src_path.empty()) {
             #ifdef _WIN32
             std::string hera_src_win = env_config.hera_src_path;
             std::replace(hera_src_win.begin(), hera_src_win.end(), '/', '\\');
             _putenv_s("ELARA_HERA_SRC", hera_src_win.c_str());
-            printf("[elara::Server] Set ELARA_HERA_SRC=%s\n", hera_src_win.c_str());
-            fflush(stdout);
+            log::debug("ELARA_HERA_SRC=" + hera_src_win);
             #else
             setenv("ELARA_HERA_SRC", env_config.hera_src_path.c_str(), 1);
             #endif
         }
 
-        printf("[elara::Server] setup_environment() completed\n");
-        fflush(stdout);
     }
 
     // Runs entirely on the calling thread -- see the class comment
@@ -146,11 +136,15 @@ namespace elara
 
             call_on_ready_once();
 
+            // R's own console loop runs the kernel from here on (RInterpreter::readConsole() turns the server's loop)
+            auto& server = engine.getServer();
+            getRInterpreter()->attachServer(&server);
+            server.setMainLoop([]() { getRInterpreter()->runMainLoop(); });
+
             // Blocks indefinitely until the Client sends a shutdown_request
             engine.start();
         }
         catch (const std::exception& e) {
-            std::cerr << "[Server] FATAL ERROR: " << e.what() << std::endl;
             if (!on_ready_called) {
                 // Nothing was ever reported ready -- rethrow so the caller
                 // (elara.cpp's main(), which already catches and reports
@@ -167,6 +161,7 @@ namespace elara
             // on_ready already ran once (the client already believes this
             // kernel is live) -- nothing to un-notify; keep going rather
             // than also reporting a second, confusing failure.
+            log::error(std::string("fatal: ") + e.what());
         }
     }
 

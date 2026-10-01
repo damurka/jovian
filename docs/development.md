@@ -8,7 +8,7 @@ cmake/                  FindR.cmake, FindLibUUID.cmake
 vcpkg.json              native dependencies (manifest, pinned baseline)
 native/                 C++: adrastea (static lib), elara, carpo, callisto, themisto — see architecture/overview.md
 lib/                    the TypeScript package
-packages/hera/          the R companion package
+packages/hera/          the R kernel's own R code (built into elara)
 test/unit/lib/          TypeScript unit tests (Session against a fake WebSocket, ExecutionQueue, …)
 test/integration/       end-to-end tests: real themisto + real kernels
 tools/playground/       Next.js playground (own package.json)
@@ -58,7 +58,7 @@ CTest entries: `MessageTest`, `MiddlewareTest`, `AuthenticationTest`, `ZmqSerial
 
 Playground tests are separate: `npm --prefix tools/playground test`.
 
-The `hera` R package is installed into your R library, not run from the repo: after changing `packages/hera/R/*`, run `npm run hera:install` (CI installs it from source on every run). Features that live in `hera` — such as live streaming of one long-running expression — only work with the updated copy installed.
+`hera` is built into `elara`: after changing `packages/hera/R/*`, rebuild (`npm run build:native`), or pass `heraSrcPath: 'packages/hera'` to `createSession()` to run the files as they are without rebuilding. Nothing is installed into R. `examples/r-execute-cases.ts` records everything a session sends for a set of cells (output, errors, plots, inspection) as JSON: run it before and after a change to hera and compare.
 
 `npm test` (`scripts/test.js`) runs the native stage (with OpenCppCoverage if installed on Windows, otherwise plain `ctest`), then the two Node stages (`--test-force-exit`) through a wrapper that force-kills `node --test` after **20 minutes** — a backstop against a hung run, far above the couple of minutes the integration suite takes, so `npm test` is a valid one-shot check. The stages can also be run on their own: `npm run test:unit` and `npm run test:integration`.
 
@@ -76,7 +76,7 @@ The `hera` R package is installed into your R library, not run from the repo: af
 `.github/workflows/ci.yml` runs on every push to `main`, on pull requests, and manually, on the five platforms the packages are published for (`fail-fast: false`): Windows x64, Linux x64 and arm64 (`ubuntu-24.04`, `ubuntu-24.04-arm`), macOS x64 and arm64 (`macos-15-intel`, `macos-latest`).
 
 1. Checkout, Node 24, R (`release`, without Rtools on Windows), Python (`3.x`).
-2. `r-lib/actions/setup-r-dependencies` with `packages: local::packages/hera` — installs `hera` and all its CRAN imports (real code execution needs it).
+2. `r-lib/actions/setup-r-dependencies` with `later` and `IRdisplay`, which some tests use (the kernel itself needs no R package).
 3. `uuid-dev` on Linux.
 4. Clone and bootstrap vcpkg (`VCPKG_ROOT`), with the vcpkg binary cache keyed on the platform and `vcpkg.json`.
 5. **One** native build (`dist/native`, Release, `-DJOVIAN_BUILD_TESTS=ON`): elara, themisto, carpo, callisto and the tests. The release script ships only the kernels and their libraries, never the test binaries.

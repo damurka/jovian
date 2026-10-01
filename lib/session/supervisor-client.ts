@@ -4,7 +4,7 @@ import { createInterface } from 'readline';
 import { dirname, join } from 'path';
 import type { EngineOptions, SessionStatusInfo } from '../types/index.js';
 import { Logger } from '../utils/logger.js';
-import { bundledHeraSource, ensureExecutable, locateNativeDirectory } from './native-paths.js';
+import { ensureExecutable, locateNativeDirectory } from './native-paths.js';
 
 /** Kernel output lines worth attaching to an error. */
 const NOTABLE_OUTPUT = /error|fatal|warning|failed|cannot|not found|no such/i;
@@ -42,7 +42,7 @@ export function buildSessionOptionsBody(options: Partial<EngineOptions>): Record
         rPath: options.rPath,
         rLibs: options.rLibs,
         pandocPath: options.pandocPath,
-        heraSrcPath: options.heraSrcPath ?? bundledHeraSource(),
+        heraSrcPath: options.heraSrcPath,
         pythonHome: options.pythonHome,
         pythonPath: options.pythonPath,
         venvPath: options.venvPath,
@@ -225,7 +225,10 @@ export class SupervisorClient {
             // outlive this process (and, on Windows, trips libuv when a
             // process exits with such a pipe still open).
             const logFd = this.persistent ? openSync(supervisorLogFile(this.persistent.stateFile), 'a') : undefined;
+            // The R kernel's log (ELARA_LOG_LEVEL) in full when its output is shown, unless set already.
+            const env = this.forwardKernelOutput && !process.env.ELARA_LOG_LEVEL ? { ...process.env, ELARA_LOG_LEVEL: 'debug' } : process.env;
             const child = spawn(exePath, args, {
+                env,
                 stdio: ['ignore', 'pipe', logFd ?? 'pipe'],
                 windowsHide: true,
                 // Persistent: its own process group, so it is not taken down

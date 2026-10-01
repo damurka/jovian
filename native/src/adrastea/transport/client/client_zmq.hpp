@@ -1,6 +1,7 @@
 #ifndef ADRASTEA_CLIENT_ZMQ_HPP
 #define ADRASTEA_CLIENT_ZMQ_HPP
 
+#include <chrono>
 #include <optional>
 
 #include "adrastea/adrastea.hpp"
@@ -52,6 +53,11 @@ namespace adrastea
         HeartbeatStatus heartbeatStatus() const;
 
         void waitForMessage();
+
+        // Returns once a message may be waiting on any channel (to be read
+        // with the non-blocking receives and popIopubMessage()), or after
+        // `timeout`.
+        void waitForActivity(std::chrono::milliseconds timeout);
 
     private:
 

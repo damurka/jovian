@@ -192,6 +192,84 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
         }
     });
 
+    await t.test('R: the same plot drawn again in a new cell is sent again; a line added to it is sent', {
+        skip: !discoverRHome() && 'no R installation found'
+    }, async () => {
+        // Regression test: a new page that drew what the last one did was taken for no change
+        const manager = new SessionManager();
+        const session = await manager.createSession({ rHome: discoverRHome() });
+        const plots = (result: { output: Array<{ msgType: string; content?: any }> }) =>
+            result.output.filter((m) => m.msgType === 'display_data' && m.content?.data?.['image/png']).length;
+
+        try {
+            for (let i = 0; i < 3; i++) {
+                assert.strictEqual(plots(await session.execute('plot(1:10)', { timeout: 20000 })), 1, `plot(1:10), run ${i + 1}`);
+            }
+            assert.strictEqual(plots(await session.execute('abline(h = 5)', { timeout: 20000 })), 1, 'abline() on the last plot');
+            assert.strictEqual(plots(await session.execute('x <- 1', { timeout: 20000 })), 0, 'a cell that draws nothing');
+        } finally {
+            await manager.stopAll();
+        }
+    });
+
+    await t.test('R: listVariables() and readTable() show the global environment and a data frame\'s rows', async () => {
+        const manager = new SessionManager();
+        const session = await manager.createSession({ rHome: discoverRHome() });
+        try {
+            session.on('error', () => {});
+            await session.execute('cars <- head(mtcars, 3); x <- c(1.5, NA); f <- function(a, b = 2) a; d <- data.frame(when = as.Date("2020-01-02"), kind = factor("b"))');
+            const variables = await session.listVariables();
+            assert.deepStrictEqual(variables.map((v) => v.name), ['cars', 'd', 'f', 'x']);
+            assert.deepStrictEqual(variables.find((v) => v.name === 'cars'),
+                { name: 'cars', type: 'data.frame', size: '3 × 11', summary: '3 obs. of 11 variables', table: true });
+            assert.deepStrictEqual(variables.find((v) => v.name === 'x'), { name: 'x', type: 'numeric', size: '2', summary: '1.5 NA', table: false });
+
+            const page = await session.readTable('cars', { start: 2, count: 5 });
+            assert.strictEqual(page.rowCount, 3);
+            assert.strictEqual(page.count, 2);
+            assert.deepStrictEqual(page.rowLabels, ['Mazda RX4 Wag', 'Datsun 710']);
+            assert.deepStrictEqual(page.columns[0], { name: 'mpg', type: 'numeric' });
+            assert.strictEqual(page.rows[1][0], '22.8');
+            assert.deepStrictEqual((await session.readTable('d')).rows, [['2020-01-02', 'b']]);
+            await assert.rejects(session.readTable('x'), /not a data frame or a matrix/);
+        } finally {
+            await manager.stopAll();
+        }
+    });
+
+    await t.test('Python: listVariables() and readTable() show __main__ and a DataFrame\'s rows', async (t2) => {
+        const pythonHome = discoverPythonHome();
+        if (!pythonHome || !carpoExeExists()) {
+            t2.skip('no Python installation found, or carpo not built');
+            return;
+        }
+        const manager = new SessionManager();
+        const session = await manager.createSession({ kernelType: 'python', pythonHome });
+        try {
+            session.on('error', () => {});
+            await session.execute('import sys\nx = 1.5\nitems = [1, 2, 3]\n_hidden = 1');
+            const variables = await session.listVariables();
+            assert.deepStrictEqual(variables.map((v) => v.name), ['items', 'x'], 'modules and _names are left out');
+            assert.deepStrictEqual(variables.find((v) => v.name === 'items'), { name: 'items', type: 'list', size: '3', summary: '[1, 2, 3]', table: false });
+            await assert.rejects(session.readTable('x'), /not a DataFrame, a Series or an array/);
+
+            const pandas = await session.execute('import pandas as pd\ndf = pd.DataFrame({"a": [1.0, None], "b": ["x", "y"]}, index=["r1", "r2"])');
+            if (!pandas.success) {
+                t2.diagnostic('pandas is not installed: DataFrames not checked');
+                return;
+            }
+            assert.ok((await session.listVariables()).some((v) => v.name === 'df' && v.table && v.size === '2 × 2'));
+            const page = await session.readTable('df');
+            // a text column's dtype depends on the pandas version (object, str)
+            assert.deepStrictEqual(page.columns.map((c) => c.name), ['a', 'b']);
+            assert.strictEqual(page.columns[0].type, 'float64');
+            assert.deepStrictEqual(page.rowLabels, ['r1', 'r2']);
+            assert.deepStrictEqual(page.rows, [['1.0', 'x'], ['NaN', 'y']]);
+        } finally {
+            await manager.stopAll();
+        }
+    });
+
     await t.test('Python input() round-trips through the stdin channel', async (t2) => {
         const pythonHome = discoverPythonHome();
         if (!pythonHome || !carpoExeExists()) {
@@ -1115,6 +1193,176 @@ hera::CommManager$register_comm_target("echo2", function(comm, message) {
         }
     });
 
+    await t.test('R: packages are listed, checked, installed (output streamed) and removed through the kernel', async (t2) => {
+        const manager = new SessionManager();
+        const session = await manager.createSession({ rHome: discoverRHome() });
+        const lib = mkdtempSync(join(tmpdir(), 'jovian-pkg-')).replace(/\\/g, '/');
+        try {
+            session.on('error', () => { /* an install's failure comes back in its result */ });
+
+            const packages = await session.listPackages();
+            const stats = packages.find((p) => p.name === 'stats');
+            assert.ok(stats && stats.priority === 'base' && stats.attached, JSON.stringify(stats));
+
+            const checks = await session.packagesInstalled(['stats', 'no.such.pkg'], { stats: '1.0' });
+            assert.deepStrictEqual(checks.map((c) => [c.name, c.installed]), [['stats', true], ['no.such.pkg', false]]);
+            assert.strictEqual(checks[1].version, null);
+
+            const online = await fetch('https://cloud.r-project.org/src/contrib/PACKAGES', { method: 'HEAD' }).then((r) => r.ok, () => false);
+            if (!online) {
+                t2.skip('CRAN is not reachable: installing is not tested');
+                return;
+            }
+            let streamed = '';
+            session.on('stdout', (text: string) => { streamed += text; });
+            session.on('stderr', (text: string) => { streamed += text; });
+            const installed = await session.installPackages(['praise'], { lib });
+            assert.deepStrictEqual(installed.failed, []);
+            assert.match(installed.installed[0].version ?? '', /^\d+\./);
+            assert.ok(existsSync(join(lib, 'praise')));
+            assert.ok(streamed.length > 0, 'install.packages() output arrives as the session\'s stream events');
+
+            assert.deepStrictEqual(await session.removePackages(['praise'], { lib }), ['praise']);
+            assert.ok(!existsSync(join(lib, 'praise')));
+
+            const missing = await session.installPackages(['no.such.pkg.jovian'], { lib });
+            assert.deepStrictEqual(missing.failed, ['no.such.pkg.jovian']);
+            assert.ok(missing.warnings.some((w) => /not available/.test(w)), JSON.stringify(missing.warnings));
+        } finally {
+            await manager.stopAll();
+            rmSync(lib, { recursive: true, force: true });
+        }
+    });
+
+    await t.test('R: the help server answers for a topic while the session is idle', async () => {
+        const manager = new SessionManager();
+        const session = await manager.createSession({ rHome: discoverRHome() });
+        try {
+            const server = await session.helpServer();
+            assert.ok(server.port > 0, JSON.stringify(server));
+            const url = await session.helpUrl('mean', 'base');
+            assert.strictEqual(url, `${server.url}/library/base/html/mean.html`);
+            assert.strictEqual(await session.helpUrl('no_such_topic_jovian'), null);
+            const page = await fetch(url!, { signal: AbortSignal.timeout(15000) });
+            assert.strictEqual(page.status, 200);
+            assert.match(await page.text(), /<title>R: Arithmetic Mean<\/title>/);
+        } finally {
+            await manager.stopAll();
+        }
+    });
+
+    await t.test('R: rstudioapi asks the host through \'ui\' events, and gets a default when nobody listens', async (t2) => {
+        const manager = new SessionManager();
+        const session = await manager.createSession({ rHome: discoverRHome() });
+        try {
+            session.on('error', () => { /* checked below */ });
+            const has = await session.execute('cat(requireNamespace("rstudioapi", quietly = TRUE))');
+            if (!JSON.stringify(has.output).includes('TRUE')) {
+                t2.skip('rstudioapi is not installed');
+                return;
+            }
+            const seen: string[] = [];
+            session.on('ui', (request: { method: string; params: Record<string, unknown>; reply?: (answer: unknown) => void }) => {
+                seen.push(request.method);
+                if (request.method === 'showPrompt') request.reply?.('Alice');
+                else request.reply?.(null);
+            });
+            const value = (r: { output: any[] }) => r.output.find((m) => m.msgType === 'execute_result')?.content?.data?.['text/plain'];
+            assert.strictEqual(value(await session.execute('rstudioapi::isAvailable()')), '[1] TRUE');
+            assert.strictEqual(value(await session.execute('rstudioapi::showPrompt("Name", "Your name?")', { allowStdin: true })), '[1] "Alice"');
+            await session.execute('rstudioapi::navigateToFile("analysis.R", line = 3)');
+            await new Promise((r) => setTimeout(r, 300));
+            assert.deepStrictEqual(seen, ['showPrompt', 'navigateToFile']);
+
+            // hera's own requests; a question is asked without allowStdin too (a Shiny app's execution allows none)
+            session.removeAllListeners('ui');
+            session.on('ui', (request: { method: string; params: Record<string, unknown>; reply?: (answer: unknown) => void }) => {
+                if (request.method === 'myapp.print') request.reply?.({ ok: true, pages: request.params['pages'] });
+            });
+            assert.strictEqual(value(await session.execute('hera::host_ask("myapp.print", list(pages = 3))$pages')), '[1] 3');
+
+            session.removeAllListeners('ui');
+            assert.strictEqual(value(await session.execute('rstudioapi::showQuestion("Sure?", "Proceed?")', { allowStdin: true })), '[1] FALSE');
+        } finally {
+            await manager.stopAll();
+        }
+    });
+
+    await t.test('R: the debugger stops at breakpoints, shows frames and variables, steps, continues and pauses', async () => {
+        const manager = new SessionManager();
+        const session = await manager.createSession({ rHome: discoverRHome() });
+        let onStop: ((event: any) => void) | null = null;
+        const events: string[] = [];
+        session.on('debug_event', (event: any) => {
+            events.push(event.event);
+            if (event.event === 'stopped' && onStop) { const resolve = onStop; onStop = null; resolve(event); }
+        });
+        const stopped = () => new Promise<any>((resolve, reject) => { onStop = resolve; setTimeout(() => reject(new Error('it did not stop')), 20000); });
+        const dbg = async (command: string, args: Record<string, unknown> = {}) => {
+            const response = await session.debugRequest(command, args, { timeout: 20000 });
+            assert.ok(response.success, `${command}: ${response.message}`);
+            return response.body;
+        };
+        const value = (r: { output: any[] }) => r.output.find((m) => m.msgType === 'execute_result')?.content?.data?.['text/plain'];
+        try {
+            session.on('error', () => { /* none expected; the values are checked */ });
+            assert.strictEqual((await session.kernelInfo()).debugger, true);
+            await dbg('initialize');
+            await dbg('attach');
+
+            // a breakpoint in a function defined in a cell
+            const cell = 'f <- function(x) {\n  y <- x + 1\n  y * 2\n}';
+            const path = (await dbg('dumpCell', { code: cell })).sourcePath;
+            await dbg('setBreakpoints', { source: { path }, breakpoints: [{ line: 2 }] });
+            await dbg('configurationDone');
+            await session.execute(cell);
+            const stop = stopped();
+            const running = session.execute('f(10)', { timeout: 60000 });
+            assert.strictEqual((await stop).body.reason, 'breakpoint');
+            let frames = (await dbg('stackTrace', { threadId: 1 })).stackFrames;
+            assert.strictEqual(frames[0].name, 'f');
+            assert.strictEqual(frames[0].line, 2);
+            assert.strictEqual(frames[0].source.path, path);
+            const scopes = (await dbg('scopes', { frameId: frames[0].id })).scopes;
+            const locals = (await dbg('variables', { variablesReference: scopes[0].variablesReference })).variables;
+            assert.deepStrictEqual(locals.map((v: any) => [v.name, v.value]), [['x', '10']]);
+            assert.strictEqual((await dbg('evaluate', { expression: 'x * 3', frameId: frames[0].id })).result, '[1] 30');
+            const step = stopped();
+            await dbg('next', { threadId: 1 });
+            assert.strictEqual((await step).body.reason, 'step');
+            frames = (await dbg('stackTrace', { threadId: 1 })).stackFrames;
+            assert.strictEqual(frames[0].line, 3);
+            await dbg('continue', { threadId: 1 });
+            assert.strictEqual(value(await running), '[1] 22');
+
+            // a breakpoint on a line of a cell's own code
+            const cell2 = 'a <- 1\nb <- a + 1\nb * 10';
+            const path2 = (await dbg('dumpCell', { code: cell2 })).sourcePath;
+            await dbg('setBreakpoints', { source: { path: path2 }, breakpoints: [{ line: 2 }] });
+            const stop2 = stopped();
+            const running2 = session.execute(cell2, { timeout: 60000 });
+            await stop2;
+            frames = (await dbg('stackTrace', { threadId: 1 })).stackFrames;
+            assert.deepStrictEqual([frames[0].name, frames[0].line], ['<cell>', 2]);
+            await dbg('continue', { threadId: 1 });
+            assert.strictEqual(value(await running2), '[1] 20');
+
+            // pause a running cell
+            const stop3 = stopped();
+            const looping = session.execute('i <- 0\nwhile (TRUE) i <- i + 1', { timeout: 60000 });
+            await new Promise((r) => setTimeout(r, 500));
+            await dbg('pause', { threadId: 1 });
+            assert.strictEqual((await stop3).body.reason, 'pause');
+            await dbg('disconnect');
+            await session.interrupt();
+            await looping;
+            assert.strictEqual(value(await session.execute('1 + 1')), '[1] 2');
+            assert.deepStrictEqual(events.filter((e) => e === 'stopped').length, 4);
+        } finally {
+            await manager.stopAll();
+        }
+    });
+
     await t.test('Ark: Posit\'s R kernel runs under the supervisor (JEP 66 handshake)', async (t2) => {
         const arkPath = await discoverArkPath();
         if (!arkPath) {
@@ -1180,8 +1428,28 @@ hera::CommManager$register_comm_target("echo2", function(comm, message) {
             const graph = await session.execute('scatter price mpg');
             assert.ok(graph.output.some((m) => m.msgType === 'display_data' && m.content?.data?.['image/png']), 'no graph published');
 
+            // a do-file's echo of its commands is not shown
+            stdout.length = 0;
+            assert.strictEqual((await session.execute('forvalues i = 1/2 {\n    display `i\' * 10\n}\ndisplay "done"')).success, true);
+            assert.strictEqual(stdout.join(''), '10\n20\ndone\n');
+
             const completion = await session.complete('summarize pri');
             assert.ok(completion.matches.includes('price'), `completing "pri": ${JSON.stringify(completion.matches)}`);
+            assert.ok((await session.complete('regre')).matches.includes('regress'), 'command names');
+            await session.execute('quietly summarize price');
+            assert.ok((await session.complete('display r(me')).matches.includes('mean'), 'r() results of summarize');
+
+            // the dataset, read through Callisto's Mata library and plugin
+            const dataset = await session.stataDataset();
+            assert.strictEqual(dataset.observations, 74);
+            assert.deepStrictEqual(dataset.variables.find((v) => v.name === 'foreign'),
+                { name: 'foreign', type: 'byte', format: '%8.0g', label: 'Car origin', valueLabel: 'origin' });
+            assert.deepStrictEqual(dataset.valueLabels['origin'], { values: [0, 1], labels: ['Domestic', 'Foreign'] });
+            const raw = await session.stataData({ start: 2, count: 2, variables: ['make', 'price', 'rep78', 'foreign'] });
+            assert.deepStrictEqual(raw.rows, [['AMC Pacer', 4749, 3, 0], ['AMC Spirit', 3799, null, 0]]);
+            const formatted = await session.stataData({ start: 3, count: 1, variables: ['price', 'rep78', 'foreign'], formatted: true });
+            assert.deepStrictEqual(formatted.rows, [['3,799', '.', 'Domestic']]);
+            await assert.rejects(session.stataData({ variables: ['nosuchvar'] }), /no variable nosuchvar/);
             assert.strictEqual((await session.isComplete('forvalues i = 1/3 {')).status, 'incomplete');
 
             stdout.length = 0;

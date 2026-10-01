@@ -21,20 +21,9 @@ cd vcpkg
 export VCPKG_ROOT=$PWD        # PowerShell: $env:VCPKG_ROOT = (Get-Location).Path
 ```
 
-## 2. Install the R side
+## 2. The R side
 
-Elara needs the R package `hera` (in `packages/hera`) and its dependencies in the R library the session will use:
-
-```r
-install.packages(c("cli", "evaluate", "glue", "IRdisplay", "jsonlite", "R6", "repr", "rlang"))
-```
-```sh
-npm run hera:install               # = R CMD INSTALL packages/hera, from the repo root; re-run it after pulling to pick up hera changes
-```
-
-On Debian/Ubuntu, if `hera` fails to install with `undefined symbol: SETLENGTH`, the apt `r-cran-*` packages were built for a different R ABI. Install the dependencies from CRAN into a private library instead: `export R_LIBS_SITE=/nonexistent R_LIBS_USER=$HOME/Rlib`, `mkdir -p $R_LIBS_USER`, then `install.packages(c("cli", "evaluate", "glue", "IRdisplay", "jsonlite", "R6", "repr", "rlang"), lib = Sys.getenv("R_LIBS_USER"))` and `npm run hera:install` in that same shell (keep both variables set when running sessions).
-
-(Alternatively pass `heraSrcPath` when creating a session and let Elara install it — see [Environments](guides/environments.md#the-hera-package-required).)
+Nothing to install: the R kernel carries its own R code (`hera`, in `packages/hera`), built into it in the next step. Optionally install `IRdisplay` from CRAN, which is used to show data frames and widgets as HTML.
 
 ## 3. Build
 

@@ -4,7 +4,7 @@ Jovian is published to npm as six packages under the `@damurka` scope, one libra
 
 | Package | Contents |
 |---|---|
-| `@damurka/jovian` | The compiled TypeScript library, the `hera` R package, docs. Lists the platform packages below as `optionalDependencies`. This is the one users install. |
+| `@damurka/jovian` | The compiled TypeScript library and docs. Lists the platform packages below as `optionalDependencies`. This is the one users install. (`hera`, the R kernel's R code, is inside `elara` in the platform packages.) |
 | `@damurka/jovian-win32-x64` | `themisto.exe`, `elara.exe`, `carpo.exe`, `callisto.exe` and the DLLs they need. |
 | `@damurka/jovian-linux-x64`, `-linux-arm64`, `-darwin-x64`, `-darwin-arm64` | `themisto`, `elara`, `carpo`, `callisto`. |
 

@@ -499,7 +499,11 @@ namespace themisto
                 break;
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            // Woken by the next message (a reply, output) -- not a sleep, which
+            // Windows rounds up to its 15.6 ms timer tick: that was the floor of
+            // every request, a trivial cell's included. The timeout is for the
+            // exit check above.
+            client->waitForActivity(std::chrono::milliseconds(5));
         }
     }
 
@@ -610,7 +614,7 @@ namespace themisto
             "complete_request", "inspect_request", "is_complete_request", "kernel_info_request",
             "history_request", "comm_info_request", "comm_open", "comm_msg", "comm_close"
         };
-        static const std::set<std::string> kControlRequests = { "interrupt_request" };
+        static const std::set<std::string> kControlRequests = { "interrupt_request", "debug_request" };
 
         const bool onShell = channel == "shell";
         const bool onControl = channel == "control";

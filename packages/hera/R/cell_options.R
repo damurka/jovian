@@ -1,6 +1,6 @@
 #' Options for current jupyter cell
 #'
-#' @param ... options to set locally to the notebook cell. Forwarded to [rlang::local_options()].
+#' @param ... options to set locally to the notebook cell, as for [options()]: set back when the cell is done.
 #'
 #' @examples
 #' \dontrun{
@@ -9,5 +9,8 @@
 #'
 #' @export
 cell_options <- function(...) {
-    rlang::local_options(..., .frame = the$frame_cell_execute)
+    old <- options(...)
+    # set back when the cell is done (.jv.repl.cell_done())
+    the$cell_exit[[length(the$cell_exit) + 1L]] <- function() options(old)
+    invisible(old)
 }

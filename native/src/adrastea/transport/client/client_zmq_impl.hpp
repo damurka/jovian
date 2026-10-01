@@ -75,6 +75,11 @@ namespace adrastea
         void waitForMessage();
         void start();
 
+        // Returns once a message may be waiting on iopub, shell, control or
+        // stdin, or after `timeout` -- for a thread that drains them all
+        // with the non-blocking receives (Themisto's session loop).
+        void waitForActivity(std::chrono::milliseconds timeout);
+
         Message deserialize(zmq::multipart_t& wire_msg) const;
         PubMessage deserializeIopub(zmq::multipart_t& wire_msg) const;
 

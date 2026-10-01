@@ -24,7 +24,9 @@ export interface RSessionState {
 
 /** The user_expressions key an R execution carries to report its state (removed from the result). */
 export const R_STATE_KEY = '.jovian_state';
-export const R_STATE_EXPRESSION = 'jsonlite::toJSON(list(search = search(), globals = utils::head(ls(globalenv()), 5000L)))';
+// Elara answers this key itself, from search() and ls() (sessionState() in interpreter_r.cpp), and ignores the
+// expression: what a kernel that doesn't know the key evaluates instead, giving no state.
+export const R_STATE_EXPRESSION = 'invisible(NULL)';
 
 /** The state from an R_STATE_EXPRESSION result, or undefined when it failed. */
 export function parseRState(result: UserExpressionResult | undefined): RSessionState | undefined {

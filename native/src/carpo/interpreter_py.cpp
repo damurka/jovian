@@ -354,6 +354,136 @@ def __carpo_eval_expr(expr, g):
         return ("error", type(e).__name__, str(e))
 
 
+# ---- the session's variables, for a variables pane and a data viewer (Jovian's Session.listVariables(), readTable()):
+# user expressions Carpo answers itself, with JSON -- see __carpo_answer
+
+import json as _carpo_json
+import reprlib as _carpo_reprlib
+import types as _carpo_types
+
+_CARPO_MAX_OBJECTS = 5000
+_carpo_short = _carpo_reprlib.Repr()
+_carpo_short.maxstring = 120
+_carpo_short.maxother = 120
+
+
+def _carpo_table_kind(v):
+    # "pandas", "polars" or "numpy" for what the data viewer shows (a DataFrame, a Series, an array of 1 or 2
+    # dimensions), else None. By type name: none of these modules is imported for it
+    t = type(v)
+    module = t.__module__.split(".")[0]
+    if module == "pandas" and t.__name__ in ("DataFrame", "Series"):
+        return "pandas"
+    if module == "polars" and t.__name__ in ("DataFrame", "Series"):
+        return "polars"
+    if module == "numpy" and t.__name__ == "ndarray" and getattr(v, "ndim", 0) in (1, 2):
+        return "numpy"
+    return None
+
+
+def _carpo_size(v):
+    shape = getattr(v, "shape", None)
+    if isinstance(shape, tuple) and all(isinstance(d, int) for d in shape):
+        return " \u00d7 ".join(f"{d:,}" for d in shape)
+    if callable(v) or isinstance(v, type):
+        return ""
+    try:
+        return f"{len(v):,}"
+    except Exception:
+        return ""
+
+
+def _carpo_preview(v):
+    try:
+        if _carpo_table_kind(v) in ("pandas", "polars") and type(v).__name__ == "DataFrame":
+            rows, columns = v.shape
+            return f"{rows:,} rows \u00d7 {columns} columns"
+        if callable(v) and not isinstance(v, type):
+            try:
+                return getattr(v, "__name__", "function") + str(_carpo_inspect_mod.signature(v))
+            except (TypeError, ValueError):
+                pass
+        text = _carpo_short.repr(v)
+    except Exception:
+        text = ""
+    text = " ".join(text.split())
+    return text if len(text) <= 200 else text[:200] + "..."
+
+
+def _carpo_variables(g, expr):
+    out = []
+    for name in sorted(g):
+        if name.startswith("_"):
+            continue
+        v = g[name]
+        if isinstance(v, _carpo_types.ModuleType):
+            continue
+        out.append({"name": name, "type": type(v).__name__, "size": _carpo_size(v), "summary": _carpo_preview(v),
+                    "table": _carpo_table_kind(v) is not None})
+        if len(out) >= _CARPO_MAX_OBJECTS:
+            break
+    return _carpo_json.dumps(out)
+
+
+def _carpo_cell(x):
+    if x is None:
+        return "None"
+    if isinstance(x, float):
+        # the shortest text that reads back as the same number (1.0, 0.1); numpy's floats as plain ones
+        return "NaN" if x != x else repr(float(x))
+    text = str(x)
+    return text if len(text) <= 1000 else text[:1000]
+
+
+def _carpo_table(g, expr):
+    request = _carpo_json.loads(expr or "{}")
+    name = request.get("name")
+    if name not in g:
+        raise KeyError(f"no variable {name}")
+    v = g[name]
+    kind = _carpo_table_kind(v)
+    if kind is None:
+        raise TypeError(f"{name} is not a DataFrame, a Series or an array")
+    start = max(1, int(request.get("start", 1)))
+    count = max(0, min(int(request.get("count", 100)), 100000))
+    labels = None
+    if kind == "pandas":
+        frame = v.to_frame() if type(v).__name__ == "Series" else v
+        n = len(frame)
+        columns = [{"name": str(c), "type": str(t)} for c, t in zip(frame.columns, frame.dtypes)]
+        page = frame.iloc[start - 1:start - 1 + count]
+        rows = [[_carpo_cell(x) for x in row] for row in page.itertuples(index=False, name=None)]
+        index = frame.index
+        if not (type(index).__name__ == "RangeIndex" and index.start == 0 and index.step == 1):
+            labels = [_carpo_cell(i) for i in page.index]
+    elif kind == "polars":
+        frame = v.to_frame() if type(v).__name__ == "Series" else v
+        n = frame.height
+        columns = [{"name": str(c), "type": str(t)} for c, t in zip(frame.columns, frame.dtypes)]
+        rows = [[_carpo_cell(x) for x in row] for row in frame.slice(start - 1, count).rows()]
+    else:
+        array = v.reshape(-1, 1) if v.ndim == 1 else v
+        n = array.shape[0]
+        columns = [{"name": str(j), "type": str(v.dtype)} for j in range(array.shape[1])]
+        rows = [[_carpo_cell(x) for x in row] for row in array[start - 1:start - 1 + count].tolist()]
+    return _carpo_json.dumps({"name": name, "rowCount": n, "columns": columns, "start": start, "count": len(rows),
+                              "rowLabels": labels, "rows": rows})
+
+
+def __carpo_answer(key, expr, g):
+    # The user expressions Carpo answers itself: (status, text, evalue), or None for an ordinary expression
+    if key == ".jovian_variables":
+        answer = _carpo_variables
+    elif key == ".jovian_table":
+        answer = _carpo_table
+    else:
+        return None
+    try:
+        return ("ok", answer(g, expr), "")
+    except BaseException as e:
+        return ("error", type(e).__name__, str(e))
+
+
 __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, sys.version_info.micro)
 )PY";
 
@@ -507,6 +637,7 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
         , m_bootstrapCompleteFn(nullptr)
         , m_bootstrapInspectFn(nullptr)
         , m_bootstrapEvalExprFn(nullptr)
+        , m_bootstrapAnswerFn(nullptr)
         , m_ownsInterpreter(false)
         , m_mainThread()
         , m_finalized(false)
@@ -579,9 +710,10 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
         PyObject* completeFn = PyDict_GetItemString(bootstrapGlobals.get(), "__carpo_complete");
         PyObject* inspectFn = PyDict_GetItemString(bootstrapGlobals.get(), "__carpo_inspect");
         PyObject* evalExprFn = PyDict_GetItemString(bootstrapGlobals.get(), "__carpo_eval_expr");
+        PyObject* answerFn = PyDict_GetItemString(bootstrapGlobals.get(), "__carpo_answer");
         PyObject* idleFn = PyDict_GetItemString(bootstrapGlobals.get(), "__carpo_idle");
         PyObject* versionObj = PyDict_GetItemString(bootstrapGlobals.get(), "__carpo_version");
-        if (!runFn || !isCompleteFn || !completeFn || !inspectFn || !evalExprFn || !idleFn || !versionObj)
+        if (!runFn || !isCompleteFn || !completeFn || !inspectFn || !evalExprFn || !answerFn || !idleFn || !versionObj)
         {
             throw std::runtime_error(
                 "Carpo's internal Python bootstrap runtime did not define the expected functions -- "
@@ -593,12 +725,14 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
         Py_IncRef(completeFn);
         Py_IncRef(inspectFn);
         Py_IncRef(evalExprFn);
+        Py_IncRef(answerFn);
         Py_IncRef(idleFn);
         m_bootstrapRunFn = runFn;
         m_bootstrapIsCompleteFn = isCompleteFn;
         m_bootstrapCompleteFn = completeFn;
         m_bootstrapInspectFn = inspectFn;
         m_bootstrapEvalExprFn = evalExprFn;
+        m_bootstrapAnswerFn = answerFn;
         m_bootstrapIdleFn = idleFn;
         m_languageVersion = pyUnicodeToStdString(versionObj);
 
@@ -661,6 +795,11 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
         {
             Py_DecRef(static_cast<PyObject*>(m_bootstrapEvalExprFn));
             m_bootstrapEvalExprFn = nullptr;
+        }
+        if (m_bootstrapAnswerFn)
+        {
+            Py_DecRef(static_cast<PyObject*>(m_bootstrapAnswerFn));
+            m_bootstrapAnswerFn = nullptr;
         }
 
         if (m_ownsInterpreter)
@@ -755,6 +894,35 @@ __carpo_version = "%d.%d.%d" % (sys.version_info.major, sys.version_info.minor, 
             for (auto it = user_expressions.begin(); it != user_expressions.end(); ++it)
             {
                 const std::string expr = it.value().is_string() ? it.value().get<std::string>() : std::string();
+
+                // `.jovian_variables` and `.jovian_table` are answered by the bootstrap (__carpo_answer), with JSON
+                py::Ref answerArgs(PyTuple_New(3));
+                PyTuple_SetItem(answerArgs.get(), 0, PyUnicode_FromString(it.key().c_str()));
+                PyTuple_SetItem(answerArgs.get(), 1, PyUnicode_FromString(expr.c_str()));
+                Py_IncRef(static_cast<PyObject*>(m_userGlobals));
+                PyTuple_SetItem(answerArgs.get(), 2, static_cast<PyObject*>(m_userGlobals));
+                py::Ref answer(PyObject_CallObject(static_cast<PyObject*>(m_bootstrapAnswerFn), answerArgs.get()));
+                if (!answer)
+                {
+                    PyErr_Clear();
+                }
+                else if (answer.get() != Py_None)
+                {
+                    const std::string status = pyUnicodeToStdString(PyTuple_GetItem(answer.get(), 0));
+                    const std::string text = pyUnicodeToStdString(PyTuple_GetItem(answer.get(), 1));
+                    if (status == "ok")
+                    {
+                        userExpressionResults[it.key()] = { { "status", "ok" },
+                            { "data", { { "text/plain", text } } }, { "metadata", adrastea::json::object() } };
+                    }
+                    else
+                    {
+                        userExpressionResults[it.key()] = { { "status", "error" }, { "ename", text },
+                            { "evalue", pyUnicodeToStdString(PyTuple_GetItem(answer.get(), 2)) },
+                            { "traceback", adrastea::json::array() } };
+                    }
+                    continue;
+                }
 
                 py::Ref evalArgs(PyTuple_New(2));
                 PyTuple_SetItem(evalArgs.get(), 0, PyUnicode_FromString(expr.c_str()));

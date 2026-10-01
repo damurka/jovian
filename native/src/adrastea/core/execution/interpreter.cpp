@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdlib>
 #include <stdexcept>
 #include <string>
@@ -157,6 +158,35 @@ namespace adrastea
         return interruptRequestImpl();
     }
 
+    json Interpreter::debugRequest(const json& request)
+    {
+        return debugRequestImpl(request);
+    }
+
+    json Interpreter::debugRequestImpl(const json& request)
+    {
+        return json{
+            { "type", "response" },
+            { "seq", 0 },
+            { "request_seq", request.value("seq", 0) },
+            { "success", false },
+            { "command", request.value("command", "") },
+            { "message", "this kernel has no debugger" }
+        };
+    }
+
+    void Interpreter::publishDebugEvent(json event, bool flushOutput)
+    {
+        if (flushOutput)
+        {
+            flushStreams();
+        }
+        if (m_publisher)
+        {
+            m_publisher(getRequestContext(), "debug_event", json::object(), std::move(event), buffer_sequence());
+        }
+    }
+
     json Interpreter::internalRequest(const json& message)
     {
         return internalRequestImpl(message);
@@ -186,6 +216,13 @@ namespace adrastea
         const std::size_t kStreamFlushBytes = static_cast<std::size_t>(streamSetting("JOVIAN_STREAM_FLUSH_BYTES", 16 * 1024, 1));
     }
 
+    // Text is held per stream, as ipykernel does: stdout and stderr written in
+    // turn (cat() and message() in a loop, print() and a warning) go out as one
+    // message each per interval, not one message per switch -- 25 000 of each
+    // were 50 000 messages. Within an interval stdout's text comes first if it
+    // was written first; the order of the lines across the two is not kept
+    // (a frontend shows the streams apart anyway). Anything else that is
+    // published (display data, errors, the reply) flushes both first.
     void Interpreter::publishStream(const std::string& name, const std::string& text)
     {
         if (!m_publisher || text.empty())
@@ -199,25 +236,29 @@ namespace adrastea
             m_streamFlusher = std::thread(&Interpreter::streamFlusherLoop, this);
         }
 
-        // A different stream (stdout -> stderr) is a different message.
-        if (!m_streamBuffer.empty() && name != m_streamName)
+        if (m_streamPending.empty() && m_streamLastFlush == std::chrono::steady_clock::time_point{})
+        {
+            m_streamLastFlush = std::chrono::steady_clock::now() - kStreamFlushInterval;
+        }
+        // The text belongs to the request that is running NOW; a later flush
+        // (possibly from the flusher thread) must not re-read it. Text of
+        // another request goes out first.
+        const RequestContext& context = getRequestContext();
+        if (!m_streamPending.empty() && !(m_streamPending.front().context.header() == context.header()))
         {
             flushStreamsLocked();
         }
-        if (m_streamBuffer.empty())
+        auto pending = std::find_if(m_streamPending.begin(), m_streamPending.end(),
+            [&](const PendingStream& p) { return p.name == name; });
+        if (pending == m_streamPending.end())
         {
-            // The text belongs to the request that is running NOW; a later
-            // flush (possibly from the flusher thread) must not re-read it.
-            m_streamContext = getRequestContext();
-            m_streamName = name;
-            if (m_streamLastFlush == std::chrono::steady_clock::time_point{})
-            {
-                m_streamLastFlush = std::chrono::steady_clock::now() - kStreamFlushInterval;
-            }
+            m_streamPending.push_back(PendingStream{ name, std::string(), context });
+            pending = std::prev(m_streamPending.end());
         }
-        m_streamBuffer += text;
+        pending->text += text;
+        m_streamPendingBytes += text.size();
 
-        if (m_streamBuffer.size() >= kStreamFlushBytes ||
+        if (m_streamPendingBytes >= kStreamFlushBytes ||
             std::chrono::steady_clock::now() - m_streamLastFlush >= kStreamFlushInterval)
         {
             flushStreamsLocked();
@@ -236,23 +277,27 @@ namespace adrastea
 
     void Interpreter::flushStreamsLocked()
     {
-        if (m_streamBuffer.empty() || !m_publisher)
+        std::vector<PendingStream> pending;
+        pending.swap(m_streamPending);
+        m_streamPendingBytes = 0;
+        if (pending.empty() || !m_publisher)
         {
-            m_streamBuffer.clear();
             return;
         }
-        json content;
-        content["name"] = m_streamName;
-        content["text"] = std::move(m_streamBuffer);
-        m_streamBuffer.clear();
         m_streamLastFlush = std::chrono::steady_clock::now();
-        m_publisher(
-            m_streamContext,
-            "stream",
-            json::object(),
-            std::move(content),
-            buffer_sequence()
-        );
+        for (auto& stream : pending)
+        {
+            json content;
+            content["name"] = std::move(stream.name);
+            content["text"] = std::move(stream.text);
+            m_publisher(
+                stream.context,
+                "stream",
+                json::object(),
+                std::move(content),
+                buffer_sequence()
+            );
+        }
     }
 
     void Interpreter::streamFlusherLoop()
@@ -260,9 +305,9 @@ namespace adrastea
         std::unique_lock<std::mutex> lock(m_streamMutex);
         while (!m_streamQuit)
         {
-            if (m_streamBuffer.empty())
+            if (m_streamPending.empty())
             {
-                m_streamCv.wait(lock, [this] { return m_streamQuit || !m_streamBuffer.empty(); });
+                m_streamCv.wait(lock, [this] { return m_streamQuit || !m_streamPending.empty(); });
                 continue;
             }
             const auto due = m_streamLastFlush + kStreamFlushInterval;
@@ -422,7 +467,7 @@ namespace adrastea
         return *p_messenger;
     }
 
-    void Interpreter::inputRequest(const std::string& prompt, bool pwd)
+    void Interpreter::inputRequest(const std::string& prompt, bool pwd, const json& ui)
     {
         // The prompt text ("name? ") was written to stdout just before this.
         flushStreams();
@@ -431,6 +476,10 @@ namespace adrastea
             json content;
             content["prompt"] = prompt;
             content["password"] = pwd;
+            if (!ui.is_null())
+            {
+                content["jovian_ui"] = ui;
+            }
             m_stdin(
                 getRequestContext(),
                 "input_request",

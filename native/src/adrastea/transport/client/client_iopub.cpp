@@ -1,4 +1,6 @@
+#include <cstdint>
 #include <iostream>
+#include <string>
 
 #include "client_iopub.hpp"
 #include "client_zmq_impl.hpp"
@@ -13,6 +15,8 @@ namespace adrastea
         ClientZmqImpl* client)
         : m_iopub(context, zmq::socket_type::sub)
         , m_controller(context, zmq::socket_type::rep)
+        , m_signalSend(context, zmq::socket_type::pair)
+        , m_signalReceive(context, zmq::socket_type::pair)
         , m_iopubEndPoint("")
         , p_clientImpl(client)
     {
@@ -22,6 +26,24 @@ namespace adrastea
         m_iopub.connect(m_iopubEndPoint);
         m_iopub.set(zmq::sockopt::subscribe, "");
         initSocket(m_controller, getControllerEndPoint("iopub"));
+        const std::string signalEndPoint = "inproc://adrastea-iopub-queued-" + std::to_string(reinterpret_cast<std::uintptr_t>(this));
+        m_signalReceive.bind(signalEndPoint);
+        m_signalSend.connect(signalEndPoint);
+    }
+
+    zmq::socket_t& ClientIopub::queuedSignal()
+    {
+        return m_signalReceive;
+    }
+
+    void ClientIopub::clearQueuedSignal()
+    {
+        // cleared before the queue is drained: a message queued from now on signals again
+        m_signalled.store(false);
+        zmq::message_t signal;
+        while (m_signalReceive.recv(signal, zmq::recv_flags::dontwait))
+        {
+        }
     }
 
     ClientIopub::~ClientIopub()
@@ -69,6 +91,11 @@ namespace adrastea
                     {
                         std::lock_guard<std::mutex> guard(m_queueMutex);
                         m_messageQueue.push(std::move(msg));
+                    }
+                    // one signal however many messages are queued before the waiter wakes
+                    if (!m_signalled.exchange(true))
+                    {
+                        m_signalSend.send(zmq::message_t(), zmq::send_flags::dontwait);
                     }
                 }
                 if (items[1].revents & ZMQ_POLLIN)

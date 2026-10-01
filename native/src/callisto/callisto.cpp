@@ -98,6 +98,17 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    if (!standaloneJupyterMode)
+    {
+        // Run by Jovian's supervisor, whose client answers every question for the host's UI (browse's "viewData")
+        // -- with nothing when nobody listens -- so they are asked whether or not the execution allows input
+#ifdef _WIN32
+        _putenv_s("JOVIAN_SUPERVISED", "1");
+#else
+        setenv("JOVIAN_SUPERVISED", "1", 1);
+#endif
+    }
+
     callisto::EnvironmentConfig envConfig;
     envConfig.stata_home = opts.stataHome;
     envConfig.stata_edition = opts.stataEdition;

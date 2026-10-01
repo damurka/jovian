@@ -38,13 +38,13 @@ namespace elara
         template<class... Types>
         SEXP invokeHeraFn(const char* f, Types... args) {
             SEXP sym_hera = Rf_install("hera");
-            SEXP sym_hera_call = Rf_install("hera_call");
+            SEXP sym_hera_call = Rf_install(".jv.call");
             SEXP sym_triple_colon = Rf_install(":::");
 
             SEXP call_triple_colon = PROTECT(rCall(sym_triple_colon, sym_hera, sym_hera_call));
             SEXP call = PROTECT(rCall(call_triple_colon, Rf_mkString(f), args...));
 
-            // hera:::hera_call(f, ...) itself failing to evaluate (most
+            // hera:::.jv.call(f, ...) itself failing to evaluate (most
             // commonly: hera isn't installed/loadable at all -- it's
             // optional, see RInterpreter::configureImpl()) is different
             // from a normal *user* code error, which hera's own R-level
@@ -68,25 +68,12 @@ namespace elara
 
             if (errorOccurred) {
                 throw std::runtime_error(
-                    std::string("R evaluation of hera:::hera_call(\"") + f + "\", ...) failed "
+                    std::string("R evaluation of hera:::.jv.call(\"") + f + "\", ...) failed "
                     "(is the 'hera' package installed?): " + R_curErrorBuf());
             }
             return result;
         }
 
-        template <class... Types>
-        inline SEXP newHeraR6(const char* klass, SEXP xp, Types... args) {
-            SEXP sym_hera = Rf_install("hera");
-            SEXP sym_hera_new = Rf_install("hera_new");
-            SEXP sym_triple_colon = Rf_install(":::");
-
-            SEXP call_triple_colon = PROTECT(rCall(sym_triple_colon, sym_hera, sym_hera_new));
-            SEXP call = PROTECT(rCall(call_triple_colon, Rf_mkString(klass), xp, args...));
-            SEXP result = Rf_eval(call, R_GlobalEnv);
-
-            UNPROTECT(2);
-            return result;
-        }
 
     }
 }

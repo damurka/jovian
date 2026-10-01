@@ -9,7 +9,8 @@ namespace adrastea
     std::string blockingInputRequest(
         const std::string& prompt,
         bool password,
-        bool allowStdin
+        bool allowStdin,
+        const json& ui
     )
     {
         if (!allowStdin)
@@ -27,7 +28,7 @@ namespace adrastea
         interpreter.registerInputHandler([&value](const std::string& v) { value = v; });
 
         // Send the input request
-        interpreter.inputRequest(prompt, password);
+        interpreter.inputRequest(prompt, password, ui);
 
         // Remove input handler
         interpreter.registerInputHandler(nullptr);

@@ -23,10 +23,8 @@
 //   R_HOME             R installation; otherwise discovered (discoverRHome)
 //   ARK_PATH           ark executable; otherwise Positron's copy (discoverArkPath).
 //                      If none is found only Elara is measured.
-//   BENCH_HERA_SRC     hera sources Elara installs/loads (default: packages/hera)
-//   BENCH_R_LIBS       R library hera is installed into (default: a new temporary
-//                      directory, deleted at the end -- your own libraries are
-//                      never written to)
+//   BENCH_HERA_SRC     a packages/hera folder Elara reads its R code from instead
+//                      of the copy built into it (development)
 //   BENCH_KERNELS      comma-separated subset of "elara,ark"
 //
 // The busy helper (a second R process for completions) is turned off so only the
@@ -34,15 +32,12 @@
 // first (starts the supervisor, installs hera into the temporary library, warms
 // the disk cache), so the timed create is a warm start for both.
 
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SessionManager } from '../../dist/lib/index.js';
 import { discoverArkPath, discoverRHome } from '../../dist/lib/session/runtimes.js';
 import { locateNativeDirectory } from '../../dist/lib/session/native-paths.js';
-import { rscriptPath } from '../../dist/lib/session/r-setup.js';
 import type { EngineOptions, JupyterMessage, Session } from '../../dist/lib/index.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -272,45 +267,15 @@ async function benchmark(manager: SessionManager, kernel: Kernel, base: EngineOp
 const native = locateNativeDirectory();
 const rHome = process.env.R_HOME || (await discoverRHome());
 const arkPath = await discoverArkPath();
-const heraSrcPath = resolve(process.env.BENCH_HERA_SRC ?? join(repoRoot, 'packages', 'hera'));
-// Elara sets R_LIBS, R_LIBS_USER and R_LIBS_SITE all to rLibs, so a lone
-// temporary directory would hide the packages hera needs (cli, evaluate, ...).
-// Put the temporary directory first -- hera is installed into the first
-// writable library -- followed by this R's own non-system libraries, read only.
-function userLibraries(home: string): string[] {
-    const rscript = rscriptPath(home);
-    if (!rscript) return [];
-    try {
-        const out = execFileSync(rscript, ['-e', 'cat(setdiff(.libPaths(), .Library), sep = "\\n")'], { encoding: 'utf8' });
-        return out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    } catch {
-        return [];
-    }
-}
-const tempLib = process.env.BENCH_R_LIBS ? undefined : mkdtempSync(join(tmpdir(), 'jovian-bench-rlib-'));
-const rLibs = process.env.BENCH_R_LIBS ?? [tempLib!, ...(rHome ? userLibraries(rHome) : [])].join(delimiter);
-// Install hera into the temporary library before anything starts. Without
-// this, a hera already in your own library counts as installed and would be
-// the one loaded; installed here it comes first in .libPaths() and wins.
-if (tempLib && rHome) {
-    const rscript = rscriptPath(rHome);
-    const rExe = rscript && join(dirname(rscript), process.platform === 'win32' ? 'R.exe' : 'R');
-    console.error(`installing hera from ${heraSrcPath} into ${tempLib} ...`);
-    try {
-        execFileSync(rExe!, ['CMD', 'INSTALL', '--no-multiarch', `--library=${tempLib}`, heraSrcPath], {
-            env: { ...process.env, R_LIBS: rLibs }, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8'
-        });
-    } catch (error) {
-        console.error(`hera could not be installed into the temporary library: ${(error as { stderr?: string }).stderr?.slice(-400) ?? error}`);
-    }
-}
+// Elara carries its R code (hera) built in; BENCH_HERA_SRC points it at a packages/hera folder instead (development).
+// Both kernels use R's own libraries: nothing is installed for either.
+const heraSrcPath = process.env.BENCH_HERA_SRC ? resolve(process.env.BENCH_HERA_SRC) : undefined;
 const wanted =(process.env.BENCH_KERNELS ?? 'elara,ark').split(',').map((k) => k.trim()) as Kernel[];
 
 console.error(`kernels:   ${native.dir} (${native.source})`);
 console.error(`R:         ${rHome ?? 'not found'}`);
 console.error(`ark:       ${arkPath ?? 'not found -- measuring Elara only'}`);
-console.error(`hera src:  ${heraSrcPath}`);
-console.error(`R library: ${rLibs}${tempLib ? ' (first entry temporary, deleted at the end)' : ''}`);
+console.error(`hera:      ${heraSrcPath ?? 'built in'}`);
 if (!rHome) {
     console.error('No R installation found (set R_HOME).');
     process.exit(1);
@@ -321,7 +286,7 @@ const manager = new SessionManager({ busyHelper: false });
 const rows: Partial<Record<Kernel, Row>> = {};
 try {
     for (const kernel of kernels) {
-        const base: EngineOptions = { rHome, rLibs, ...(kernel === 'elara' ? { heraSrcPath } : { arkPath }) };
+        const base: EngineOptions = { rHome, ...(kernel === 'elara' ? (heraSrcPath ? { heraSrcPath } : {}) : { arkPath }) };
         try {
             rows[kernel] = await benchmark(manager, kernel, base);
         } catch (error) {
@@ -331,7 +296,6 @@ try {
     }
 } finally {
     await manager.stopAll();
-    if (tempLib) rmSync(tempLib, { recursive: true, force: true });
 }
 
 const cell = (k: Kernel, m: string) => (rows[k] ? rows[k]![m] ?? '-' : arkPath || k === 'elara' ? 'skipped' : 'ark not found');

@@ -1,0 +1,57 @@
+--- a/ixwebsocket/IXWebSocketTransport.cpp
++++ b/ixwebsocket/IXWebSocketTransport.cpp
+@@ -180,7 +180,13 @@
+ 
+         // Server should not mask the data it sends to the client
+         _useMask = false;
+-        _blockingSend = true;
++        // (jovian) Not blocking: a blocking send flushes on the sending thread,
++        // polling the socket there, and on Windows (WSAEventSelect) a socket
++        // waits on one event at a time -- the sender's poll took the socket
++        // from the connection thread, which then waited for good (no ping, no
++        // timeout) and never read the peer again. Only the connection thread
++        // polls now; a sender sees what is still unsent in bufferedAmount().
++        _blockingSend = false;
+         _sendTimeoutSecs = sendTimeoutSecs;
+ 
+         _socket = std::move(socket);
+@@ -372,6 +378,14 @@
+             if (!flushSendBuffer())
+             {
+                 return PollResult::CannotFlushSendBuffer;
++            }
++            // Read too (jovian): a send request from another thread is answered
++            // before the socket is looked at, so under a steady stream of sends
++            // the peer's messages could wait unread. Nothing to read is not an
++            // error: recv() would block, and stops.
++            if (!receiveFromSocket())
++            {
++                return PollResult::AbnormalClose;
+             }
+         }
+         else if (pollResult == PollResultType::ReadyForRead)
+@@ -1268,6 +1282,24 @@
+             // This way we are not busy looping
+             PollResultType result = _socket->isReadyToWrite(10);
+ 
++            // (jovian) On Windows FD_WRITE is signalled only after a send has
++            // failed with WSAEWOULDBLOCK, and re-arming the socket for reading
++            // alone clears a recorded one: after a burst of sends this wait
++            // could last for good, the bytes left unsent and the peer never
++            // read. A send that would block arms the signal again, so one is
++            // tried whenever the wait ends without it.
++            if (result != PollResultType::Error && result != PollResultType::ReadyForWrite)
++            {
++                if (!sendOnSocket())
++                {
++                    return false;
++                }
++                if (isSendBufferEmpty())
++                {
++                    break;
++                }
++            }
++
+             if (result == PollResultType::Error)
+             {
+                 closeSocket();

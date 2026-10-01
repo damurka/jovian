@@ -100,6 +100,10 @@ set(ADRASTEA_PLATFORM_SOURCES
 
 set(ELARA_R_SOURCES
     ${JOVIAN_SOURCE_DIR}/elara/r/routine.cpp
+    ${JOVIAN_SOURCE_DIR}/elara/r/comm_r.cpp
+    ${JOVIAN_SOURCE_DIR}/elara/r/debugger_r.cpp
+    ${JOVIAN_SOURCE_DIR}/elara/r/debugger_r.hpp
+    ${JOVIAN_SOURCE_DIR}/elara/r/comm_r.hpp
     ${JOVIAN_SOURCE_DIR}/elara/r/rtools.hpp
     ${JOVIAN_SOURCE_DIR}/elara/r/r_dynlib.cpp
     ${JOVIAN_SOURCE_DIR}/elara/r/r_dynlib.hpp
@@ -321,6 +325,19 @@ if (JOVIAN_BUILD_ELARA)
         ${R_INCLUDE_DIR}
     )
 
+    # hera's R code, built into the kernel (see elara/r/hera_sources.hpp): regenerated whenever a file of
+    # packages/hera changes. A new R/*.R file needs a CMake re-run, which CONFIGURE_DEPENDS triggers on its own.
+    set(HERA_DIR ${CMAKE_SOURCE_DIR}/packages/hera)
+    file(GLOB HERA_R_FILES CONFIGURE_DEPENDS ${HERA_DIR}/R/*.R)
+    set(HERA_EMBEDDED ${CMAKE_CURRENT_BINARY_DIR}/generated/hera_sources.cpp)
+    add_custom_command(
+        OUTPUT ${HERA_EMBEDDED}
+        COMMAND ${CMAKE_COMMAND} -DHERA_DIR=${HERA_DIR} -DOUTPUT=${HERA_EMBEDDED} -P ${CMAKE_SOURCE_DIR}/cmake/EmbedHera.cmake
+        DEPENDS ${HERA_R_FILES} ${HERA_DIR}/NAMESPACE ${HERA_DIR}/DESCRIPTION ${CMAKE_SOURCE_DIR}/cmake/EmbedHera.cmake
+        COMMENT "Building hera's R code into the kernel"
+        VERBATIM)
+    target_sources(elara PRIVATE ${HERA_EMBEDDED} ${JOVIAN_SOURCE_DIR}/elara/r/hera_sources.hpp)
+
     # nlohmann_json/cppzmq/OpenSSL::Crypto, ADRASTEA_STATIC_LIB, and
     # JOVIAN_INCLUDE_DIR/JOVIAN_SOURCE_DIR all arrive transitively via
     # linking `adrastea` (PUBLIC on that target) -- no need to redeclare
@@ -469,6 +486,28 @@ if (JOVIAN_BUILD_CALLISTO)
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
     jovian_apply_platform_guid_define(callisto)
+
+    # Callisto's Stata plugin (native/src/callisto/plugin/): Stata loads it to hand the kernel the dataset's values.
+    # A module next to callisto, named as Stata plugins are; it depends on nothing but Stata's plugin header.
+    add_library(callisto_stata MODULE
+        ${JOVIAN_SOURCE_DIR}/callisto/plugin/callisto_plugin.cpp
+    )
+    target_compile_features(callisto_stata PRIVATE cxx_std_17)
+    target_include_directories(callisto_stata PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stata
+        ${JOVIAN_INCLUDE_DIR}
+    )
+    if (APPLE)
+        target_compile_definitions(callisto_stata PRIVATE SYSTEM=APPLEMAC)
+    elseif (NOT WIN32)
+        target_compile_definitions(callisto_stata PRIVATE SYSTEM=OPUNIX)
+    endif ()
+    set_target_properties(callisto_stata PROPERTIES
+        PREFIX ""
+        SUFFIX ".plugin"
+        # a static C++ runtime: Stata loads it, and it brings what it needs
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    add_dependencies(callisto callisto_stata)
 endif ()
 
 if(BUILD_TESTING)

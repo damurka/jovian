@@ -62,6 +62,69 @@ Each is a real Jupyter request answered by the kernel; each rejects on an `error
 
 `request()` is the generic form behind the methods above; it always sends the request to the session's own kernel (no helper). It accepts the request types in the [whitelist](../protocol.md#client--themisto); the reply type is derived by replacing `_request` with `_reply`. It is not for `execute_request`, `input_reply` or `shutdown_request`.
 
+## R packages
+
+R sessions (Elara) only: answered by the kernel's own R code (`.jv.rpc.*` in `packages/hera/R/packages.R`, as Ark's `.ps.rpc.pkg_*`). A session loads no package of its own besides R's, so it can install or update any package — unless the user's code has loaded it (on Windows a loaded package's DLL cannot be replaced). Repositories: `options.repos` first, then the session's own (`getOption("repos")`, CRAN's cloud mirror when unset).
+
+| Method | Description |
+|---|---|
+| `listPackages()` | `RPackageInfo[]`: every installed package — `name`, `version`, `library`, `priority` (`base`/`recommended`/`''`), `loaded`, `attached`. |
+| `packagesInstalled(packages, minVersions?)` | `RPackageCheck[]`: `{ name, version (null if absent), installed }`, `installed` meaning at least `minVersions[name]`. |
+| `outdatedPackages(options?)` | `RPackageUpdate[]`: installed packages with a strictly newer version in the repositories (`installed`, `available`, `library`, `repository`). |
+| `searchPackages(query, options?)` | `RPackageSearchResult[]`: packages whose name matches `query`, an exact match first (`limit`, default 100). |
+| `installPackages(packages, options?)` | `RPackageInstallResult`: `{ installed: [{ name, version }], failed, warnings }`. Run as a cell (`storeHistory: false`): what `install.packages()` prints arrives as the session's `stdout`/`stderr` events as it is written. `options.lib` chooses the library (default: the first). Default timeout 30 minutes. |
+| `removePackages(packages, options?)` | The packages removed. |
+
+The quick ones are answered as a user expression of a silent execution (no output, no execution count).
+
+## Variables and tables (R, Python)
+
+What a variables pane and a data viewer show, for R sessions (Elara: hera's `.jv.rpc.var_list` / `var_table`, `packages/hera/R/variables.R`) and Python sessions (Carpo answers the user expressions `.jovian_variables` / `.jovian_table` itself). Each is a user expression of a silent execution, so it waits for a running cell. Stata sessions have a dataset instead (below).
+
+| Method | Description |
+|---|---|
+| `listVariables()` | `SessionVariable[]`: the objects of R's global environment or Python's `__main__` (Python: not modules, not names starting with `_`; at most 5000), sorted by name -- `{ name, type, size, summary, table }`: R's class or Python's type name, `"3 × 11"` / `"10"` / `""`, a one-line preview (`3 obs. of 11 variables`, `1.5 NA`, `f(a, b=2)`), and whether `readTable()` reads it. |
+| `readTable(name, options?)` | `TablePage`: `{ name, rowCount, columns: [{ name, type }], start, count, rowLabels, rows }` -- `count` rows (default 100, at most 100 000) from `start` (default 1) of a table: an R data frame (tibble, data.table) or matrix; a pandas DataFrame or Series, a numpy array of 1 or 2 dimensions, a polars DataFrame. Values are text as the language prints them (R: factor levels, dates, `NA`; Python: `1.0`, `NaN`, `None`); `rowLabels` are R's row names or a pandas index when they are more than the row numbers, else `null`. Anything else is an error. |
+
+```ts
+const variables = await session.listVariables();
+const page = await session.readTable('cars', { start: 1, count: 50 });
+```
+
+## The Stata dataset
+
+Stata sessions (Callisto) only: the dataset in memory, read by the kernel itself (its Mata library and its plugin, see [Kernels](../kernels.md#the-dataset)) -- what a variables pane or a data viewer shows. Each is a user expression of a silent execution, so it waits for a running cell.
+
+| Method | Description |
+|---|---|
+| `stataDataset()` | `StataDataset`: `{ frame, observations, filename, changed, variables: [{ name, type, format, label, valueLabel }], valueLabels: { name: { values, labels } } }` (value labels' first 1000 values). |
+| `stataData(options?)` | `StataDataPage`: `{ start, count, observations, variables, formatted, rows }` -- `count` observations (default 100, at most 100 000) from `start` (default 1) of `variables` (default all), `rows[i][j]` being variable `variables[j]` of observation `start + i`. Raw values are numbers, strings, `null` for the missing value `.` and, in a numeric variable, `".a"` to `".z"` for the extended ones; with `formatted: true` they are strings as Stata's Data Editor shows them (value labels, display formats: `4,099`, `02jan2020`, `Domestic`). A variable that does not exist is an error. |
+
+```ts
+const data = await session.stataDataset();
+const page = await session.stataData({ start: 1, count: 50, variables: ['make', 'price'], formatted: true });
+```
+
+## The host's UI (`'ui'` event)
+
+R code using **rstudioapi** asks the application running the session — as Ark's `tools:rstudio` asks Positron. The R kernel provides the RStudio API (`.rs.api.*` in `tools:rstudio`, `packages/hera/R/ui.R`) and makes `rstudioapi::isAvailable()` say `TRUE` (`.Platform$GUI` is left alone). Each call is a `'ui'` event, `{ method, params, reply? }` (`UiRequest`):
+
+- **notifications** (no `reply`): `viewer` `{ url, height }`, `navigateToFile` `{ file, line, column }`, `documentNew`, `insertText` `{ ranges, text, id }` (ranges `{ start: { line, character }, end }` from 0), `setSelectionRanges`, `executeCommand`, `sendToConsole`, `restartSession`, `openProject`, `previewRd`;
+- **questions** (call `reply(answer)`; the cell waits for it): `showPrompt` → string, `showQuestion` → boolean, `showDialog`, `askForPassword` → string (a password input), `getActiveDocumentContext` / `getSourceEditorContext` → `{ id, path, contents: string[], selections: [{ start, end, text }] }`, `documentSave`, `documentSaveAll`, `getActiveProject`, `readPreference` `{ name }`.
+
+A question reaches the host as an `input_request` carrying `jovian_ui`, whether or not the execution has `allowStdin` (the Session always answers it: a Shiny app's `createShiny()`, which allows no input, can ask too); with no `'ui'` listener it is answered at once with no answer, which gives the R function its default (`NULL` for a prompt, `FALSE` for a question). A listener must call `reply` for every question: the R code waits for it.
+
+R code can make its own requests to the application with **`hera::host_notify(method, params)`** (a notification) and **`hera::host_ask(method, params, default = NULL)`** (a question, returning the answer read from JSON): the same `'ui'` events, with the application's own method names -- DataSuite's apps use `datasuite.print`, `datasuite.openChat` and `datasuite.installPackages` (datasuite.ui's `ds_host_request()`). `JOVIAN_HOST_VERSION` / `JOVIAN_HOST_MODE` set what `rstudioapi::getVersion()` / `getMode()` report (default `2025.1.0`, `desktop`).
+
+## R help
+
+| Method | Description |
+|---|---|
+| `helpServer()` | `{ port, url }` of R's own help server in the session (`tools::startDynamicHelp()`), started if need be. Its pages link to each other. |
+| `helpUrl(topic, pkg?)` | The help server's address for a topic (`…/library/base/html/mean.html`), or `null`. |
+
+The server answers while the session is idle: Elara services R's events then (`R_ProcessEvents()`, and on Unix R's input handlers), as R's own console does while it waits for input.
+
 ## Comms
 
 A *comm* is a named message stream between the client and a target registered inside the kernel (R: `hera::CommManager$register_comm_target(name, callback)`). Carpo has no way to register targets yet, so comms are an R feature today. See [the guide](../guides/comms.md).

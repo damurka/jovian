@@ -1,24 +1,45 @@
-publish_stream <- function(name, text) {
-  hera_dot_call("elara_publish_stream", name, text)
+# The calls made for every message, warning, stderr write and output go to Elara directly, not through
+# .jv.elara.call(): hera only ever runs inside Elara (it is built into it), and that extra R call showed in a cell that
+# calls message() 25 000 times. Display data goes over as R values, which Elara converts to JSON once (jsonFromR() in
+# routine.cpp) -- not written as JSON text here to be parsed back there.
+# A line in the kernel's log (ELARA_LOG_LEVEL, see Elara's log.hpp): what hera does that nobody sees otherwise --
+# a fallback taken, an error caught and set aside. Written only when that level is (Elara checks).
+.jv.log.debug <- function(...) {
+  invisible(.Call("elara_log", "debug", paste0(...), PACKAGE = "(embedding)"))
 }
 
-# jsonlite::toJSON() base64-encodes raw vectors (e.g. plot image bytes) via
-# jsonlite::base64_enc(), which always MIME-wraps its output with embedded
-# newlines and offers no argument to disable it. Those newlines survive
-# JSON string-escaping as literal "\n" sequences and, once unescaped by a
-# downstream JSON parser, produce a base64 payload containing real newline
-# characters -- which a strict (non-whitespace-tolerant) base64 decoder on
-# the receiving end will reject. Recursively re-encode any raw elements
-# with jsonlite's own encoder and strip the wrapping newlines before they
-# ever reach toJSON(), so raw data becomes a plain, unwrapped base64 string.
-sanitize_raw_for_json <- function(x) {
-  if (is.raw(x)) {
-    gsub("\n", "", jsonlite::base64_enc(x), fixed = TRUE)
-  } else if (is.list(x)) {
-    lapply(x, sanitize_raw_for_json)
-  } else {
-    x
+.jv.log.warning <- function(...) {
+  invisible(.Call("elara_log", "warning", paste0(...), PACKAGE = "(embedding)"))
+}
+
+.jv.output.stream <- function(name, text) {
+  .Call("elara_publish_stream", name, text, PACKAGE = "(embedding)")
+}
+
+# JSON text of an R value, written by Elara (no jsonlite): jsonlite's toJSON(auto_unbox = TRUE) rules -- a length-one
+# vector is a scalar unless I(), a named list an object, NA null, a raw vector unwrapped base64 (see sexpToJson() in
+# Elara's routine.cpp). `null`: what NULL becomes, "list" ({}) or "null".
+.jv.json.write <- function(x, null = "list") {
+  .jv.elara.call("elara_to_json", .jv.json.prepare(x), null)
+}
+
+# An R value from JSON text, read by Elara: jsonlite's fromJSON() rules for objects (named lists) and arrays of
+# scalars (vectors); other arrays are lists.
+.jv.json.read <- function(text) {
+  .jv.elara.call("elara_from_json", text)
+}
+
+# What Elara cannot format itself: vectors of a class (Date, POSIXct, difftime, ...) become their text, as jsonlite
+# wrote them. Factors, I() and "json" text are left to Elara.
+.jv.json.prepare <- function(x) {
+  if (is.list(x)) {
+    if (length(x)) x[] <- lapply(x, .jv.json.prepare)
+    return(x)
   }
+  if (is.object(x) && is.atomic(x) && !is.factor(x) && !inherits(x, c("AsIs", "json"))) {
+    return(as.character(x))
+  }
+  x
 }
 
 #' Display data
@@ -33,21 +54,12 @@ sanitize_raw_for_json <- function(x) {
 #'
 #' @export
 display_data <- function(data = NULL, metadata = NULL) {
-  invisible(hera_dot_call("elara_display_data",
-                          enc2utf8(toJSON(sanitize_raw_for_json(data), auto_unbox = TRUE)),
-                          enc2utf8(toJSON(metadata, auto_unbox = TRUE))))
+  invisible(.Call("elara_display_data", .jv.json.prepare(data), .jv.json.prepare(metadata), PACKAGE = "(embedding)"))
 }
 
 update_display_data <- function(data = NULL, metadata = NULL) {
-  invisible(hera_dot_call("elara_update_display_data",
-                          enc2utf8(toJSON(sanitize_raw_for_json(data), auto_unbox = TRUE)),
-                          enc2utf8(toJSON(metadata, auto_unbox = TRUE))))
+  invisible(.Call("elara_update_display_data", .jv.json.prepare(data), .jv.json.prepare(metadata), PACKAGE = "(embedding)"))
 }
-
-kernel_info_request <- function() {
-  hera_dot_call("elara_kernel_info_request")
-}
-
 
 #' Clear output
 #'
@@ -61,14 +73,14 @@ kernel_info_request <- function() {
 #' @return NULL invisibly
 #' @export
 clear_output <- function(wait = FALSE) {
-  invisible(hera_dot_call("elara_clear_output", isTRUE(wait)))
-}
-
-is_complete_request <- function(code) {
-  hera_dot_call("elara_is_complete_request", code)
+  invisible(.jv.elara.call("elara_clear_output", isTRUE(wait)))
 }
 
 #' View
+#'
+#' A table of the global environment (a data frame or a matrix, named: `View(mtcars)`) opens in the data viewer of
+#' the application running the session, when it has one (a "viewData" question, `params = list(name, title)`, that it
+#' answers with `{"ok": true}`); anything else, or with no data viewer, is displayed in the output.
 #'
 #' @param x something to display
 #' @param title title of the display
@@ -80,7 +92,14 @@ is_complete_request <- function(code) {
 #'
 #' @export
 View <- function(x, title) {
-  if (!missing(title)) IRdisplay::display_text(title)
-  IRdisplay::display(x)
+  name <- substitute(x)
+  if (is.name(name) && .jv.vars.is_table(x) && exists(as.character(name), envir = globalenv(), inherits = FALSE)) {
+    params <- list(name = as.character(name))
+    if (!missing(title)) params$title <- as.character(title)
+    answer <- .jv.ui.ask("viewData", params, default = NULL)
+    if (isTRUE(answer$ok)) return(invisible(x))
+  }
+  if (!missing(title)) display_data(list("text/plain" = title))
+  display(x)
   invisible(x)
 }
