@@ -1,5 +1,7 @@
 # hera (development version)
 
+* Plots on macOS without ragg: the png() that records them writes to a file in the session's temporary directory, since macOS's Quartz png() cannot open /dev/null (R 4.5: `QuartzBitmap_Output - unable to open file '/dev/null'`; no plot was shown).
+
 * The session's variables, for a frontend's variables pane and data viewer (`.jv.rpc.var_list`, `.jv.rpc.var_table`; Jovian's `Session.listVariables()`, `readTable()`): the objects of the global environment with their class, size and a one-line preview, and pages of a data frame's or a matrix's rows as text, as R prints them. Active bindings are listed without being run.
 
 * Plots are recorded on ragg's `agg_record()` when ragg (>= 1.4.0) is installed, as Ark does, and drawn with `agg_png()`/`agg_jpeg()`: a plot is drawn once, into the image sent, not first on a device that draws pixels nobody sees. A 100 000-point plot takes 122 ms instead of 585 ms (Ark: 101 ms). Without ragg, `png()` is used as before. The device opens when code first draws (`options(device)`), not at every cell, so a session that never plots loads nothing for it. `options(jupyter.plot_ragg = FALSE)` draws with `png()` instead: ragg leaves out the text of fonts with bitmap letters (Calibri, Cambria) at 8 to 10 points.

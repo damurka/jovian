@@ -274,10 +274,11 @@ jobs:
           python-version: ${{ matrix.python }}
 
       # What the tests exercise beyond running code: 'later' (callbacks while a session is idle) and IRdisplay
-      # (data frames and widgets as HTML)
+      # (data frames and widgets as HTML). One job adds ragg, so plots are tested on both of hera's devices: ragg's
+      # agg_record() and, everywhere else, R's own png()
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          packages: any::later, any::IRdisplay
+          packages: any::later, any::IRdisplay${{ matrix.target == 'linux-x64' && matrix.r == 'release' && ', any::ragg' || '' }}
 
       - name: npm ci
         run: npm ci --legacy-peer-deps
