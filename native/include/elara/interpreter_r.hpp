@@ -25,7 +25,8 @@ namespace elara
         RInterpreter() = delete;
 		RInterpreter(int argc, char* argv[]);
 
-        virtual ~RInterpreter() = default;
+        // defined where RDebugger is complete (interpreter_r.cpp): a unique_ptr of an incomplete type cannot be destroyed
+        ~RInterpreter() override;
 
         std::stringstream capture_stream;
 

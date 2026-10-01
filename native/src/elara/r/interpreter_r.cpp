@@ -235,6 +235,8 @@ namespace elara
     }
 #endif
 
+    RInterpreter::~RInterpreter() = default;
+
     RInterpreter::RInterpreter(int argc, char* argv[])
     {
         // Resolves R.dll (Windows) via LoadLibrary/GetProcAddress before
