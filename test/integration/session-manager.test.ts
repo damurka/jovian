@@ -1128,7 +1128,8 @@ hera::CommManager$register_comm_target("echo2", function(comm, message) {
                     text += m.content.text;
                 }
             });
-            const flood = await session.execute('for (i in 1:20000) cat("line", i, "\\n")', { timeout: 120000 });
+            // what is checked is that every message arrives, not how fast: GitHub's Intel Macs take 75 to 120 s
+            const flood = await session.execute('for (i in 1:20000) cat("line", i, "\\n")', { timeout: 300000 });
             assert.strictEqual(flood.success, true);
             assert.ok(messages > 50000, `expected an unbatched flood, got ${messages} messages`);
             const lines = text.split('\n').filter(Boolean);
