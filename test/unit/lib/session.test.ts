@@ -75,7 +75,9 @@ class FakeWebSocket {
 }
 
 const fakeSupervisor: any = {
-    stopSession: async () => {}
+    stopSession: async () => {},
+    // no kernel output to add (see supervisor-client.test.ts for what is added)
+    describeKernelExit: (reason: string) => reason
 };
 
 async function withFakeWebSocket<T>(fn: () => Promise<T>): Promise<T> {

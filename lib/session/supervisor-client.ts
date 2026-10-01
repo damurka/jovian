@@ -6,6 +6,11 @@ import type { EngineOptions, SessionStatusInfo } from '../types/index.js';
 import { Logger } from '../utils/logger.js';
 import { bundledHeraSource, ensureExecutable, locateNativeDirectory } from './native-paths.js';
 
+/** Kernel output lines worth attaching to an error. */
+const NOTABLE_OUTPUT = /error|fatal|warning|failed|cannot|not found|no such/i;
+/** How far back describeKernelExit() looks for what a crashed kernel printed. */
+const KERNEL_EXIT_OUTPUT_WINDOW_MS = 15_000;
+
 export interface SessionConnectionInfo {
     sessionId: string;
     httpBase: string;
@@ -122,8 +127,9 @@ export class SupervisorClient {
     private readonly persistent: PersistentSupervisorOptions | undefined;
     // The supervisor's stderr is where every kernel's start-up output ends up
     // ([elara] ..., [carpo] ...). It is kept, not printed, unless asked for,
-    // and attached to the error when a kernel fails to start.
-    private readonly recentOutput: string[] = [];
+    // and attached to the error when a kernel fails to start or exits
+    // unexpectedly.
+    private readonly recentOutput: { text: string; at: number }[] = [];
 
     constructor(logger: Logger, options: { forwardKernelOutput?: boolean; persistent?: PersistentSupervisorOptions | undefined } = {}) {
         this.logger = logger;
@@ -138,16 +144,31 @@ export class SupervisorClient {
 
     private rememberOutput(line: string): void {
         if (!line.trim()) return;
-        this.recentOutput.push(line);
+        this.recentOutput.push({ text: line, at: Date.now() });
         if (this.recentOutput.length > 200) this.recentOutput.shift();
     }
 
     /** The message plus what the kernels said just before, when that was not already printed. */
     private withKernelOutput(message: string): string {
         if (this.forwardKernelOutput || this.recentOutput.length === 0) return message;
-        const notable = this.recentOutput.filter((line) => /error|fatal|warning|failed|cannot|not found|no such/i.test(line));
-        const lines = (notable.length > 0 ? notable : this.recentOutput).slice(-8);
+        const all = this.recentOutput.map((line) => line.text);
+        const notable = all.filter((line) => NOTABLE_OUTPUT.test(line));
+        const lines = (notable.length > 0 ? notable : all).slice(-8);
         return `${message}\nKernel output:\n  ${lines.join('\n  ')}`;
+    }
+
+    /**
+     * Why a running kernel exited, with the error lines the kernels printed in
+     * the seconds before (`[elara] FATAL: ...`): without them the reason is only
+     * an exit code. Every R kernel's lines carry the same label, so only recent,
+     * error-like lines are added, and the reason is returned unchanged when there
+     * are none (or when the output was already printed or goes to a log file).
+     */
+    describeKernelExit(reason: string): string {
+        if (this.forwardKernelOutput) return reason;
+        const since = Date.now() - KERNEL_EXIT_OUTPUT_WINDOW_MS;
+        const lines = this.recentOutput.filter((line) => line.at >= since && NOTABLE_OUTPUT.test(line.text)).map((line) => line.text);
+        return lines.length === 0 ? reason : `${reason}\nKernel output:\n  ${lines.slice(-8).join('\n  ')}`;
     }
 
     /** The running supervisor (started, or in persistent mode found, on first use). */

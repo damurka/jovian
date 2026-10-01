@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert';
-import { buildSessionOptionsBody } from '../../../dist/lib/session/supervisor-client.js';
+import { buildSessionOptionsBody, SupervisorClient } from '../../../dist/lib/session/supervisor-client.js';
+import { Logger } from '../../../dist/lib/utils/logger.js';
 
 // Covers exactly the request-body shape POST /sessions and .../restart send
 // to the supervisor (native/src/themisto/http_api.cpp's parseSessionOptions())
@@ -71,5 +72,41 @@ test('buildSessionOptionsBody', async (t) => {
     await t.test('passes workingDirectory through to the supervisor', () => {
         const body = buildSessionOptionsBody({ rHome: '/opt/R', workingDirectory: '/projects/a' });
         assert.strictEqual(body.workingDirectory, '/projects/a');
+    });
+});
+
+// A kernel that dies mid-session (exit code 1 from elara's last-resort handler)
+// said why on stderr; the exit reason carries that, not only the exit code.
+test('describeKernelExit', async (t) => {
+    // rememberOutput() is what the supervisor's stderr reader calls for each line
+    const withOutput = (lines: { text: string; ageMs: number }[], options = {}) => {
+        const client = new SupervisorClient(new Logger(undefined, 'silent'), options) as unknown as {
+            recentOutput: { text: string; at: number }[];
+            describeKernelExit(reason: string): string;
+        };
+        for (const line of lines) client.recentOutput.push({ text: line.text, at: Date.now() - line.ageMs });
+        return client;
+    };
+    const exit = 'kernel process exited unexpectedly (process exited with code 0x1)';
+
+    await t.test('adds the error lines the kernel printed just before', () => {
+        const client = withOutput([
+            { text: '[elara] registered with supervisor at 127.0.0.1', ageMs: 1000 },
+            { text: '[elara] FATAL: bad allocation', ageMs: 500 }
+        ]);
+        assert.strictEqual(client.describeKernelExit(exit), `${exit}\nKernel output:\n  [elara] FATAL: bad allocation`);
+    });
+
+    await t.test('leaves out old lines and lines that are not errors', () => {
+        const client = withOutput([
+            { text: '[elara] FATAL: an earlier kernel', ageMs: 60_000 },
+            { text: '[elara] ready', ageMs: 100 }
+        ]);
+        assert.strictEqual(client.describeKernelExit(exit), exit);
+    });
+
+    await t.test('adds nothing when the kernel output was already printed', () => {
+        const client = withOutput([{ text: '[elara] FATAL: bad allocation', ageMs: 100 }], { forwardKernelOutput: true });
+        assert.strictEqual(client.describeKernelExit(exit), exit);
     });
 });

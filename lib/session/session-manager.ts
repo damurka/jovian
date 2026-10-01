@@ -461,7 +461,8 @@ export class Session extends EventEmitter {
 
             case 'kernelExit':
                 if (!this.stopped) {
-                    const reason = typeof frame.reason === 'string' ? frame.reason : 'unknown reason';
+                    // with what the kernel printed as it went down (e.g. "[elara] FATAL: bad allocation"), not only its exit code
+                    const reason = this.supervisor.describeKernelExit(typeof frame.reason === 'string' ? frame.reason : 'unknown reason');
                     this.logger.error(`R session process for ${this.info.sessionId} exited unexpectedly: ${reason}`);
                     this.emit('exit', { reason });
                     this.queue.clear();
