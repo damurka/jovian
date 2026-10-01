@@ -1,0 +1,2 @@
+# Patches apply to upstream sources with LF line endings, also where checkouts turn text into CRLF (Windows runners)
+*.patch text eol=lf
