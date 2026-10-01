@@ -523,6 +523,8 @@ namespace elara
                     }, "")
                     from <- src
                 }
+                # R's parser rejects a carriage return, which a CRLF checkout (Windows runners) puts in the built-in files
+                texts <- gsub("\r", "", texts, fixed = TRUE)
                 text_of <- function(path) texts[[match(path, paths)]]
                 description <- text_of("DESCRIPTION")
                 version <- read.dcf(textConnection(description), fields = "Version")[1, 1]
