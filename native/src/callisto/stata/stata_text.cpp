@@ -613,9 +613,10 @@ namespace callisto { namespace text {
         while (first > 0)
         {
             const std::string& line = lines[first - 1];
-            // A blank line, or the echoed command (". cmd" / "> continued"),
-            // is where the message starts.
-            if (trim(line).empty() || line.rfind(". ", 0) == 0 || line.rfind("> ", 0) == 0) break;
+            // A blank line, or the echoed command (". cmd" / "> continued", or
+            // a numbered line of a loop or program, "  2. cmd"), is where the
+            // message starts.
+            if (trim(line).empty() || line.rfind(". ", 0) == 0 || line.rfind("> ", 0) == 0 || isNumberedLine(line)) break;
             --first;
         }
 

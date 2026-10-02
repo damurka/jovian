@@ -136,6 +136,16 @@ TEST(StataTextErrorMessage, KeepsAMessageThatSpansLines)
     EXPECT_EQ(errorMessage(output, 4), "no; data in memory would be lost\nsecond line");
 }
 
+TEST(StataTextErrorMessage, StopsAtTheNumberedLinesOfALoop)
+{
+    // A loop's lines are echoed numbered: the message is only what Stata printed after them.
+    std::string output =
+        ". foreach v of varlist price mpg {\n  2.     gen low_`v' = `v' < `threshold'\n  3. }\n"
+        "invalid syntax\nr(198);\n\nend of do-file\n\nr(198);\n";
+    EXPECT_EQ(errorMessage(output, 198), "invalid syntax");
+    EXPECT_EQ(errorMessage("  4. }\nanc_rr< invalid name\nr(198);\n", 198), "anc_rr< invalid name");
+}
+
 TEST(StataTextErrorMessage, IsEmptyWithoutTheReturnCode)
 {
     EXPECT_EQ(errorMessage("some output\n", 111), "");
