@@ -16,7 +16,6 @@ namespace themisto
             options.rPath = body.value("rPath", "");
             options.rLibs = body.value("rLibs", "");
             options.pandocPath = body.value("pandocPath", "");
-            options.heraSrcPath = body.value("heraSrcPath", "");
             options.pythonHome = body.value("pythonHome", "");
             options.pythonPath = body.value("pythonPath", "");
             options.venvPath = body.value("venvPath", "");

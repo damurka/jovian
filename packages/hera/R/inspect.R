@@ -40,7 +40,7 @@
     # R's text, with help pages as HTML too -- so hovering over a name loads nothing the session hasn't
     bundle <- function(x) {
         if (isNamespaceLoaded("repr") && requireNamespace("IRdisplay", quietly = TRUE)) return(IRdisplay::prepare_mimebundle(x)$data)
-        if (inherits(x, "help_files_with_topic")) return(mime_bundle(x)$data)
+        if (inherits(x, "help_files_with_topic")) return(.elara.mime_bundle(x)$data)
         list("text/plain" = paste(utils::capture.output(print(x)), collapse = "\n"))
     }
 

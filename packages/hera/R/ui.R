@@ -13,12 +13,12 @@
 
 # Tells the host's UI: `method` with `params` (a named list)
 .jv.ui.notify <- function(method, params = .jv.utils.named_list()) {
-  comm <- the$ui_comm
+  comm <- .jv.the$ui_comm
   if (is.null(comm) || is.null(comm$target_name)) {
-    comm <- CommManager$new_comm(.jv.ui.TARGET)
+    comm <- .elara.CommManager$new_comm(.jv.ui.TARGET)
     if (is.null(comm)) return(invisible(FALSE))
     comm$open(list())
-    the$ui_comm <- comm
+    .jv.the$ui_comm <- comm
   }
   comm$send(list(method = method, params = params))
   invisible(TRUE)
@@ -35,30 +35,28 @@
 #' Requests to the application running the session
 #'
 #' What R code asks of the application (the host) that runs its session, through Jovian's Session `'ui'` event:
-#' `host_notify()` only tells it (`method` with `params`) and returns at once; `host_ask()` waits for its answer, as
+#' `.elara.host_notify()` only tells it (`method` with `params`) and returns at once; `.elara.host_ask()` waits for its answer, as
 #' `readline()` waits for the user's -- it works while a cell runs, a Shiny app's included. The methods are the
 #' host's: a host that does not know one ignores a notification and answers a question with nothing.
 #'
 #' @param method The request's name, as the host knows it (`"myapp.print"`, say).
 #' @param params Its parameters: a named list, sent as a JSON object.
-#' @param default What `host_ask()` returns when the host gives no answer.
-#' @return `host_notify()`: whether the request was sent (`FALSE` outside a Jovian kernel), invisibly.
-#'   `host_ask()`: the host's answer (JSON, read as by `jsonlite::fromJSON(simplifyVector = FALSE)`), or `default`.
+#' @param default What `.elara.host_ask()` returns when the host gives no answer.
+#' @return `.elara.host_notify()`: whether the request was sent (`FALSE` outside a Jovian kernel), invisibly.
+#'   `.elara.host_ask()`: the host's answer (JSON, read as by `jsonlite::fromJSON(simplifyVector = FALSE)`), or `default`.
 #' @examples
 #' \dontrun{
-#' host_notify("myapp.openChat", list(prompt = "Explain this chart"))
+#' .elara.host_notify("myapp.openChat", list(prompt = "Explain this chart"))
 #' pdf <- host_ask("myapp.print", list(html = "report.html"), default = NULL)
 #' }
-#' @export
-host_notify <- function(method, params = list()) {
-  if (!is_elara()) return(invisible(FALSE))
+.elara.host_notify <- function(method, params = list()) {
+  if (!.elara.is_elara()) return(invisible(FALSE))
   .jv.ui.notify(method, .jv.ui.params(params))
 }
 
 #' @rdname host_notify
-#' @export
-host_ask <- function(method, params = list(), default = NULL) {
-  if (!is_elara()) return(default)
+.elara.host_ask <- function(method, params = list(), default = NULL) {
+  if (!.elara.is_elara()) return(default)
   .jv.ui.ask(method, .jv.ui.params(params), default = default)
 }
 
@@ -71,11 +69,11 @@ host_ask <- function(method, params = list(), default = NULL) {
 
 .jv.ui.install <- function() {
   # a target for the comm the kernel opens to the host (a comm_open from a frontend to it is answered too)
-  CommManager$register_comm_target(.jv.ui.TARGET, function(comm, message) {})
+  .elara.CommManager$register_comm_target(.jv.ui.TARGET, function(comm, message) {})
 
   shim <- new.env(parent = emptyenv())
-  for (name in grep("^\\.rs\\.api\\.", ls(asNamespace("hera"), all.names = TRUE), value = TRUE)) {
-    assign(name, get(name, envir = asNamespace("hera")), envir = shim)
+  for (name in grep("^\\.rs\\.api\\.", ls(.jv.NAMESPACE, all.names = TRUE), value = TRUE)) {
+    assign(name, get(name, envir = .jv.NAMESPACE), envir = shim)
   }
   attached <- attach(shim, name = "tools:rstudio", pos = length(search()) - 1L, warn.conflicts = FALSE)
   lockEnvironment(attached, bindings = TRUE)
@@ -117,17 +115,18 @@ host_ask <- function(method, params = list(), default = NULL) {
   api <- asNamespace("rstudioapi")
   position <- function(p) api$document_position(row = p$line + 1, column = p$character + 1)
   selections <- lapply(context$selections, function(s) {
-    list(range = api$document_range(start = position(s$start), end = position(s$end)), text = s$text %||% "")
+    list(range = api$document_range(start = position(s$start), end = position(s$end)), text = .jv.or(s$text, ""))
   })
   structure(list(
-    id = context$id %||% "",
-    path = context$path %||% "",
+    id = .jv.or(context$id, ""),
+    path = .jv.or(context$path, ""),
     contents = as.character(unlist(context$contents)),
     selection = structure(selections, class = "document_selection")
   ), class = "document_context")
 }
 
-`%||%` <- function(a, b) if (is.null(a)) b else a
+# `%||%` without defining it (an operator cannot be dot-named, and would mask base R's from 4.4 on)
+.jv.or <- function(a, b) if (is.null(a)) b else a
 
 # ---- the RStudio API (rstudioapi::callFun()) ---------------------------------------------------------------------
 

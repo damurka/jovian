@@ -229,7 +229,6 @@ namespace themisto
         procOptions.rPath = options.rPath;
         procOptions.rLibs = options.rLibs;
         procOptions.pandocPath = options.pandocPath;
-        procOptions.heraSrcPath = options.heraSrcPath;
         procOptions.pythonHome = options.pythonHome;
         procOptions.pythonPath = options.pythonPath;
         procOptions.venvPath = options.venvPath;
@@ -542,7 +541,6 @@ namespace themisto
                 { "rPath", session.options.rPath },
                 { "rLibs", session.options.rLibs },
                 { "pandocPath", session.options.pandocPath },
-                { "heraSrcPath", session.options.heraSrcPath },
                 { "pythonHome", session.options.pythonHome },
                 { "pythonPath", session.options.pythonPath },
                 { "venvPath", session.options.venvPath },

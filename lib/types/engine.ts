@@ -94,13 +94,6 @@ export interface EngineOptions {
     rLibs?: string | undefined;
     /** Directory containing the pandoc binary, for bundled R installs that don't ship it on PATH. */
     pandocPath?: string | undefined;
-    /**
-     * For developing hera, the R kernel's own R code (packages/hera in this
-     * repo): Elara reads it from this directory instead of the copy built
-     * into it, so an edit takes effect at the next session without
-     * rebuilding the kernel. Nothing is installed either way.
-     */
-    heraSrcPath?: string | undefined;
 
     /** Only used when kernelType is 'python' -- Carpo's equivalent of rHome. Found from $PYTHONHOME or `python3`/`python` on PATH when omitted. */
     pythonHome?: string | undefined;

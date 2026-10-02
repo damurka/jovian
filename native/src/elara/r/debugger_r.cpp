@@ -73,11 +73,7 @@ namespace elara
 
         SEXP heraFunction(const char* name)
         {
-            SEXP call = PROTECT(r::rCall(Rf_install(":::"), Rf_install("hera"), Rf_install(name)));
-            int error = 0;
-            SEXP fn = R_tryEval(call, R_GlobalEnv, &error);
-            UNPROTECT(1);
-            return error ? R_NilValue : fn;
+            return r::elaraFunction(name);
         }
 
         // hera's `name`(args...): with Rf_eval when `inContext` (the call stack must be R's own: the function

@@ -75,6 +75,19 @@ namespace elara
 namespace elara
 {
 
+    // `code` with \n line ends: \r\n and a lone \r become \n (R's parser rejects a carriage return)
+    std::string withLineFeeds(const std::string& code)
+    {
+        if (code.find('\r') == std::string::npos) return code;
+        std::string out;
+        out.reserve(code.size());
+        for (size_t i = 0; i < code.size(); ++i) {
+            if (code[i] != '\r') out += code[i];
+            else if (i + 1 >= code.size() || code[i + 1] != '\n') out += '\n';
+        }
+        return out;
+    }
+
     void WriteConsoleEx(const char* buf, int buflen, int otype) {
         p_interpreter->writeConsole(buf, buflen, otype);
     }
@@ -502,80 +515,53 @@ namespace elara
         }
 
         // hera -- the kernel's own R code: running cells, rich output, comms, completion -- is built into the
-        // kernel (hera_sources.hpp) and loaded here as the namespace 'hera', the way Ark carries its R code:
-        // nothing is installed, so a first session needs no package install (and no Rscript run to do one), and a
-        // session loads only R's base packages besides. With --hera-src-path (development) the same files are
-        // read from that packages/hera folder instead, so an edit to them needs no kernel rebuild.
+        // kernel (hera_sources.hpp) and loaded here, the way Ark carries its R code: nothing is installed, so a
+        // first session needs no package install (and no Rscript run to do one), and a session loads only R's base
+        // packages besides. An edit to packages/hera takes a rebuild of the kernel.
         //
-        // The namespace is made as loadNamespace() makes one -- an imports environment, the namespace info
-        // (spec, exports, S3 methods, path), registered by name -- so hera::display(), hera:::hera_call() (how
-        // this kernel calls it) and the S3 methods work as they did for the installed package. Its exports are
-        // attached as "tools:hera", as library(hera) attached them (View() and display() for the user).
+        // As Ark's tools:positron: one locked environment on the search path, "tools:jovian", every name in it
+        // dot-named -- `.jv.*` the kernel's own, `.elara.*` what notebooks and packages call (.elara.display(),
+        // .elara.host_ask(), ...) -- so it masks nothing and adds no namespace. Its functions look names up from
+        // there outward (R's packages, then base): a user's objects, in the global environment ahead of it, are not
+        // on that path. View() is replaced inside utils, as Ark does, rather than masked. The methods of base R's
+        // generics (print, $) are registered from NAMESPACE; hera's own generics find theirs beside them.
         static const char* hera_loader = R"hera(
             function(paths, texts) {
-                from <- "built in"
-                src <- Sys.getenv("ELARA_HERA_SRC", unset = "")
-                if (nzchar(src) && dir.exists(file.path(src, "R"))) {
-                    r_files <- sort(list.files(file.path(src, "R"), pattern = "[.][Rr]$"), method = "radix")
-                    paths <- c(file.path("R", r_files), "NAMESPACE", "DESCRIPTION")
-                    texts <- vapply(file.path(src, paths), function(f) {
-                        paste(readLines(f, encoding = "UTF-8", warn = FALSE), collapse = "\n")
-                    }, "")
-                    from <- src
-                }
                 # R's parser rejects a carriage return, which a CRLF checkout (Windows runners) puts in the built-in files
                 texts <- gsub("\r", "", texts, fixed = TRUE)
                 text_of <- function(path) texts[[match(path, paths)]]
                 description <- text_of("DESCRIPTION")
                 version <- read.dcf(textConnection(description), fields = "Version")[1, 1]
                 directives <- strsplit(text_of("NAMESPACE"), "\n", fixed = TRUE)[[1]]
-                directive <- function(name) {
-                    found <- regmatches(directives, regexec(paste0("^", name, "\\(([^,)]+)(?:,([^)]+))?\\)"), directives))
-                    lapply(Filter(length, found), function(m) gsub("[\"`]", "", m[-1]))
-                }
+                # S3method(generic, class, function)
+                methods <- regmatches(directives, regexec("^S3method\\(([^,)]+),([^,)]+),([^,)]+)\\)", directives))
+                methods <- lapply(Filter(length, methods), function(m) gsub("[\"`]", "", m[-1]))
 
-                # where packageDescription("hera") / packageVersion("hera") look
-                path <- file.path(tempdir(), "hera")
-                dir.create(path, showWarnings = FALSE)
-                writeLines(description, file.path(path, "DESCRIPTION"))
-
-                imports <- new.env(parent = .BaseNamespaceEnv, hash = TRUE)
-                attr(imports, "name") <- "imports:hera"
-                for (m in directive("importFrom")) assign(m[[2]], get(m[[2]], envir = asNamespace(m[[1]])), envir = imports)
-
-                ns <- new.env(parent = imports, hash = TRUE)
-                info <- new.env(parent = baseenv(), hash = TRUE)
-                ns[[".__NAMESPACE__."]] <- info
-                info$spec <- c(name = "hera", version = version)
-                info$exports <- new.env(parent = baseenv(), hash = TRUE)
-                lazydata <- new.env(parent = baseenv(), hash = TRUE)
-                attr(lazydata, "name") <- "lazydata:hera"
-                info$lazydata <- lazydata
-                info$imports <- list(base = TRUE)
-                info$path <- normalizePath(path, "/")
-                info$dynlibs <- character()
-                info$S3methods <- matrix(NA_character_, 0L, 4L)
-                ns[[".__S3MethodsTable__."]] <- new.env(parent = baseenv(), hash = TRUE)
-                ns[[".packageName"]] <- "hera"
-
+                env <- attach(NULL, pos = 2L, name = "tools:jovian")
                 for (file in paths[startsWith(paths, "R/")]) {
-                    for (e in parse(text = text_of(file), keep.source = FALSE, encoding = "UTF-8")) eval(e, ns)
+                    for (e in parse(text = text_of(file), keep.source = FALSE, encoding = "UTF-8")) eval(e, env)
                 }
-                .Internal(registerNamespace("hera", ns))
+                assign(".elara.version", version, envir = env)
+                # nothing that could mask: every name dot-named
+                plain <- grep("^[^.]", ls(env, all.names = TRUE), value = TRUE)
+                if (length(plain)) stop("names in tools:jovian without a dot: ", paste(plain, collapse = ", "), call. = FALSE)
 
-                exports <- vapply(directive("export"), `[[`, "", 1L)
-                for (name in exports) assign(name, name, envir = info$exports)
-                for (m in directive("S3method")) {
-                    registerS3method(m[[1]], m[[2]], get(paste0(m[[1]], ".", m[[2]]), envir = ns), envir = ns)
+                for (m in methods) registerS3method(m[[1]], m[[2]], get(m[[3]], envir = env), envir = baseenv())
+                # View(): the kernel's, in utils itself (and on package:utils, as attached), as Ark replaces it
+                unlock <- get("unlockBinding", envir = baseenv())
+                lock <- get("lockBinding", envir = baseenv())
+                for (where in c("namespace:utils", "package:utils")) {
+                    target <- if (where == "namespace:utils") asNamespace("utils") else if (where %in% search()) as.environment(where)
+                    if (!is.null(target) && exists("View", envir = target, inherits = FALSE)) {
+                        unlock("View", target)
+                        assign("View", get(".elara.View", envir = env), envir = target)
+                        lock("View", target)
+                    }
                 }
-                if (exists(".onLoad", envir = ns, inherits = FALSE)) ns$.onLoad(dirname(path), "hera")
-                lockEnvironment(ns, bindings = TRUE)
+                get(".jv.onLoad", envir = env)(NULL, "elara")
+                lockEnvironment(env, bindings = TRUE)
 
-                attached <- attach(NULL, pos = 2L, name = "tools:hera")
-                for (name in exports) assign(name, get(name, envir = ns), envir = attached)
-                lockEnvironment(attached, bindings = TRUE)
-
-                paste0("hera ", version, " (", from, ")")
+                paste0("hera ", version, " (built in) as tools:jovian")
             }
         )hera";
 
@@ -608,7 +594,7 @@ namespace elara
         // the print methods of values only a frontend shows (see hera's repl.R); R's global error handler is
         // installed by R's console loop itself (readConsole()): from here it would last only as long as this call
         bool install_error = false;
-        evalRString("hera:::.jv.display.install(); hera:::.jv.ui.install()", &install_error);
+        evalRString("local({ env <- as.environment(\"tools:jovian\"); env$.jv.display.install(); env$.jv.ui.install() })", &install_error);
         if (install_error) {
             log::error(std::string("installing the display overrides: ") + R_curErrorBuf());
         }
@@ -668,7 +654,9 @@ namespace elara
         // with breakpoints stop: see debugger_r.cpp
         bool debugging = m_debugger && m_debugger->started();
         std::string path = debugging ? m_debugger->cellPath(code) : std::string();
-        SEXP code_ = PROTECT(Rf_mkString(code.c_str()));
+        // R's parser takes a carriage return for an invalid token: a cell written on Windows (\r\n) is given to R with
+        // \n line ends (the same lines, so a breakpoint's line still matches; the debugger names the cell by its text)
+        SEXP code_ = PROTECT(Rf_mkString(withLineFeeds(code).c_str()));
         SEXP count_ = PROTECT(Rf_ScalarInteger(execution_count));
         SEXP parsed = R_NilValue;
         try {
@@ -769,7 +757,7 @@ namespace elara
             // R's global calling handlers belong to its top level: installed by its own console loop, as its first
             // line -- through R_tryEval they would last only as long as that call
             m_loopStarted = true;
-            static const char install[] = "base::invisible(hera:::.jv.errors.install())\n";
+            static const char install[] = "base::invisible(base::as.environment(\"tools:jovian\")$.jv.errors.install())\n";
             if (static_cast<int>(sizeof install) <= length) {
                 std::memcpy(buffer, install, sizeof install);
                 m_inTail = true;
@@ -948,7 +936,7 @@ namespace elara
 
     adrastea::json RInterpreter::isCompleteRequestImpl(const std::string& code_)
     {
-        SEXP code = PROTECT(Rf_mkString(code_.c_str()));
+        SEXP code = PROTECT(Rf_mkString(withLineFeeds(code_).c_str()));
 
         R_tryCatchError(
             [](void* void_code) { // body
@@ -1000,7 +988,7 @@ namespace elara
     {
         SEXP code_ = PROTECT(Rf_mkString(code.c_str()));
         SEXP cursor_pos_ = PROTECT(Rf_ScalarInteger(cursor_pos));
-        SEXP result = PROTECT(r::invokeHeraFn("complete", code_, cursor_pos_));
+        SEXP result = PROTECT(r::invokeHeraFn(".elara.complete", code_, cursor_pos_));
 
         auto matches = jsonFromCharacterVector(VECTOR_ELT(result, 0));
         int cursor_start = INTEGER_ELT(VECTOR_ELT(result, 1), 0);

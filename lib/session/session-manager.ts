@@ -135,9 +135,9 @@ const MAX_EXECUTION_HISTORY_ENTRIES = 200;
 // kept.
 const MAX_HISTORY_STREAM_CHARS = 500_000;
 
-/** R code calling a hera RPC (.jv.rpc.call()) with its arguments as JSON: a JSON string is a valid R string. */
+/** R code calling one of the kernel's RPCs (.jv.rpc.call() in tools:jovian) with its arguments as JSON: a JSON string is a valid R string. */
 function rpcCode(method: string, args: Record<string, unknown>): string {
-    return `hera:::.jv.rpc.call(${JSON.stringify(method)}, ${JSON.stringify(JSON.stringify(args))})`;
+    return `base::as.environment("tools:jovian")$.jv.rpc.call(${JSON.stringify(method)}, ${JSON.stringify(JSON.stringify(args))})`;
 }
 
 export class Session extends EventEmitter {
@@ -1408,8 +1408,7 @@ export class SessionManager {
                     rHome: options.rHome,
                     rPath: options.rPath,
                     rLibs: options.rLibs,
-                    pandocPath: options.pandocPath,
-                    heraSrcPath: options.heraSrcPath
+                    pandocPath: options.pandocPath
                 };
                 this.logger.debug('Starting a helper R process to answer while R sessions are busy');
                 const info = await this.supervisor.createSession(helperOptions);

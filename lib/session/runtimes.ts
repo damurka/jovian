@@ -501,7 +501,7 @@ export async function withDiscoveredRuntime(options: EngineOptions, context?: Di
  */
 export function withAbsolutePaths(options: EngineOptions, cwd: string = process.cwd(), platform: string = process.platform): EngineOptions {
     const path = platform === 'win32' ? win32 : posix;
-    const single = ['rHome', 'rPath', 'pandocPath', 'heraSrcPath', 'pythonHome', 'venvPath', 'stataHome', 'arkPath', 'workingDirectory'] as const;
+    const single = ['rHome', 'rPath', 'pandocPath', 'pythonHome', 'venvPath', 'stataHome', 'arkPath', 'workingDirectory'] as const;
     const lists = ['rLibs', 'pythonPath'] as const;
 
     // An absolute path is passed on exactly as written.

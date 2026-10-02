@@ -15,12 +15,11 @@
 #' @param cursor_pos position of the cursor
 #'
 #' @examples
-#' complete("rnorm(")
+#' .elara.complete("rnorm(")
 #'
 #' @return a list that contains potential completions as the first item
 #'
-#' @export
-complete <- function(code, cursor_pos = nchar(code)) {
+.elara.complete <- function(code, cursor_pos = nchar(code)) {
     # Find which line we're on and position within that line
     lines <- strsplit(code, '\n', fixed = TRUE)[[1]]
     chars_before_line <- 0L

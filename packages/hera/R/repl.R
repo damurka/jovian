@@ -15,9 +15,9 @@
 }
 
 .jv.repl.cell_start <- function(silent) {
-  the$cell_plot <- NULL
-  the$cell_exit <- list()
-  the$cell_silent <- silent
+  .jv.the$cell_plot <- NULL
+  .jv.the$cell_exit <- list()
+  .jv.the$cell_silent <- silent
   invisible()
 }
 
@@ -26,8 +26,8 @@
   if (failed && !silent) .jv.repl.flush_warnings()
   if (!silent) tryCatch(.jv.graphics.cell_done(), error = function(e) .jv.log.warning("sending the plot: ", conditionMessage(e)))
   # cell_options() undone
-  for (restore in rev(the$cell_exit)) tryCatch(restore(), error = function(e) NULL)
-  the$cell_exit <- list()
+  for (restore in rev(.jv.the$cell_exit)) tryCatch(restore(), error = function(e) NULL)
+  .jv.the$cell_exit <- list()
   invisible()
 }
 
@@ -105,8 +105,8 @@
 # console, or print()) as display data, as Ark does: their own print methods would open a browser or a pager. Put in
 # place for their classes now and whenever the package defining their print method is loaded.
 .jv.display.print <- function(x, ...) {
-  bundle <- mime_bundle(x)
-  display_data(bundle$data, bundle$metadata)
+  bundle <- .elara.mime_bundle(x)
+  .elara.display_data(bundle$data, bundle$metadata)
   invisible(x)
 }
 

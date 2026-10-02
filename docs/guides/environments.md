@@ -23,11 +23,11 @@ await manager.createSession({
 
 ### The `hera` package (built in)
 
-Elara delegates code execution, rich output, completion, inspection and comms to `hera` (`packages/hera`), R code that is built into the kernel and loaded at start-up as the namespace `hera`, as Ark carries its own R code. Nothing is installed into R and nothing has to be: `hera` imports no CRAN package, so a new session has only R's base packages and `hera` loaded. Its exports are attached as `tools:hera` (`View()`, `display()`, `cell_options()`, ...), and `hera::` works as for a package. A `hera` installed in your R library from older versions is not used.
+Elara delegates code execution, rich output, completion, inspection and comms to `hera` (`packages/hera`), R code that is built into the kernel and loaded at start-up, as Ark carries its own R code. Nothing is installed into R and nothing has to be: `hera` imports no CRAN package, so a new session has only R's base packages loaded. As Ark's `tools:positron`, it is one locked environment on the search path, `tools:jovian`, and every name in it is dot-named: `.jv.*` are the kernel's own, `.elara.*` what notebooks and packages call (`.elara.display()`, `.elara.display_data()`, `.elara.clear_output()`, `.elara.cell_options()`, `.elara.host_ask()`, `.elara.host_notify()`, `.elara.CommManager`, ...). So it masks no function, a package's or base R's, and adds no namespace. `View()` is the kernel's (it asks the host to show the data), put in `utils` itself, as Ark does. Kernels before Jovian 0.2.6 loaded the same code as a namespace `hera` (`hera::display()`); a `hera` installed in your R library from older versions is not used.
 
-`IRdisplay` (with `repr`), when installed, is loaded the first time something needs it: a data frame, an HTML widget, `display()`, `View()`. Without it these show as text.
+`IRdisplay` (with `repr`), when installed, is loaded the first time something needs it: a data frame, an HTML widget, `.elara.display()`, `View()`. Without it these show as text.
 
-For developing `hera`: set `heraSrcPath` to the `packages/hera` directory and Elara reads the files from there instead of its built-in copy, so an edit takes effect at the next session without rebuilding the kernel. The kernel log (Themisto re-prints it with an `[elara]` prefix) says which: `Loaded hera <version> (built in)` or `(… path …)`.
+For developing `hera`: edit `packages/hera` and rebuild the kernel (`npm run build:native`); a session always runs the copy built into its kernel. The kernel log (Themisto re-prints it with an `[elara]` prefix) says which it loaded: `loaded hera <version> (built in) as tools:jovian`.
 
 ### Notes
 

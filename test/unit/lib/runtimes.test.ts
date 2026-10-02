@@ -352,7 +352,7 @@ test('withDiscoveredRuntime', async (t) => {
 test('withAbsolutePaths', async (t) => {
     await t.test('resolves every path option against the given directory', () => {
         const resolved = withAbsolutePaths(
-            { rHome: 'R', pythonHome: '../py', stataHome: '/opt/stata19', workingDirectory: 'work', heraSrcPath: 'packages/hera', kernelType: 'r' },
+            { rHome: 'R', pythonHome: '../py', stataHome: '/opt/stata19', workingDirectory: 'work', pandocPath: 'tools/pandoc', kernelType: 'r' },
             '/home/me/project',
             'linux'
         );
@@ -361,7 +361,7 @@ test('withAbsolutePaths', async (t) => {
             pythonHome: '/home/me/py',
             stataHome: '/opt/stata19',
             workingDirectory: '/home/me/project/work',
-            heraSrcPath: '/home/me/project/packages/hera',
+            pandocPath: '/home/me/project/tools/pandoc',
             kernelType: 'r'
         });
     });

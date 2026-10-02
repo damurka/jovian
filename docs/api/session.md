@@ -114,7 +114,7 @@ R code using **rstudioapi** asks the application running the session — as Ark'
 
 A question reaches the host as an `input_request` carrying `jovian_ui`, whether or not the execution has `allowStdin` (the Session always answers it: a Shiny app's `createShiny()`, which allows no input, can ask too); with no `'ui'` listener it is answered at once with no answer, which gives the R function its default (`NULL` for a prompt, `FALSE` for a question). A listener must call `reply` for every question: the R code waits for it.
 
-R code can make its own requests to the application with **`hera::host_notify(method, params)`** (a notification) and **`hera::host_ask(method, params, default = NULL)`** (a question, returning the answer read from JSON): the same `'ui'` events, with the application's own method names -- DataSuite's apps use `datasuite.print`, `datasuite.openChat` and `datasuite.installPackages` (datasuite.ui's `ds_host_request()`). `JOVIAN_HOST_VERSION` / `JOVIAN_HOST_MODE` set what `rstudioapi::getVersion()` / `getMode()` report (default `2025.1.0`, `desktop`).
+R code can make its own requests to the application with **`.elara.host_notify(method, params)`** (a notification) and **`.elara.host_ask(method, params, default = NULL)`** (a question, returning the answer read from JSON): the same `'ui'` events, with the application's own method names -- DataSuite's apps use `datasuite.print`, `datasuite.openChat` and `datasuite.installPackages` (datasuite.ui's `ds_host_request()`). `JOVIAN_HOST_VERSION` / `JOVIAN_HOST_MODE` set what `rstudioapi::getVersion()` / `getMode()` report (default `2025.1.0`, `desktop`).
 
 ## R help
 
@@ -127,7 +127,7 @@ The server answers while the session is idle: Elara services R's events then (`R
 
 ## Comms
 
-A *comm* is a named message stream between the client and a target registered inside the kernel (R: `hera::CommManager$register_comm_target(name, callback)`). Carpo has no way to register targets yet, so comms are an R feature today. See [the guide](../guides/comms.md).
+A *comm* is a named message stream between the client and a target registered inside the kernel (R: `.elara.CommManager$register_comm_target(name, callback)`). Carpo has no way to register targets yet, so comms are an R feature today. See [the guide](../guides/comms.md).
 
 | Method | Description |
 |---|---|

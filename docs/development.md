@@ -58,7 +58,7 @@ CTest entries: `MessageTest`, `MiddlewareTest`, `AuthenticationTest`, `ZmqSerial
 
 Playground tests are separate: `npm --prefix tools/playground test`.
 
-`hera` is built into `elara`: after changing `packages/hera/R/*`, rebuild (`npm run build:native`), or pass `heraSrcPath: 'packages/hera'` to `createSession()` to run the files as they are without rebuilding. Nothing is installed into R. `examples/r-execute-cases.ts` records everything a session sends for a set of cells (output, errors, plots, inspection) as JSON: run it before and after a change to hera and compare.
+`hera` is built into `elara`: after changing `packages/hera/R/*`, rebuild (`npm run build:native`): a session always runs the hera built into its kernel. Nothing is installed into R. `examples/r-execute-cases.ts` records everything a session sends for a set of cells (output, errors, plots, inspection) as JSON: run it before and after a change to hera and compare.
 
 `npm test` (`scripts/test.js`) runs the native stage (with OpenCppCoverage if installed on Windows, otherwise plain `ctest`), then the two Node stages (`--test-force-exit`) through a wrapper that force-kills `node --test` after **20 minutes** — a backstop against a hung run, far above the couple of minutes the integration suite takes, so `npm test` is a valid one-shot check. The stages can also be run on their own: `npm run test:unit` and `npm run test:integration`.
 

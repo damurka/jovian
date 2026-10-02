@@ -10,7 +10,7 @@ The parts are named after moons of Jupiter:
 |---|---|---|
 | **Jovian** | The umbrella product and npm package (`@damurka/jovian`): a TypeScript client over the native binaries below | `lib/` |
 | **Adrastea** | Language-neutral Jupyter kernel framework: wire protocol, ZMQ transport, kernel request loop, the abstract interpreter interface (`adrastea::`). Built as a **static library** shared by Elara, Carpo and Themisto | `native/src/adrastea`, `native/include/adrastea` |
-| **Elara** | The R kernel: embeds R on top of Adrastea, loading R's shared library at runtime (`elara::`, the `elara` executable). It carries **hera**, its own R code (execution, rich output, completion, inspection, comms), built in by `cmake/EmbedHera.cmake` and loaded as the namespace `hera`: nothing is installed into R | `native/src/elara`, `packages/hera` |
+| **Elara** | The R kernel: embeds R on top of Adrastea, loading R's shared library at runtime (`elara::`, the `elara` executable). It carries **hera**, its own R code (execution, rich output, completion, inspection, comms), built in by `cmake/EmbedHera.cmake` and loaded into one locked environment on the search path, `tools:jovian`, every name dot-named (`.jv.*`, `.elara.*`), as Ark's `tools:positron`: nothing is installed into R, and nothing masks a package's function | `native/src/elara`, `packages/hera` |
 | **Carpo** | The Python kernel: embeds CPython on top of Adrastea the same way (`carpo::`, the `carpo` executable) | `native/src/carpo` |
 | **Callisto** | The Stata kernel: embeds Stata 17+ through the shared library Stata ships for pystata (`callisto::`, the `callisto` executable) | `native/src/callisto` |
 | **Themisto** | The kernel supervisor: spawns and monitors one kernel process per session, speaks ZMQ to each, and re-exposes sessions over HTTP + WebSocket (`themisto::`, the `themisto` executable) | `native/src/themisto` |
@@ -124,7 +124,7 @@ Session.execute(code)
                                                                      └ shell: execute_request ─► kernel
 kernel main thread: KernelCore::executeRequest
    status busy (iopub) · execute_input · [beginExecution: control watcher on]
-   RInterpreter → hera:::hera_call("execute", …)   |   PyInterpreter → __carpo_run(code, globals)
+   RInterpreter → .jv.call("execute", …)   |   PyInterpreter → __carpo_run(code, globals)
       stream (coalesced ≤ every ~50 ms / 16 KB) / display_data / execute_result / error   (iopub)
    [endExecution]  execute_reply (shell)  ·  status idle (iopub)
 poll thread ── relays every message as {type:"message", channel, msg_type, parent_msg_id, content}

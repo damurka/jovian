@@ -13,7 +13,6 @@ Passed to `SessionManager.createSession()`; also `Partial<EngineOptions>` to `Se
 | `rPath` | string | `<rHome>/bin/x64` (Windows) | Directory containing `R.dll`; put on the kernel's `PATH`. |
 | `rLibs` | string | — | Extra library path (`R_LIBS`, `R_LIBS_USER`, and `R_LIBS_SITE` on Windows); where `hera` is looked up and installed. |
 | `pandocPath` | string | — | Directory with a `pandoc` binary, for bundled R installs that do not ship it on `PATH` (`RSTUDIO_PANDOC`). |
-| `heraSrcPath` | string | — | For developing hera, the R kernel's own R code: the `packages/hera` directory to read it from instead of the copy built into Elara, so an edit takes effect at the next session without rebuilding the kernel. Nothing is installed either way. |
 | `pythonHome` | string | discovered | Python installation prefix (`PYTHONHOME`). Its shared library is loaded from here. When omitted it is found from `$PYTHONHOME`, then `python3` / `python` on PATH (`sys.base_prefix`). |
 | `pythonPath` | string | — | Extra `PYTHONPATH`. |
 | `venvPath` | string | — | A venv whose `site-packages` is added to `sys.path`. `pythonHome` must still point at the *base* install. |

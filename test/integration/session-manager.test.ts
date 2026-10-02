@@ -232,6 +232,24 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
             assert.strictEqual(page.rows[1][0], '22.8');
             assert.deepStrictEqual((await session.readTable('d')).rows, [['2020-01-02', 'b']]);
             await assert.rejects(session.readTable('x'), /not a data frame or a matrix/);
+
+            // a data environment (attribute "jovian.tables"): its tables listed without being read, and read when asked
+            await session.execute([
+                'reads <- 0',
+                'data_env <- attach(NULL, name = "mydata:tables")',
+                'makeActiveBinding("visits", function() { reads <<- reads + 1; data.frame(district = c("a", "b"), n = 1:2) }, data_env)',
+                'assign("helper", function() 1, envir = data_env)',
+                'attr(data_env, "jovian.tables") <- "visits"',
+            ].join('\n'));
+            const listed = await session.listVariables();
+            assert.deepStrictEqual(listed.find((v) => v.name === 'visits'),
+                { name: 'visits', type: 'data.frame', size: '', summary: 'read when shown, from mydata:tables', table: true });
+            assert.ok(!listed.some((v) => v.name === 'helper'), 'only the tables named are listed');
+            const value = (r: { output: any[] }) => r.output.find((m) => m.msgType === 'execute_result')?.content?.data?.['text/plain'];
+            assert.strictEqual(value(await session.execute('reads')), '[1] 0', 'listing reads none of them');
+            const visits = await session.readTable('visits');
+            assert.strictEqual(visits.rowCount, 2);
+            assert.deepStrictEqual(visits.rows[1], ['b', '2']);
         } finally {
             await manager.stopAll();
         }
@@ -406,6 +424,22 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
         }
     });
 
+    await t.test('R: a cell with Windows line ends (\\r\\n) runs: a pipe at a line\'s end, and is_complete', async () => {
+        const manager = new SessionManager();
+        const session = await manager.createSession({ rHome: discoverRHome() });
+
+        try {
+            session.on('error', () => {});
+            const result = await session.execute('x <- c(3, 1, 2) |>\r\n  sort()\r\nx[1]');
+            assert.strictEqual(result.success, true, 'a \\r would be an "unexpected invalid token"');
+            const shown = result.output.find((m: any) => m.msgType === 'execute_result')?.content?.data?.['text/plain'];
+            assert.strictEqual(shown, '[1] 1');
+            assert.strictEqual((await session.isComplete('x <- 1 |>\r\n')).status, 'incomplete');
+        } finally {
+            await manager.stopAll();
+        }
+    });
+
     await t.test('R: stopOnError aborts the executions queued behind a failure, and a normal failure does not', async () => {
         const manager = new SessionManager();
         const session = await manager.createSession({ rHome: discoverRHome() });
@@ -510,7 +544,7 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
             session.on('error', (error) => assert.fail(`session reported an error: ${error?.message ?? error}`));
 
             const registered = await session.execute(`
-hera::CommManager$register_comm_target("echo", function(comm, message) {
+.elara.CommManager$register_comm_target("echo", function(comm, message) {
     comm$on_message(function(msg) {
         comm$send(list(echo = msg$content$data$text))
     })
@@ -773,8 +807,8 @@ hera::CommManager$register_comm_target("echo", function(comm, message) {
                 session.once('comm', (comm, data) => resolve({ comm, data })));
 
             const registered = await session.execute(`
-hera::CommManager$register_comm_target("kernel_side")
-comm <- hera::CommManager$new_comm("kernel_side")
+.elara.CommManager$register_comm_target("kernel_side")
+comm <- .elara.CommManager$new_comm("kernel_side")
 comm$on_message(function(msg) { comm$send(list(echo = msg$content$data$text)) })
 comm$open(list(greeting = "from R"))
 comm$send(list(second = 2))
@@ -807,7 +841,7 @@ comm$send(list(second = 2))
             session.on('error', (error) => assert.fail(`session reported an error: ${error?.message ?? error}`));
 
             await session.execute(`
-hera::CommManager$register_comm_target("echo2", function(comm, message) {
+.elara.CommManager$register_comm_target("echo2", function(comm, message) {
     comm$on_message(function(msg) { comm$send(list(echo = msg$content$data$text)) })
 })
 `);
@@ -1128,8 +1162,21 @@ hera::CommManager$register_comm_target("echo2", function(comm, message) {
                     text += m.content.text;
                 }
             });
-            // what is checked is that every message arrives, not how fast: GitHub's Intel Macs take 75 to 120 s
-            const flood = await session.execute('for (i in 1:20000) cat("line", i, "\\n")', { timeout: 300000 });
+            // what is checked is that every message arrives, not how fast: GitHub's Intel Macs take 70 to 180 s. Where
+            // the time goes is logged: R's own time for the loop (R writing every message), against when the reply
+            // and the last line reached here (the kernel's sending, the supervisor's relay and this client)
+            const started = performance.now();
+            let lastLineAt = 0;
+            // (after the listener above has added the text: a line can come in pieces, so its end is looked for)
+            session.on('message', (m: any) => {
+                if (!lastLineAt && m.msgType === 'stream' && text.slice(-40).includes('line 20000 \n')) lastLineAt = performance.now();
+            });
+            const flood = await session.execute('.flood <- system.time(for (i in 1:20000) cat("line", i, "\\n"))[["elapsed"]]', {
+                timeout: 300000, userExpressions: { elapsed: 'format(.flood)' }
+            });
+            const replyAt = performance.now();
+            const rSeconds = String((flood.userExpressions?.elapsed as any)?.data?.['text/plain'] ?? '?').replace(/^\[1\] "?|"$/g, '');
+            console.error(`flood timing: R's loop ${rSeconds} s, reply after ${((replyAt - started) / 1000).toFixed(1)} s, last line after ${((lastLineAt - started) / 1000).toFixed(1)} s, ${messages} messages`);
             assert.strictEqual(flood.success, true);
             assert.ok(messages > 50000, `expected an unbatched flood, got ${messages} messages`);
             const lines = text.split('\n').filter(Boolean);
@@ -1280,7 +1327,7 @@ hera::CommManager$register_comm_target("echo2", function(comm, message) {
             session.on('ui', (request: { method: string; params: Record<string, unknown>; reply?: (answer: unknown) => void }) => {
                 if (request.method === 'myapp.print') request.reply?.({ ok: true, pages: request.params['pages'] });
             });
-            assert.strictEqual(value(await session.execute('hera::host_ask("myapp.print", list(pages = 3))$pages')), '[1] 3');
+            assert.strictEqual(value(await session.execute('.elara.host_ask("myapp.print", list(pages = 3))$pages')), '[1] 3');
 
             session.removeAllListeners('ui');
             assert.strictEqual(value(await session.execute('rstudioapi::showQuestion("Sure?", "Proceed?")', { allowStdin: true })), '[1] FALSE');

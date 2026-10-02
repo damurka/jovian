@@ -74,7 +74,6 @@ namespace themisto
                 { "--r-path", options.rPath },
                 { "--r-libs", options.rLibs },
                 { "--pandoc-path", options.pandocPath },
-                { "--hera-src-path", options.heraSrcPath },
                 { "--python-home", options.pythonHome },
                 { "--python-path", options.pythonPath },
                 { "--venv-path", options.venvPath },

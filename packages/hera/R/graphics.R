@@ -18,10 +18,10 @@
 # sizes (12 to 19 pixels: 8 to 10 points at the default 120 dpi).
 .jv.graphics.ragg <- function() {
   if (isFALSE(getOption("jupyter.plot_ragg", TRUE))) return(FALSE)
-  if (is.null(the$ragg)) {
-    the$ragg <- requireNamespace("ragg", quietly = TRUE) && exists("agg_record", envir = asNamespace("ragg"), inherits = FALSE)
+  if (is.null(.jv.the$ragg)) {
+    .jv.the$ragg <- requireNamespace("ragg", quietly = TRUE) && exists("agg_record", envir = asNamespace("ragg"), inherits = FALSE)
   }
-  isTRUE(the$ragg)
+  isTRUE(.jv.the$ragg)
 }
 
 # Opens the session's device (R calls this, through options(device), when code draws with no device open): as large
@@ -40,17 +40,17 @@
     grDevices::png(nowhere, width = width, height = height, units = "in",
       res = res, pointsize = .jv.graphics.option("pointsize"), bg = .jv.graphics.option("bg"))
   }
-  the$device <- grDevices::dev.cur()
+  .jv.the$device <- grDevices::dev.cur()
   grDevices::dev.control(displaylist = "enable")
-  the$last_snapshot <- NULL
-  the$last_display_list <- NULL
+  .jv.the$last_snapshot <- NULL
+  .jv.the$last_display_list <- NULL
   invisible()
 }
 
 # The session's device, if code has drawn yet
 .jv.graphics.device <- function() {
-  if (!is.null(the$device) && !(the$device %in% grDevices::dev.list())) the$device <- NULL
-  the$device
+  if (!is.null(.jv.the$device) && !(.jv.the$device %in% grDevices::dev.list())) .jv.the$device <- NULL
+  .jv.the$device
 }
 
 # Display list entries that change no pixel: setting graphical parameters, a layout, the palette.
@@ -78,20 +78,20 @@
 # The session's plot when it has changed since the last look: once its page is complete (after the last panel of a
 # par(mfrow) layout, say), or whatever there is at the end of the cell (`incomplete`).
 .jv.graphics.snapshot <- function(incomplete = FALSE) {
-  device <- the$device
+  device <- .jv.the$device
   if (is.null(device) || !(device %in% grDevices::dev.list())) return(NULL)
   if (grDevices::dev.cur() != device) return(NULL)
   if (!incomplete && !graphics::par("page")) return(NULL)
   # nothing drawn since the last look: no need to record the plot (a copy of all it draws)
   shown <- .Call("elara_display_list_id", PACKAGE = "(embedding)")
-  if (identical(shown, the$last_display_list)) return(NULL)
+  if (identical(shown, .jv.the$last_display_list)) return(NULL)
   # a new page (plot.new() starts a new display list) is a new plot even when it draws the same as the last
-  new_page <- is.null(the$last_display_list) || !identical(sub(":.*", "", shown), sub(":.*", "", the$last_display_list))
-  the$last_display_list <- shown
+  new_page <- is.null(.jv.the$last_display_list) || !identical(sub(":.*", "", shown), sub(":.*", "", .jv.the$last_display_list))
+  .jv.the$last_display_list <- shown
   plot <- grDevices::recordPlot()
   if (!length(plot[[1]]) || !any(vapply(plot[[1]], .jv.graphics.is_visual, logical(1)))) return(NULL)
-  if (!new_page && !is.null(the$last_snapshot) && .jv.graphics.draws_same(the$last_snapshot[[1]], plot[[1]])) return(NULL)
-  the$last_snapshot <- plot
+  if (!new_page && !is.null(.jv.the$last_snapshot) && .jv.graphics.draws_same(.jv.the$last_snapshot[[1]], plot[[1]])) return(NULL)
+  .jv.the$last_snapshot <- plot
   plot
 }
 
@@ -101,8 +101,8 @@
   attr(plot, ".irkernel_height") <- .jv.graphics.option("height")
   attr(plot, ".irkernel_res") <- .jv.graphics.option("res")
   attr(plot, ".irkernel_ppi") <- attr(plot, ".irkernel_res") / getOption("jupyter.plot_scale", 2)
-  if (!.jv.graphics.builds_upon(the$cell_plot, plot)) .jv.graphics.send(the$cell_plot)
-  the$cell_plot <- plot
+  if (!.jv.graphics.builds_upon(.jv.the$cell_plot, plot)) .jv.graphics.send(.jv.the$cell_plot)
+  .jv.the$cell_plot <- plot
 }
 
 .jv.graphics.after_expression <- function() {
@@ -114,8 +114,8 @@
 .jv.graphics.cell_done <- function() {
   plot <- .jv.graphics.snapshot(incomplete = TRUE)
   if (!is.null(plot)) .jv.graphics.changed(plot)
-  .jv.graphics.send(the$cell_plot)
-  the$cell_plot <- NULL
+  .jv.graphics.send(.jv.the$cell_plot)
+  .jv.the$cell_plot <- NULL
   invisible()
 }
 
@@ -150,7 +150,7 @@
   device <- grDevices::dev.cur()
   tryCatch(grDevices::replayPlot(plot), finally = grDevices::dev.off(device))
   # replaying made the file device current; the session's device is again
-  if (!is.null(the$device) && the$device %in% grDevices::dev.list()) grDevices::dev.set(the$device)
+  if (!is.null(.jv.the$device) && .jv.the$device %in% grDevices::dev.list()) grDevices::dev.set(.jv.the$device)
 
   size <- file.info(file)$size
   if (identical(mime, "image/svg+xml")) readChar(file, size, useBytes = TRUE) else readBin(file, "raw", size)
@@ -173,5 +173,5 @@
     # Isolating SVGs (putting them in an iframe) avoids strange interactions with CSS on the page.
     if (identical(mime, "image/svg+xml")) metadata[[mime]]$isolated <- TRUE
   }
-  display_data(data, metadata)
+  .elara.display_data(data, metadata)
 }

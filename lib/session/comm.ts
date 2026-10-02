@@ -11,7 +11,7 @@ export interface CommTransport {
 
 /**
  * One open comm: a named, bidirectional message channel between this client
- * and a target registered inside the kernel (in R, `hera::CommManager$
+ * and a target registered inside the kernel (in R, `.elara.CommManager$
  * register_comm_target()`).
  *
  * Get one either from `session.openComm(target)` (client-initiated) or from

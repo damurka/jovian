@@ -49,15 +49,14 @@
 #'
 #' @examples
 #' \dontrun{
-#'   display_data(mtcars)
+#'   .elara.display_data(mtcars)
 #' }
 #'
-#' @export
-display_data <- function(data = NULL, metadata = NULL) {
+.elara.display_data <- function(data = NULL, metadata = NULL) {
   invisible(.Call("elara_display_data", .jv.json.prepare(data), .jv.json.prepare(metadata), PACKAGE = "(embedding)"))
 }
 
-update_display_data <- function(data = NULL, metadata = NULL) {
+.elara.update_display_data <- function(data = NULL, metadata = NULL) {
   invisible(.Call("elara_update_display_data", .jv.json.prepare(data), .jv.json.prepare(metadata), PACKAGE = "(embedding)"))
 }
 
@@ -67,12 +66,11 @@ update_display_data <- function(data = NULL, metadata = NULL) {
 #'
 #' @examples
 #' \dontrun{
-#'   clear_output()
+#'   .elara.clear_output()
 #' }
 #'
 #' @return NULL invisibly
-#' @export
-clear_output <- function(wait = FALSE) {
+.elara.clear_output <- function(wait = FALSE) {
   invisible(.jv.elara.call("elara_clear_output", isTRUE(wait)))
 }
 
@@ -90,8 +88,7 @@ clear_output <- function(wait = FALSE) {
 #'   View(mtcars)
 #' }
 #'
-#' @export
-View <- function(x, title) {
+.elara.View <- function(x, title) {
   name <- substitute(x)
   if (is.name(name) && .jv.vars.is_table(x) && exists(as.character(name), envir = globalenv(), inherits = FALSE)) {
     params <- list(name = as.character(name))
@@ -99,7 +96,7 @@ View <- function(x, title) {
     answer <- .jv.ui.ask("viewData", params, default = NULL)
     if (isTRUE(answer$ok)) return(invisible(x))
   }
-  if (!missing(title)) display_data(list("text/plain" = title))
-  display(x)
+  if (!missing(title)) .elara.display_data(list("text/plain" = title))
+  .elara.display(x)
   invisible(x)
 }

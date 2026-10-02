@@ -15,7 +15,7 @@
 #' The comm manager, [CommManager], is the one object of this class.
 #'
 #' @rdname CommManager
-CommManagerClass <- structure(list(), class = "CommManagerClass")
+.elara.CommManagerClass <- structure(list(), class = "CommManagerClass")
 
 #' Comm manager
 #'
@@ -24,11 +24,9 @@ CommManagerClass <- structure(list(), class = "CommManagerClass")
 #' `$new_comm(target_name, description)` (a comm the kernel opens, with `$open()`), `$comms()`,
 #' `$target_callback(target_name)`, `$get_comm_info(target_name)`.
 #'
-#' @export
-CommManager <- CommManagerClass
+.elara.CommManager <- .elara.CommManagerClass
 
-#' @export
-`$.CommManagerClass` <- function(x, name) {
+.jv.s3.dollar.CommManagerClass <- function(x, name) {
   switch(name,
     register_comm_target = function(target_name, callback = function(comm, message) {}) {
       invisible(.jv.comm.call("elara_comm_register_target", target_name, callback))
@@ -47,8 +45,7 @@ CommManager <- CommManagerClass
   )
 }
 
-#' @export
-print.CommManagerClass <- function(x, ...) {
+.jv.s3.print.CommManagerClass <- function(x, ...) {
   cat("<CommManager> ", length(x$comms()), " comms open\n", sep = "")
   invisible(x)
 }
@@ -59,18 +56,15 @@ print.CommManagerClass <- function(x, ...) {
 #' description)` (as `CommManager$new_comm()`). `$open(data, metadata, buffers)`, `$send(...)`, `$close(...)`,
 #' `$on_message(handler)`, `$on_close(handler)` (`handler(message)`), and the fields `$id` and `$target_name`.
 #'
-#' @export
-Comm <- structure(list(new = function(target_name, description = "") CommManager$new_comm(target_name, description)),
+.elara.Comm <- structure(list(new = function(target_name, description = "") .elara.CommManager$new_comm(target_name, description)),
   class = "hera_class")
 
-#' @export
-print.hera_class <- function(x, ...) {
+.jv.s3.print.hera_class <- function(x, ...) {
   cat("<Comm> object generator\n")
   invisible(x)
 }
 
-#' @export
-`$.Comm` <- function(x, name) {
+.jv.s3.dollar.Comm <- function(x, name) {
   id <- unclass(x)
   message <- function(routine) {
     function(data = NULL, metadata = NULL, buffers = list()) {
@@ -91,8 +85,7 @@ print.hera_class <- function(x, ...) {
   )
 }
 
-#' @export
-print.Comm <- function(x, ...) {
+.jv.s3.print.Comm <- function(x, ...) {
   description <- .jv.comm.call("elara_comm_description", unclass(x))
   target <- x$target_name
   if (is.null(target)) {
@@ -111,8 +104,7 @@ print.Comm <- function(x, ...) {
   paste0("-- ", title, " ", strrep("-", max(0L, width - nchar(title) - 4L)))
 }
 
-#' @export
-print.Message <- function(x, ...) {
+.jv.s3.print.Message <- function(x, ...) {
   for (field in c("content", "header", "parent_header", "metadata")) {
     writeLines(.jv.comm.rule(paste0("$", field)))
     utils::str(x[[field]])

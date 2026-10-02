@@ -28,8 +28,8 @@ async function time(label: string, run: () => Promise<unknown>): Promise<void> {
 try {
     await session.execute('1');
     await time('25 000 message() calls', () => session.execute('for (i in 1:25000) message(i)', { timeout: 120_000 }));
-    await time('2 000 display_data() calls', () => session.execute('for (i in 1:2000) hera::display_data(list("text/plain" = "x"))', { timeout: 120_000 }));
-    await time('one 8 MB HTML output', () => session.execute('hera::display_data(list("text/html" = strrep("<b>x</b>", 1e6)))', { timeout: 120_000 }));
+    await time('2 000 display_data() calls', () => session.execute('for (i in 1:2000) .elara.display_data(list("text/plain" = "x"))', { timeout: 120_000 }));
+    await time('one 8 MB HTML output', () => session.execute('.elara.display_data(list("text/html" = strrep("<b>x</b>", 1e6)))', { timeout: 120_000 }));
     await time('a data frame value (head(mtcars))', () => session.execute('head(mtcars)'));
     await time('200 cells of `1` (with the state query)', async () => {
         for (let i = 0; i < 200; i++) await session.execute('1');

@@ -9,7 +9,7 @@ The kernels are the same program shape — `main()` parses a few flags, sets up 
 | **Supervised** | `--registration-ip <ip> --registration-port <port> --key <key>` plus the environment flags below | Themisto (what `SessionManager` uses) — the kernel binds its ZMQ ports and reports them to the supervisor's registration socket. |
 | **Connection file** | `-f <connection_file>` / `--connection-file <file>` | A Jupyter frontend (`jupyter lab`, `jupyter console`) via a kernelspec: `npm run jupyter:kernelspec` writes `kernelspec/elara/kernel.json`, `kernelspec/carpo/kernel.json` and `kernelspec/callisto/kernel.json` (`interrupt_mode: "message"`); install with `jupyter kernelspec install <dir> --user --name elara`. The paths to R/Python/Stata are baked into the file at generation time. Elara's connection-file mode has been exercised; Carpo's and Callisto's specs are generated but have not been tried against a real Jupyter install. |
 
-Environment flags — Elara: `--r-home`, `--r-path`, `--r-libs`, `--pandoc-path`, `--hera-src-path`. Carpo: `--python-home`, `--python-path`, `--venv-path`. Callisto: `--stata-home`, `--stata-edition`. The kernel translates them into environment variables (`R_HOME`, `PATH`, `R_LIBS`/`R_LIBS_USER`, `RSTUDIO_PANDOC`, `ELARA_HERA_SRC`; `PYTHONHOME`, `PYTHONPATH`, `CARPO_VENV_PATH`; `STATA_HOME`, `CALLISTO_STATA_EDITION`) before loading the runtime. `workingDirectory` is not a kernel flag: Themisto starts the kernel *process* in that directory (`chdir` between `fork` and `exec` on POSIX, `lpCurrentDirectory` on Windows) after checking it exists.
+Environment flags — Elara: `--r-home`, `--r-path`, `--r-libs`, `--pandoc-path`. Carpo: `--python-home`, `--python-path`, `--venv-path`. Callisto: `--stata-home`, `--stata-edition`. The kernel translates them into environment variables (`R_HOME`, `PATH`, `R_LIBS`/`R_LIBS_USER`, `RSTUDIO_PANDOC`; `PYTHONHOME`, `PYTHONPATH`, `CARPO_VENV_PATH`; `STATA_HOME`, `CALLISTO_STATA_EDITION`) before loading the runtime. `workingDirectory` is not a kernel flag: Themisto starts the kernel *process* in that directory (`chdir` between `fork` and `exec` on POSIX, `lpCurrentDirectory` on Windows) after checking it exists.
 
 Kernel stdout/stderr (start-up notes such as `[R Interpreter] .libPaths() …`) is captured by Themisto and re-printed on its own stderr, prefixed `[elara]` / `[carpo]` / `[callisto]`.
 
@@ -20,11 +20,11 @@ Kernel stdout/stderr (start-up notes such as `[R Interpreter] .libPaths() …`) 
 1. `R_HOME`, `PATH` (R's `bin` directory) and `R_LIBS*` are set; R's shared library is loaded (`R.dll` / `libR.so` / `libR.dylib` — see [Architecture](architecture/overview.md#dynamic-loading-of-r-and-python)).
 2. R is started. On Windows (R ≥ 4.2) with the documented `Rstart` embedding sequence and an Elara `ReadConsole` callback, so `readline()` works over the stdin channel and R is marked interactive; on older R via plain `Rf_initEmbeddedR` (no `readline()` support). Elara also calls `GA_initapp` on Windows, without which the first `plot()` crashes the process. On Linux/macOS it sets `R_Interactive` for the same `readline()` reason.
 3. The locale is switched to UTF-8 on Windows.
-4. `hera`, the kernel's R code built into it, is loaded as the namespace `hera` and its exports attached as `tools:hera` (from `heraSrcPath` instead, when given). Nothing is installed (see [Environments](guides/environments.md#the-hera-package-built-in)). If it cannot be loaded the kernel still starts and logs an `ERROR` saying why.
+4. `hera`, the kernel's R code built into it, is evaluated into one locked environment attached as `tools:jovian`, every name dot-named (`.jv.*`, `.elara.*`), as Ark's `tools:positron`; `View()` is replaced in `utils`. Nothing is installed (see [Environments](guides/environments.md#the-hera-package-built-in)). If it cannot be loaded the kernel still starts and logs an `ERROR` saying why.
 
 ### Executing code (`hera`)
 
-`RInterpreter::executeRequestImpl` calls `hera:::hera_call("execute", code, count, silent)`, which:
+`RInterpreter::executeRequestImpl` calls `.jv.call("execute", code, count, silent)`, which:
 
 - parses the code (a parse failure is an `error` with `ename` `PARSE ERROR`);
 - runs its top-level expressions one by one with base R — evaluation stops at the first error in a cell;
@@ -37,11 +37,11 @@ Code runs in the **global environment**. R output that goes through R's console 
 
 **How a cell runs.** `hera` (`packages/hera/R/execute.R`) evaluates the cell's top-level expressions one by one with base R, as R's console does: what they print goes straight to R's console and so is streamed as it is written, even inside one long expression; messages and warnings are published as stderr as they happen; the first error stops the cell, with a traceback of the cell's own calls (`f() at [3]#2`); plots are drawn on a device of the cell's own and sent once each is complete. Values are shown with base R's `print()`, or through `repr` for the objects it draws its own way (data frames, matrices, widgets), loaded only then.
 
-Rich output from R code: `hera::display_data(list("text/html" = "<b>hi</b>"))` publishes a `display_data`; `hera::clear_output(wait = FALSE)` publishes `clear_output`; `hera:::update_display_data()` publishes `update_display_data` (not exported).
+Rich output from R code: `.elara.display_data(list("text/html" = "<b>hi</b>"))` publishes a `display_data`; `.elara.clear_output(wait = FALSE)` publishes `clear_output`; `.elara.update_display_data()` publishes `update_display_data` (not exported).
 
 ### Completion, inspection, is_complete
 
-- `complete_request` → `hera::complete()` (uses `utils:::.completeToken`); `matches` are R names (`print`, not `print(`).
+- `complete_request` → `.elara.complete()` (uses `utils:::.completeToken`); `matches` are R names (`print`, not `print(`).
 - `inspect_request` → the token at the cursor is evaluated; for a function its help page (HTML + text) is returned, otherwise sections *Class attribute*, *Printed form*, *Help document*.
 - `is_complete_request` → `R_ParseVector` status: `complete` / `incomplete` / `invalid`.
 
@@ -170,6 +170,29 @@ Verified on Windows with Ark 0.1.252 and R 4.6: start-up (about 0.3 s), output, 
 
 It is a way to try Ark's R frontend (its console behaviour, its debugger later) without leaving Jovian's supervisor, not a replacement for Elara.
 
+### Elara and Ark compared
+
+`examples/benchmarks/elara-vs-ark.ts` runs both under Themisto on the same R (run it after `npm run build:lib`; `BENCH_KERNELS=elara` or `ark` for one). On Windows, R 4.6, Ark 0.1.252, one run each (October 2026):
+
+| measure | Elara | Ark |
+|---|---|---|
+| create -> first result of `1+1` | 267 ms | 428 ms |
+| `1+1`, median of 30 | 0.8 ms | 10.0 ms |
+| 200 000 lines of output | 0.69 s | 1.96 s |
+| 10 MB in one `cat()` | 240 ms | 258 ms |
+| a line every 0.1 s, one `cat()` piece each: mean / worst delay until it reaches Node | under 1 ms / 0.1 ms | 51 ms / 95 ms |
+| 25 000 `cat()` + `message()` pairs | 0.77 s (stdout and stderr) | 1.45 s (all on stdout) |
+
+Elara sends what R writes after a quiet moment at once and gathers what follows for up to about 50 ms (Ark gathers everything for about 100 ms, the sawtooth of its delays, 6 to 95 ms). So a line R writes in one piece (`cat(sprintf(...))`) arrives within a millisecond, and one written in several (`cat("T", x, "\n")`: R writes each piece) arrives with its last piece, up to about 50 ms later: through a bare client, such lines alternate between about 55 and 11 ms.
+
+The other measures are the kernels' own: a bare client (no Jovian library, `{type: 'execute'}` frames straight to Themisto) gets the same `1+1`, line and flood times. The 10 MB write is the exception: about 240 ms through either, against about 165 ms under Kallichore, so the difference there is the supervisor's.
+
+How the R code is laid out differs too. Both leave the global environment empty and add no package namespace. Ark attaches `tools:positron` (99 objects, nearly all dot-named) and `tools:rstudio`; Elara attaches `tools:jovian` (every name dot-named) and `tools:rstudio`, and replaces `View()` in `utils`. Elara's `tools:jovian` sits right after the global environment because its functions look up R's packages from there; its `tools:rstudio` holds only copies (rstudioapi finds them by the environment's name), so it is attached last, where it can shadow nothing.
+
+### Elara under Positron's supervisor (Kallichore)
+
+Elara starts as a standard Jupyter kernel (`-f <connection_file> --r-home <R>`), so Positron's supervisor, Kallichore (`kcserver`), can run it: start-up, cells, output, `message()` on stderr and plots work. With Kallichore 0.1.68 and the same bare client: start-up about 0.55 s (Ark: 0.82 s), `1+1` 0.5 ms (Ark: 8.6 ms), 200 000 lines 0.63 s (Ark: 1.88 s), the 10 MB write 166 ms (Ark: 172 ms), the 25 000 `cat()` + `message()` pairs 0.76 s (Ark: 1.55 s); lines arrive as under Themisto, a few milliseconds later. Twice, while a script deleted and killed sessions and left others running, `kcserver` panicked in its ZeroMQ library (`zeromq-0.4.1 dealer.rs: not yet implemented`) and the session ended; it was not reproduced with a session left idle, a WebSocket closed, or any of the cells above, so what triggers it is not known.
+
 ## Differences at a glance
 
 | | Elara (R) | Carpo (Python) | Callisto (Stata) |
@@ -180,7 +203,7 @@ It is a way to try Ark's R frontend (its console behaviour, its debugger later) 
 | stderr stream | messages and warnings | `sys.stderr` | none — everything is stdout |
 | Completions | R names | `rlcompleter` (with `(` for callables) | commands, variables, scalars, globals, locals, `r()`/`e()`/`s()` results |
 | Inspect | help pages (HTML + text) | signature / docstring (text) | a variable's `describe` + `summarize`, a scalar's or global's value, a command's `which` |
-| Comms | yes (`hera::CommManager`) | no targets can be registered | no |
+| Comms | yes (`.elara.CommManager`) | no targets can be registered | no |
 | Interrupt | user-break flag | SIGINT → `KeyboardInterrupt` | Stata's Break → `r(1)` |
 | Answered while a cell runs | interrupt; complete and inspect of package functions (helper R process) | interrupt, complete, inspect, is_complete | interrupt, is_complete |
 | Between cells | `later` callbacks (httpuv, promises) run | threads and asyncio tasks run | nothing runs |

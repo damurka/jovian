@@ -23,13 +23,11 @@
 //   R_HOME             R installation; otherwise discovered (discoverRHome)
 //   ARK_PATH           ark executable; otherwise Positron's copy (discoverArkPath).
 //                      If none is found only Elara is measured.
-//   BENCH_HERA_SRC     a packages/hera folder Elara reads its R code from instead
-//                      of the copy built into it (development)
 //   BENCH_KERNELS      comma-separated subset of "elara,ark"
 //
 // The busy helper (a second R process for completions) is turned off so only the
 // kernels themselves are compared. Each kernel gets one untimed warm-up session
-// first (starts the supervisor, installs hera into the temporary library, warms
+// first (starts the supervisor, loads the kernel and R, warms
 // the disk cache), so the timed create is a warm start for both.
 
 import { tmpdir } from 'node:os';
@@ -139,7 +137,8 @@ async function benchmark(manager: SessionManager, kernel: Kernel, base: EngineOp
     await run(warm, '1+1');
     if (kernel === 'elara') {
         const cap = new Capture(warm);
-        await run(warm, 'if (requireNamespace("hera", quietly = TRUE)) cat("HERA", as.character(packageVersion("hera")), find.package("hera"), "\\n") else cat("HERA none\\n")');
+        // hera is built into the kernel, as tools:jovian (a hera in the R library is not used)
+        await run(warm, 'if ("tools:jovian" %in% search()) cat("HERA", as.environment("tools:jovian")$.elara.version, "built in\\n") else cat("HERA none\\n")');
         const line = cap.text('stdout').trim();
         row.hera = line.startsWith('HERA ') ? line.slice(5) : line || 'unknown';
         console.error(`[elara] hera: ${row.hera}`);
@@ -267,15 +266,12 @@ async function benchmark(manager: SessionManager, kernel: Kernel, base: EngineOp
 const native = locateNativeDirectory();
 const rHome = process.env.R_HOME || (await discoverRHome());
 const arkPath = await discoverArkPath();
-// Elara carries its R code (hera) built in; BENCH_HERA_SRC points it at a packages/hera folder instead (development).
 // Both kernels use R's own libraries: nothing is installed for either.
-const heraSrcPath = process.env.BENCH_HERA_SRC ? resolve(process.env.BENCH_HERA_SRC) : undefined;
 const wanted =(process.env.BENCH_KERNELS ?? 'elara,ark').split(',').map((k) => k.trim()) as Kernel[];
 
 console.error(`kernels:   ${native.dir} (${native.source})`);
 console.error(`R:         ${rHome ?? 'not found'}`);
 console.error(`ark:       ${arkPath ?? 'not found -- measuring Elara only'}`);
-console.error(`hera:      ${heraSrcPath ?? 'built in'}`);
 if (!rHome) {
     console.error('No R installation found (set R_HOME).');
     process.exit(1);
@@ -286,7 +282,7 @@ const manager = new SessionManager({ busyHelper: false });
 const rows: Partial<Record<Kernel, Row>> = {};
 try {
     for (const kernel of kernels) {
-        const base: EngineOptions = { rHome, ...(kernel === 'elara' ? (heraSrcPath ? { heraSrcPath } : {}) : { arkPath }) };
+        const base: EngineOptions = { rHome, ...(kernel === 'elara' ? {} : { arkPath }) };
         try {
             rows[kernel] = await benchmark(manager, kernel, base);
         } catch (error) {

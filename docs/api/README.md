@@ -44,7 +44,7 @@ const verbose = new SessionManager({ logLevel: 'debug' });     // everything, pl
 | `attachSession(sessionId): Promise<Session>` | A `Session` for one that already exists in the supervisor, reconnected to its running kernel -- after a window reload, a restart of the host app. Output printed while no client was connected is not replayed. |
 | `detach(): Promise<void>` | With `persistent`: closes this process's connections without stopping anything, so a later `SessionManager` can `attachSession()` again. Without it, the same as `stopAll()`. |
 
-The kernel binaries are looked up in this order: `$JOVIAN_NATIVE_DIR`; the installed `@damurka/jovian-<os>-<cpu>` package (its `bin/` directory); `dist/native/Release` in a source checkout. If none has `themisto[.exe]`, `createSession()` rejects with an error naming what was expected (`jovian: the kernel binaries were not found. Expected the '@damurka/jovian-…' package …`, or, on a platform without a prebuilt package, the list of supported ones). When the library runs from an installed package and `heraSrcPath` is not given, it defaults to the copy of `hera` shipped in the package.
+The kernel binaries are looked up in this order: `$JOVIAN_NATIVE_DIR`; the installed `@damurka/jovian-<os>-<cpu>` package (its `bin/` directory); `dist/native/Release` in a source checkout. If none has `themisto[.exe]`, `createSession()` rejects with an error naming what was expected (`jovian: the kernel binaries were not found. Expected the '@damurka/jovian-…' package …`, or, on a platform without a prebuilt package, the list of supported ones).
 
 ## Events
 

@@ -18,7 +18,6 @@ namespace themisto
         std::string rPath;
         std::string rLibs;
         std::string pandocPath;
-        std::string heraSrcPath;
         // Carpo (Python) equivalents of the R fields above -- only one set
         // is ever non-empty for a given process (SessionRegistry only fills
         // in the fields matching SessionOptions::kernelType), but both live

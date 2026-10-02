@@ -8,7 +8,7 @@ First register a target in the kernel (R, via `hera`), then open a comm to it:
 
 ```typescript
 await session.execute(`
-hera::CommManager$register_comm_target("echo", function(comm, message) {
+.elara.CommManager$register_comm_target("echo", function(comm, message) {
     comm$on_message(function(msg) {
         comm$send(list(echo = msg$content$data$text))
     })
@@ -37,8 +37,8 @@ session.on('comm', (comm, data) => {
 });
 
 await session.execute(`
-hera::CommManager$register_comm_target("kernel_side")   # a target must exist before new_comm()
-comm <- hera::CommManager$new_comm("kernel_side")
+.elara.CommManager$register_comm_target("kernel_side")   # a target must exist before new_comm()
+comm <- .elara.CommManager$new_comm("kernel_side")
 comm$on_message(function(msg) comm$send(list(echo = msg$content$data$text)))
 comm$open(list(greeting = "from R"))
 `);

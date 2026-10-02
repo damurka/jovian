@@ -38,7 +38,6 @@ namespace
         std::string rPath;
         std::string rLibs;
         std::string pandocPath;
-        std::string heraSrcPath;
         std::string registrationIp = "127.0.0.1";
         std::string registrationPort;
         std::string key;
@@ -90,7 +89,6 @@ namespace
         opts.rPath = get("r-path");
         opts.rLibs = get("r-libs");
         opts.pandocPath = get("pandoc-path");
-        opts.heraSrcPath = get("hera-src-path");
         if (auto ip = get("registration-ip"); !ip.empty())
         {
             opts.registrationIp = ip;
@@ -147,7 +145,6 @@ int main(int argc, char* argv[])
     envConfig.r_path = opts.rPath;
     envConfig.r_libs = opts.rLibs;
     envConfig.pandoc_path = opts.pandocPath;
-    envConfig.hera_src_path = opts.heraSrcPath;
 
     adrastea::KernelConfiguration kernelConfig;
 

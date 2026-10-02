@@ -35,18 +35,54 @@ namespace elara
             return head;
         }
 
+        // `base::pkg_fn`, a call head no user object can mask
+        inline SEXP baseFunction(const char* name) {
+            return rCall(Rf_install("::"), Rf_install("base"), Rf_install(name));
+        }
+
+        // The environment the kernel's R code is in: "tools:jovian" on the search path (the loader attaches it, see
+        // RInterpreter's hera_loader), found once; R_NilValue before it is loaded
+        inline SEXP elaraEnvironment() {
+            static SEXP env = R_NilValue;
+            if (env == R_NilValue) {
+                SEXP call = PROTECT(rCall(baseFunction("as.environment"), Rf_mkString("tools:jovian")));
+                int error = 0;
+                SEXP found = R_tryEval(call, R_GlobalEnv, &error);
+                UNPROTECT(1);
+                if (!error) {
+                    R_PreserveObject(found);
+                    env = found;
+                }
+            }
+            return env;
+        }
+
+        // A function of the kernel's R code (`.jv.call`, `.jv.debug.set_breakpoints`, ...), or R_NilValue
+        inline SEXP elaraFunction(const char* name) {
+            SEXP env = elaraEnvironment();
+            if (env == R_NilValue) return R_NilValue;
+            SEXP call = PROTECT(rCall(baseFunction("get0"), Rf_mkString(name), env));
+            int error = 0;
+            SEXP fn = R_tryEval(call, R_GlobalEnv, &error);
+            UNPROTECT(1);
+            return error ? R_NilValue : fn;
+        }
+
         template<class... Types>
         SEXP invokeHeraFn(const char* f, Types... args) {
-            SEXP sym_hera = Rf_install("hera");
-            SEXP sym_hera_call = Rf_install(".jv.call");
-            SEXP sym_triple_colon = Rf_install(":::");
+            static SEXP jv_call = R_NilValue;
+            if (jv_call == R_NilValue) {
+                jv_call = elaraFunction(".jv.call");
+                if (jv_call == R_NilValue) {
+                    throw std::runtime_error(std::string("R evaluation of .jv.call(\"") + f + "\", ...) failed: the kernel's R code (tools:jovian) is not loaded");
+                }
+                R_PreserveObject(jv_call);
+            }
+            SEXP call = PROTECT(rCall(jv_call, Rf_mkString(f), args...));
 
-            SEXP call_triple_colon = PROTECT(rCall(sym_triple_colon, sym_hera, sym_hera_call));
-            SEXP call = PROTECT(rCall(call_triple_colon, Rf_mkString(f), args...));
-
-            // hera:::.jv.call(f, ...) itself failing to evaluate (most
-            // commonly: hera isn't installed/loadable at all -- it's
-            // optional, see RInterpreter::configureImpl()) is different
+            // .jv.call(f, ...) itself failing to evaluate (most
+            // commonly: the kernel's R code could not be loaded -- the
+            // kernel still starts, see RInterpreter::configureImpl()) is different
             // from a normal *user* code error, which hera's own R-level
             // execute() already catches internally and returns as a
             // hera-shaped "error_reply" R object (see executeRequestImpl's
@@ -64,12 +100,10 @@ namespace elara
             int errorOccurred = 0;
             SEXP result = R_tryEval(call, R_GlobalEnv, &errorOccurred);
 
-            UNPROTECT(2);
+            UNPROTECT(1);
 
             if (errorOccurred) {
-                throw std::runtime_error(
-                    std::string("R evaluation of hera:::.jv.call(\"") + f + "\", ...) failed "
-                    "(is the 'hera' package installed?): " + R_curErrorBuf());
+                throw std::runtime_error(std::string("R evaluation of .jv.call(\"") + f + "\", ...) failed: " + R_curErrorBuf());
             }
             return result;
         }

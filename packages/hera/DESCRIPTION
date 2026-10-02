@@ -7,18 +7,17 @@ Authors@R: c(
 Description: Set of R functions to be coupled with the 'Elara' 'jupyter' kernel
     in order to drive execution of code in notebook input cells, how R objects
     are to be displayed in output cells, and handle two way communication
-    with the front end through comms.
+    with the front end through comms. Built into the Elara kernel (not installed):
+    loaded as the locked environment "tools:jovian", every name dot-named.
 License: MIT + file LICENSE
 Encoding: UTF-8
-Roxygen: list(markdown = TRUE)
 Imports: 
     graphics,
     grDevices,
-    IRdisplay (>= 1.1),
     tools,
     utils
 Suggests:
+    IRdisplay (>= 1.1),
     ragg (>= 1.4.0)
 URL: https://github.com/damurka/jovian
 BugReports: https://github.com/damurka/jovian/issues
-Config/roxygen2/version: 8.0.0

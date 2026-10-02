@@ -6,7 +6,7 @@
 # as is: class "jv_json").
 
 .jv.rpc.call <- function(method, args_json = "") {
-  fn <- get0(paste0(".jv.rpc.", method), envir = asNamespace("hera"), mode = "function", inherits = FALSE)
+  fn <- get0(paste0(".jv.rpc.", method), envir = .jv.NAMESPACE, mode = "function", inherits = FALSE)
   if (is.null(fn)) stop("no such method: ", method, call. = FALSE)
   args <- if (nzchar(args_json)) .jv.json.read(args_json) else list()
   .jv.rpc.result(do.call(fn, as.list(args)))
@@ -16,8 +16,7 @@
   structure(.jv.json.write(x, null = "null"), class = "jv_json")
 }
 
-#' @export
-print.jv_json <- function(x, ...) {
+.jv.s3.print.jv_json <- function(x, ...) {
   cat(unclass(x), "\n", sep = "")
   invisible(x)
 }

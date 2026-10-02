@@ -37,7 +37,6 @@ namespace themisto
         std::string rPath;
         std::string rLibs;
         std::string pandocPath;
-        std::string heraSrcPath;
 
         // Carpo (Python) equivalents, mirroring carpo::EnvironmentConfig.
         std::string pythonHome;

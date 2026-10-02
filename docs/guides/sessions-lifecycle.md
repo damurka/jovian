@@ -45,7 +45,7 @@ await session.restart({ rHome: '/opt/R/4.6.0' });          // switch R installat
 ```
 
 - The kernel gets `shutdown_request` with `restart: true` (observe it as `'shutdown_reply'` with `restart === true`), a new kernel starts under the **same session id**, and the WebSocket reconnects to the same URL. `'restarted'` fires when it is ready.
-- **Options are merged.** `restart(options)` sends `{ ...session.options, ...options }`: you only pass what changes; `workingDirectory`, `rLibs`, `heraSrcPath`, … are kept. `session.options` reflects the new values afterwards. (The supervisor's own restart endpoint replaces options wholesale; the merge happens in the client.) To clear a field, pass `undefined` or `''`.
+- **Options are merged.** `restart(options)` sends `{ ...session.options, ...options }`: you only pass what changes; `workingDirectory`, `rLibs`, `pandocPath`, … are kept. `session.options` reflects the new values afterwards. (The supervisor's own restart endpoint replaces options wholesale; the merge happens in the client.) To clear a field, pass `undefined` or `''`.
 - The interpreter is brand new: variables, loaded packages and the kernel's history are gone. `session.getHistory()` (client-side) and your event listeners are kept.
 - Queued and running `execute()` calls reject with `Queue cleared`; pending requests with `Session is restarting`; open comms emit `'close'` (`reason: 'kernel restarted'`).
 - Restarting a session while another `restart()` for the same id is in flight waits its turn (the supervisor serialises operations per session id) — clicking "Restart" twice does not leak a kernel process.

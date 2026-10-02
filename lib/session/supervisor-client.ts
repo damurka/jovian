@@ -42,7 +42,6 @@ export function buildSessionOptionsBody(options: Partial<EngineOptions>): Record
         rPath: options.rPath,
         rLibs: options.rLibs,
         pandocPath: options.pandocPath,
-        heraSrcPath: options.heraSrcPath,
         pythonHome: options.pythonHome,
         pythonPath: options.pythonPath,
         venvPath: options.venvPath,

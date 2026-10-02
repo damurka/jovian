@@ -86,18 +86,6 @@ namespace elara
             #endif
         }
 
-        // Development: read hera's R code from this packages/hera folder
-        // instead of the copy built into the kernel (see configureImpl()).
-        if (!env_config.hera_src_path.empty()) {
-            #ifdef _WIN32
-            std::string hera_src_win = env_config.hera_src_path;
-            std::replace(hera_src_win.begin(), hera_src_win.end(), '/', '\\');
-            _putenv_s("ELARA_HERA_SRC", hera_src_win.c_str());
-            log::debug("ELARA_HERA_SRC=" + hera_src_win);
-            #else
-            setenv("ELARA_HERA_SRC", env_config.hera_src_path.c_str(), 1);
-            #endif
-        }
 
     }
 

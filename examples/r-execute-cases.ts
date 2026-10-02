@@ -46,7 +46,7 @@ const CASES: Array<{ name: string; code: string; silent?: boolean }> = [
     { name: 'ggplot value', code: 'if (requireNamespace("ggplot2", quietly = TRUE)) ggplot2::ggplot(mtcars, ggplot2::aes(mpg, wt)) + ggplot2::geom_point() else "no ggplot2"' },
     { name: 'data frame', code: 'head(mtcars, 2)' },
     { name: 'plot size option', code: 'options(repr.plot.width = 4, repr.plot.height = 3)\nplot(1)\noptions(repr.plot.width = NULL, repr.plot.height = NULL)' },
-    { name: 'cell_options', code: 'hera::cell_options(digits = 3)\npi' },
+    { name: 'cell_options', code: '.elara.cell_options(digits = 3)\npi' },
     { name: 'cell_options gone', code: 'pi' },
     { name: 'silent output', code: 'cat("hidden\\n")\nmessage("hidden")\n1', silent: true },
     { name: 'silent error', code: 'stop("silent boom")', silent: true },

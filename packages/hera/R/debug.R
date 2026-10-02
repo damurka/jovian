@@ -40,18 +40,18 @@
 # cell's own (see .jv.debug.instrument()).
 .jv.debug.apply_breakpoints <- function(spec) {
   tryCatch({
-    for (set in the$debug_traced) {
+    for (set in .jv.the$debug_traced) {
       try(utils::setBreakpoint(set$path, set$line, nameonly = FALSE, envir = globalenv(), lastenv = globalenv(),
         verbose = FALSE, clear = TRUE), silent = TRUE)
     }
-    the$debug_traced <- list()
+    .jv.the$debug_traced <- list()
     for (path in names(spec)) {
       for (line in unlist(spec[[path]])) {
         found <- tryCatch(utils::findLineNum(path, line, nameonly = FALSE, envir = globalenv(), lastenv = globalenv()),
           error = function(e) NULL)
         if (!length(found)) next
         utils::setBreakpoint(path, line, nameonly = FALSE, envir = globalenv(), lastenv = globalenv(), verbose = FALSE)
-        the$debug_traced[[length(the$debug_traced) + 1L]] <- list(path = path, line = line)
+        .jv.the$debug_traced[[length(.jv.the$debug_traced) + 1L]] <- list(path = path, line = line)
       }
     }
   }, error = function(e) .jv.log.warning("setting breakpoints: ", conditionMessage(e)))

@@ -12,7 +12,7 @@
   env <- globalenv()
   names <- sort(ls(env))
   if (length(names) > .jv.vars.MAX_OBJECTS) names <- names[seq_len(.jv.vars.MAX_OBJECTS)]
-  lapply(names, function(name) {
+  own <- lapply(names, function(name) {
     # an active binding or a promise is not run for its value: only described
     if (bindingIsActive(name, env)) {
       return(list(name = name, type = "active binding", size = "", summary = "", table = FALSE))
@@ -21,13 +21,44 @@
     list(name = name, type = class(x)[[1L]], size = .jv.vars.size(x), summary = .jv.vars.preview(x),
       table = .jv.vars.is_table(x))
   })
+  # then the tables of the data environments (.jv.vars.data_envs()), not read for that: listed by name only
+  shown <- names
+  for (data in .jv.vars.data_envs()) {
+    for (name in setdiff(data$tables, shown)) {
+      own[[length(own) + 1L]] <- list(name = name, type = "data.frame", size = "", summary = paste("read when shown, from", data$name),
+        table = TRUE)
+      shown <- c(shown, name)
+    }
+  }
+  own
+}
+
+# Environments on the search path that hold a session's data, read when used (each table an active binding: a
+# notebook's dataset, say): marked with the attribute "jovian.tables", TRUE for all their bindings or the names of
+# those that are tables. Their tables are listed and read beside the global environment's objects. Each: list(name,
+# env, tables).
+.jv.vars.data_envs <- function() {
+  out <- list()
+  for (where in search()[-1L]) {
+    env <- as.environment(where)
+    mark <- attr(env, "jovian.tables", exact = TRUE)
+    if (is.null(mark) || identical(mark, FALSE)) next
+    tables <- if (isTRUE(mark)) sort(ls(env)) else intersect(as.character(mark), ls(env))
+    if (length(tables)) out[[length(out) + 1L]] <- list(name = where, env = env, tables = tables)
+  }
+  out
 }
 
 # A page of a table (a data frame, or a matrix): its columns (name, class), how many rows it has, and rows `start` to
-# `start + count - 1` as text; row names when they are not just the row numbers
+# `start + count - 1` as text; row names when they are not just the row numbers. The global environment's, else a data
+# environment's (.jv.vars.data_envs()).
 .jv.rpc.var_table <- function(name, start = 1L, count = 100L) {
   env <- globalenv()
-  if (!exists(name, envir = env, inherits = FALSE)) stop("no object ", name, call. = FALSE)
+  if (!exists(name, envir = env, inherits = FALSE)) {
+    holder <- Filter(function(data) name %in% data$tables, .jv.vars.data_envs())
+    if (!length(holder)) stop("no object ", name, call. = FALSE)
+    env <- holder[[1L]]$env
+  }
   x <- get(name, envir = env)
   if (!.jv.vars.is_table(x)) stop(name, " is not a data frame or a matrix", call. = FALSE)
 

@@ -3,32 +3,27 @@
 #' @param x an object
 #'
 #' @examples
-#' mime_types(letters)
-#' mime_types(mtcars)
+#' .elara.mime_types(letters)
+#' .elara.mime_types(mtcars)
 #'
 #' @return a character vector of its supported mime types
-#' @export
-mime_types <- function(x) {
-  UseMethod("mime_types")
+.elara.mime_types <- function(x) {
+  UseMethod(".elara.mime_types")
 }
 
-#' @export
-mime_types.default <- function(x) {
+.elara.mime_types.default <- function(x) {
   "text/plain"
 }
 
-#' @export
-mime_types.htmlwidget <- function(x) {
+.elara.mime_types.htmlwidget <- function(x) {
   c("text/plain", "text/html")
 }
 
-#' @export
-mime_types.shiny.tag.list <- function(x) {
+.elara.mime_types.shiny.tag.list <- function(x) {
   c("text/plain", "text/html")
 }
 
-#' @export
-mime_types.shiny.tag <- function(x) {
+.elara.mime_types.shiny.tag <- function(x) {
   c("text/plain", "text/html")
 }
 
@@ -37,8 +32,7 @@ mime_types.shiny.tag <- function(x) {
 # ("_\bX" underline, "X\bX" bold), and Jupyter's stdout stream does not
 # interpret backspaces, so ?lm displays raw "_ l_ m" garbage. Advertising
 # text/html lets the frontend pick the HTML rendering instead.
-#' @export
-mime_types.help_files_with_topic <- function(x) {
+.elara.mime_types.help_files_with_topic <- function(x) {
   c("text/plain", "text/html")
 }
 
@@ -49,13 +43,12 @@ mime_types.help_files_with_topic <- function(x) {
 #' @param ... extra currently unused parameters
 #'
 #' @examples
-#' mime_bundle(letters)
+#' .elara.mime_bundle(letters)
 #'
 #' @seealso IRdisplay::prepare_mimebundle, which does it for objects base R can't
 #'
-#' @export
-mime_bundle <- function(x, mimetypes = mime_types(x), ...) {
-  UseMethod("mime_bundle")
+.elara.mime_bundle <- function(x, mimetypes = .elara.mime_types(x), ...) {
+  UseMethod(".elara.mime_bundle")
 }
 
 # Whether the bundle needs repr (through IRdisplay): a mime type other than plain text. Plain text is what print()
@@ -66,15 +59,14 @@ mime_bundle <- function(x, mimetypes = mime_types(x), ...) {
   !all(mimetypes == "text/plain")
 }
 
-#' @export
-mime_bundle.default <- function(x, mimetypes = mime_types(x), ...) {
+.elara.mime_bundle.default <- function(x, mimetypes = .elara.mime_types(x), ...) {
   if (.jv.display.needs_repr(x, mimetypes)) {
     if (requireNamespace("IRdisplay", quietly = TRUE)) {
       return(IRdisplay::prepare_mimebundle(x, mimetypes = mimetypes, ...))
     }
     # without IRdisplay (it is optional), what base R can show: the text print() writes
-    if (!isTRUE(the$warned_no_irdisplay)) {
-      the$warned_no_irdisplay <- TRUE
+    if (!isTRUE(.jv.the$warned_no_irdisplay)) {
+      .jv.the$warned_no_irdisplay <- TRUE
       .jv.log.warning("IRdisplay is not installed: data frames, widgets and the like are shown as text")
     }
     mimetypes <- "text/plain"
