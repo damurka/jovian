@@ -138,6 +138,8 @@ function wellKnownRHomes(context: DiscoveryContext): string[] {
     if (context.platform === 'darwin') {
         return [
             '/Library/Frameworks/R.framework/Resources',
+            // Every version installed side by side (rig keeps them all): R.framework/Versions/<x.y>[-arm64]/Resources
+            ...newestSubdirectories(context, '/Library/Frameworks/R.framework/Versions', /^\d/).map((version) => path.join(version, 'Resources')),
             '/opt/homebrew/lib/R',
             '/usr/local/lib/R',
             // Homebrew's versioned kegs: <prefix>/Cellar/r/<version>/lib/R
@@ -174,9 +176,14 @@ export async function listRInstallations(context: DiscoveryContext = defaultCont
 
     const candidates: Array<string | undefined> = [context.env.R_HOME, await context.run('R', ['RHOME'])];
     if (context.platform === 'win32') {
+        const { runLines } = helpers(context);
         for (const hive of ['HKLM', 'HKCU']) {
             const line = await context.run('reg', ['query', `${hive}\\SOFTWARE\\R-core\\R`, '/v', 'InstallPath']);
             candidates.push(line?.match(/InstallPath\s+REG_SZ\s+(.+)$/)?.[1]?.trim());
+            // Each version R's installer recorded (R-core\R\<version>\InstallPath), not only the default
+            for (const versionLine of await runLines('reg', ['query', `${hive}\\SOFTWARE\\R-core\\R`, '/s', '/v', 'InstallPath'])) {
+                candidates.push(versionLine.match(/^InstallPath\s+REG_SZ\s+(.+)$/)?.[1]?.trim());
+            }
         }
     }
     candidates.push(...wellKnownRHomes(context));
@@ -222,6 +229,14 @@ export async function listPythonInstallations(context: DiscoveryContext = defaul
         if (home) found.push({ home, ...(version ? { version } : {}) });
     }
 
+    // Pythons outside PATH: pyenv's, conda's (base and environments), and on macOS python.org's frameworks
+    for (const executable of otherPythonExecutables(context)) {
+        if (!exists(executable)) continue;
+        const answer = await context.run(executable, ['-c', PYTHON_SCRIPT]);
+        const [home, version] = (answer ?? '').split('|');
+        if (home) found.push({ home, ...(version ? { version } : {}) });
+    }
+
     if (context.platform === 'win32') {
         // " -V:3.12[-64] *   C:\...\python.exe" (older launchers: " -3.12-64 *  ...")
         for (const line of await runLines('py', ['-0p'])) {
@@ -235,6 +250,29 @@ export async function listPythonInstallations(context: DiscoveryContext = defaul
         ...(version ? { version } : {}),
         label: version ? `Python ${version}` : 'Python'
     }));
+}
+
+/** The interpreters of Pythons that are often not on PATH: pyenv's versions, conda's base and environments, python.org's macOS frameworks. */
+function otherPythonExecutables(context: DiscoveryContext): string[] {
+    const { path, listDir } = helpers(context);
+    const windows = context.platform === 'win32';
+    const home = context.env.USERPROFILE ?? context.env.HOME;
+    const interpreter = (prefix: string) => windows ? path.join(prefix, 'python.exe') : path.join(prefix, 'bin', 'python3');
+    const childrenOf = (dir: string) => listDir(dir).map((name) => path.join(dir, name));
+    const prefixes: string[] = [];
+    if (home) {
+        const pyenv = context.env.PYENV_ROOT ?? (windows ? path.join(home, '.pyenv', 'pyenv-win') : path.join(home, '.pyenv'));
+        prefixes.push(...childrenOf(path.join(pyenv, 'versions')));
+        for (const conda of ['miniconda3', 'anaconda3', 'miniforge3', 'mambaforge']) {
+            const base = path.join(home, conda);
+            prefixes.push(base, ...childrenOf(path.join(base, 'envs')));
+        }
+    }
+    if (context.env.CONDA_PREFIX) prefixes.push(context.env.CONDA_PREFIX);
+    if (context.platform === 'darwin') {
+        prefixes.push(...newestSubdirectories(context, '/Library/Frameworks/Python.framework/Versions', /^\d/));
+    }
+    return prefixes.map(interpreter);
 }
 
 /**

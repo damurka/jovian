@@ -110,6 +110,26 @@ test('discoverRHome', async (t) => {
         assert.strictEqual(await discoverRHome(ctx), '/Library/Frameworks/R.framework/Resources');
     });
 
+    await t.test('lists every R framework version on macOS', async () => {
+        const base = '/Library/Frameworks/R.framework';
+        const ctx = context({}, { platform: 'darwin' }, {
+            dirs: { [`${base}/Versions`]: ['4.3-arm64', '4.5-arm64', 'Current'] },
+            files: [`${base}/Resources/library/base`, `${base}/Versions/4.3-arm64/Resources/library/base`, `${base}/Versions/4.5-arm64/Resources/library/base`],
+            aliases: { [`${base}/Resources`]: `${base}/Versions/4.5-arm64/Resources` }
+        });
+        assert.deepStrictEqual((await listRInstallations(ctx)).map((r) => r.home), [`${base}/Resources`, `${base}/Versions/4.3-arm64/Resources`]);
+    });
+
+    await t.test('lists each version R recorded in the Windows registry', async () => {
+        const ctx = context({}, {
+            platform: 'win32',
+            runLines: (command, args) => command === 'reg' && args.includes('/s') && args[1] === String.raw`HKLM\SOFTWARE\R-core\R`
+                ? [String.raw`HKEY_LOCAL_MACHINE\SOFTWARE\R-core\R\4.4.1`, String.raw`InstallPath    REG_SZ    D:\R\R-4.4.1`, String.raw`HKEY_LOCAL_MACHINE\SOFTWARE\R-core\R\4.5.0`, String.raw`InstallPath    REG_SZ    D:\R\R-4.5.0`]
+                : []
+        }, { files: [String.raw`D:\R\R-4.4.1\library\base`, String.raw`D:\R\R-4.5.0\library\base`] });
+        assert.deepStrictEqual((await listRInstallations(ctx)).map((r) => r.home), [String.raw`D:\R\R-4.4.1`, String.raw`D:\R\R-4.5.0`]);
+    });
+
     await t.test('does not look at the registry off Windows', async () => {
         const ctx = context({});
         assert.strictEqual(await discoverRHome(ctx), undefined);
@@ -146,6 +166,22 @@ test('discoverPythonHome', async (t) => {
     await t.test('skips an answer that does not exist and tries the next Python', async () => {
         const ctx = context({ [`python3 -c ${script}`]: '/gone', [`python -c ${script}`]: '/usr' }, {}, { files: ['/usr'] });
         assert.strictEqual(await discoverPythonHome(ctx), '/usr');
+    });
+
+    await t.test('lists pyenv and conda Pythons that are not on PATH', async () => {
+        const ctx = context({
+            [`/home/me/.pyenv/versions/3.11.9/bin/python3 -c ${script}`]: '/home/me/.pyenv/versions/3.11.9|3.11.9',
+            [`/home/me/miniconda3/bin/python3 -c ${script}`]: '/home/me/miniconda3|3.12.4',
+            [`/home/me/miniconda3/envs/analysis/bin/python3 -c ${script}`]: '/home/me/miniconda3/envs/analysis|3.10.14'
+        }, { env: { HOME: '/home/me' } }, {
+            dirs: { '/home/me/.pyenv/versions': ['3.11.9'], '/home/me/miniconda3/envs': ['analysis'] },
+            files: [
+                '/home/me/.pyenv/versions/3.11.9/bin/python3', '/home/me/.pyenv/versions/3.11.9',
+                '/home/me/miniconda3/bin/python3', '/home/me/miniconda3',
+                '/home/me/miniconda3/envs/analysis/bin/python3', '/home/me/miniconda3/envs/analysis'
+            ]
+        });
+        assert.deepStrictEqual((await listPythonInstallations(ctx)).map((p) => p.label), ['Python 3.11.9', 'Python 3.12.4', 'Python 3.10.14']);
     });
 
     await t.test('is undefined when there is no Python', async () => {
