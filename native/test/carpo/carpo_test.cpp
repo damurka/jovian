@@ -407,17 +407,24 @@ TEST(CarpoTest, PythonThreadsKeepRunningWhileTheKernelIsIdle)
     runCode(interpreter,
         "import threading, time\n"
         "ticks = []\n"
+        "stop = threading.Event()\n"
         "def tick():\n"
-        "    while len(ticks) < 1000:\n"
+        "    while not stop.is_set() and len(ticks) < 1000:\n"
         "        ticks.append(1)\n"
         "        time.sleep(0.01)\n"
-        "threading.Thread(target=tick, daemon=True).start()\n");
+        "ticker = threading.Thread(target=tick, daemon=True)\n"
+        "ticker.start()\n");
     // ~200 ticks in 2 s; a slow macOS CI runner managed 8 in 500 ms. With the
     // GIL held while idle the thread gets one or two.
     std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
     int ticks = std::stoi(valueAfter(interpreter, "", "len(ticks)"));
     EXPECT_GT(ticks, 5) << "the thread barely ran while the kernel was idle";
+    // Stopped before this interpreter finalizes Python: a thread still running then wakes in the next test's fresh
+    // Python and takes the old runtime's GIL ("Fatal Python error: take_gil: PyMUTEX_UNLOCK(gil->mutex) failed" on
+    // GitHub's Intel Macs).
+    runCode(interpreter, "stop.set()\nticker.join(5)\n");
+    EXPECT_EQ(valueAfter(interpreter, "", "ticker.is_alive()"), "False");
 }
 
 TEST(CarpoTest, SysExecutableIsARealPythonNotTheKernel)
