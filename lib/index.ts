@@ -8,6 +8,9 @@ export type { RuntimeInstallation, RuntimeSource, RuntimeChoice, FoundRuntime } 
 // Installing R packages and what they need, in a process of their own (not a session)
 export { ensureRPackage, R_PACKAGES_OFFLINE } from './session/r-packages.js';
 export type { RPackageRequest, RPackageOptions, RPackageProgress, RPackageResult } from './session/r-packages.js';
+// Installing Python packages into a virtual environment, with pip, in a process of its own
+export { ensurePythonEnvironment, ensurePythonPackages, venvPython, venvSitePackages, PYTHON_PACKAGES_OFFLINE } from './session/python-packages.js';
+export type { PythonPackageRequest, PythonPackageOptions, PythonPackageResult } from './session/python-packages.js';
 export * from './types/index.js';
 export * from './middleware/index.js';
 
