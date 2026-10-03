@@ -8,6 +8,7 @@ import {
     findRuntime,
     listPythonInstallations,
     listRInstallations,
+    listJupyterKernels,
     listStataInstallations,
     withAbsolutePaths,
     withDiscoveredRuntime,
@@ -520,5 +521,58 @@ test('listStataInstallations', async (t) => {
         assert.deepStrictEqual(await listStataInstallations(ctx), [
             { home: '/opt/custom', label: 'Stata', source: 'env', usable: false, problem: 'it has no licence (stata.lic); Stata will not start without one', editions: ['se'], licensed: false }
         ]);
+    });
+});
+
+test('listJupyterKernels', async (t) => {
+    const javaSpec = JSON.stringify({ argv: ['java', '-jar', '{resource_dir}/ijava.jar', '{connection_file}'], display_name: 'Java', language: 'java', interrupt_mode: 'message' });
+    const juliaSpec = JSON.stringify({ argv: ['/opt/julia/bin/julia', '-i', '{connection_file}'], display_name: 'Julia 1.10', language: 'julia', env: { JULIA_NUM_THREADS: '4', BAD: 1 } });
+
+    await t.test('finds kernelspecs in Jupyter’s folders, fills in the resource folder and resolves the command on PATH', async () => {
+        const ctx = context({}, { platform: 'linux', env: { HOME: '/home/me', PATH: '/usr/bin:/opt/jdk/bin' } }, {
+            dirs: { '/home/me/.local/share/jupyter/kernels': ['java'], '/usr/share/jupyter/kernels': ['julia-1.10'] },
+            texts: {
+                '/home/me/.local/share/jupyter/kernels/java/kernel.json': javaSpec,
+                '/usr/share/jupyter/kernels/julia-1.10/kernel.json': juliaSpec
+            },
+            files: ['/opt/jdk/bin/java', '/opt/julia/bin/julia']
+        });
+        const kernels = await listJupyterKernels(ctx);
+        assert.deepStrictEqual(kernels.map((k) => [k.name, k.displayName, k.language, k.interruptMode, k.usable]), [
+            ['java', 'Java', 'java', 'message', true],
+            ['julia-1.10', 'Julia 1.10', 'julia', 'signal', true]
+        ]);
+        assert.deepStrictEqual(kernels[0]!.argv, ['/opt/jdk/bin/java', '-jar', '/home/me/.local/share/jupyter/kernels/java/ijava.jar', '{connection_file}']);
+        assert.deepStrictEqual(kernels[1]!.env, { JULIA_NUM_THREADS: '4' });
+    });
+
+    await t.test('a command that is not on PATH is listed, not usable; a broken kernel.json is skipped', async () => {
+        const ctx = context({}, { platform: 'linux', env: { HOME: '/home/me', PATH: '/usr/bin' } }, {
+            dirs: { '/home/me/.local/share/jupyter/kernels': ['java', 'broken'] },
+            texts: { '/home/me/.local/share/jupyter/kernels/java/kernel.json': javaSpec, '/home/me/.local/share/jupyter/kernels/broken/kernel.json': '{ not json' }
+        });
+        const kernels = await listJupyterKernels(ctx);
+        assert.deepStrictEqual(kernels.map((k) => [k.name, k.usable]), [['java', false]]);
+        assert.match(kernels[0]!.problem!, /java, was not found/);
+    });
+
+    await t.test('on Windows: %APPDATA% and %PROGRAMDATA%, PATHEXT, and $JUPYTER_PATH first, the first of a name winning', async () => {
+        const ctx = context({}, {
+            platform: 'win32',
+            env: { APPDATA: String.raw`C:\Users\me\AppData\Roaming`, PROGRAMDATA: String.raw`C:\ProgramData`, JUPYTER_PATH: String.raw`D:\kernels-first`, PATH: String.raw`C:\dotnet`, PATHEXT: '.EXE;.CMD' }
+        }, {
+            dirs: {
+                [String.raw`D:\kernels-first\kernels`]: ['.net-csharp'],
+                [String.raw`C:\Users\me\AppData\Roaming\jupyter\kernels`]: ['.net-csharp'],
+                [String.raw`C:\ProgramData\jupyter\kernels`]: []
+            },
+            texts: {
+                [String.raw`D:\kernels-first\kernels\.net-csharp\kernel.json`]: JSON.stringify({ argv: ['dotnet', 'interactive', 'jupyter', '{connection_file}'], display_name: '.NET (C#)', language: 'C#' }),
+                [String.raw`C:\Users\me\AppData\Roaming\jupyter\kernels\.net-csharp\kernel.json`]: JSON.stringify({ argv: ['other'], display_name: 'shadowed', language: 'C#' })
+            },
+            files: [String.raw`C:\dotnet\dotnet.EXE`]
+        });
+        const kernels = await listJupyterKernels(ctx);
+        assert.deepStrictEqual(kernels.map((k) => [k.displayName, k.argv[0]]), [['.NET (C#)', String.raw`C:\dotnet\dotnet.EXE`]]);
     });
 });

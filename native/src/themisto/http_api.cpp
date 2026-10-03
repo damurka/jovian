@@ -22,6 +22,27 @@ namespace themisto
             options.stataHome = body.value("stataHome", "");
             options.stataEdition = body.value("stataEdition", "");
             options.arkPath = body.value("arkPath", "");
+            if (body.contains("kernelArgv") && body["kernelArgv"].is_array())
+            {
+                for (const auto& arg : body["kernelArgv"])
+                {
+                    if (arg.is_string())
+                    {
+                        options.kernelArgv.push_back(arg.get<std::string>());
+                    }
+                }
+            }
+            options.kernelInterruptMode = body.value("kernelInterruptMode", "");
+            if (body.contains("kernelEnv") && body["kernelEnv"].is_object())
+            {
+                for (const auto& [name, value] : body["kernelEnv"].items())
+                {
+                    if (value.is_string())
+                    {
+                        options.kernelEnv[name] = value.get<std::string>();
+                    }
+                }
+            }
             options.workingDirectory = body.value("workingDirectory", "");
             return options;
         }

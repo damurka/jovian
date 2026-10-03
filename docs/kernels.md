@@ -193,6 +193,25 @@ How the R code is laid out differs too. Both leave the global environment empty 
 
 Elara starts as a standard Jupyter kernel (`-f <connection_file> --r-home <R>`), so Positron's supervisor, Kallichore (`kcserver`), can run it: start-up, cells, output, `message()` on stderr and plots work. With Kallichore 0.1.68 and the same bare client: start-up about 0.55 s (Ark: 0.82 s), `1+1` 0.5 ms (Ark: 8.6 ms), 200 000 lines 0.63 s (Ark: 1.88 s), the 10 MB write 166 ms (Ark: 172 ms), the 25 000 `cat()` + `message()` pairs 0.76 s (Ark: 1.55 s); lines arrive as under Themisto, a few milliseconds later. Twice, while a script deleted and killed sessions and left others running, `kcserver` panicked in its ZeroMQ library (`zeromq-0.4.1 dealer.rs: not yet implemented`) and the session ended; it was not reproduced with a session left idle, a WebSocket closed, or any of the cells above, so what triggers it is not known.
 
+## Any installed Jupyter kernel (`kernelType: 'jupyter'`)
+
+Kernels Jovian doesn't ship -- Java (IJava), C# and F# (.NET Interactive), Julia (IJulia), Python's own ipykernel -- run under the same supervisor the classic Jupyter way:
+
+```ts
+const java = (await listJupyterKernels()).find((k) => k.language === 'java');
+const session = await manager.createSession({
+    kernelType: 'jupyter',
+    kernelArgv: java.argv,                 // its kernel.json command, "{resource_dir}" filled in, the executable resolved on PATH
+    kernelEnv: java.env,
+    kernelInterruptMode: java.interruptMode
+});
+```
+
+- **Finding them:** `listJupyterKernels()` reads every `kernels/<name>/kernel.json` Jupyter itself would: `$JUPYTER_PATH`, then the user's data folder (`%APPDATA%\jupyter`, `~/Library/Jupyter`, `~/.local/share/jupyter`), then the system's (`%PROGRAMDATA%\jupyter`, `/usr/local/share/jupyter`, `/usr/share/jupyter`); the first of a name wins. One whose command isn't found is listed with `usable: false`.
+- **Starting:** Themisto picks five free ports and a fresh key, writes the standard connection file, runs the command with `{connection_file}` replaced by its path, and connects to the ports itself -- no registration handshake (Elara, Carpo, Callisto and Ark register instead). The file is removed when the session ends.
+- **Interrupt:** a kernel whose `interrupt_mode` is `message` gets an `interrupt_request`; otherwise (`signal`, Jupyter's default) Themisto interrupts the process as Jupyter does -- on Windows by setting the event it handed the kernel in `JPY_INTERRUPT_EVENT`, elsewhere with `SIGINT` -- and answers the request itself.
+- **What it isn't:** Jovian's own kernels add host requests, `View()`, the variables and data views, Shiny and the R helper that answers while a cell runs; an outside kernel gets cells, output, errors, completion, inspection and interrupts -- what its kernel implements of the Jupyter protocol.
+
 ## Differences at a glance
 
 | | Elara (R) | Carpo (Python) | Callisto (Stata) |

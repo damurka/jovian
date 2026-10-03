@@ -39,6 +39,11 @@ namespace themisto
         std::vector<std::string> explicitArgs;
         // Environment variables the kernel gets on top of the supervisor's.
         std::map<std::string, std::string> extraEnv;
+        // A Jupyter kernel interrupted by signal (its kernelspec's
+        // interrupt_mode): on Windows it gets an inherited event to wait on,
+        // named in JPY_INTERRUPT_EVENT, which interrupt() sets -- as
+        // jupyter_client does; on POSIX interrupt() sends SIGINT.
+        bool interruptBySignal = false;
         std::string registrationIp;
         std::string registrationPort;
         std::string key;
@@ -62,6 +67,9 @@ namespace themisto
         void start();
         bool isAlive() const;
         void kill();
+        // Interrupts a kernel started with interruptBySignal (see above);
+        // false when it wasn't, or the process is gone.
+        bool interrupt();
 
         // Diagnostic description for when a kernel is declared dead via
         // heartbeat timeout (see SessionRegistry's kernel-status listener):
@@ -110,6 +118,8 @@ namespace themisto
 #ifdef _WIN32
         void* m_processHandle = nullptr;
         unsigned long m_processId = 0;
+        // interruptBySignal: the event the kernel waits on (JPY_INTERRUPT_EVENT).
+        void* m_interruptEvent = nullptr;
 #else
         int m_processId = -1;
         int m_stdoutFd = -1;

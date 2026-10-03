@@ -48,6 +48,9 @@ export function buildSessionOptionsBody(options: Partial<EngineOptions>): Record
         stataHome: options.stataHome,
         stataEdition: options.stataEdition,
         arkPath: options.arkPath,
+        kernelArgv: options.kernelArgv,
+        kernelEnv: options.kernelEnv,
+        kernelInterruptMode: options.kernelInterruptMode,
         workingDirectory: options.workingDirectory
     };
 }

@@ -497,6 +497,110 @@ export async function discoverStataHome(context: DiscoveryContext = defaultConte
     return (await listStataInstallations(context))[0]?.home;
 }
 
+/** An installed Jupyter kernel (a kernelspec): what a 'jupyter' session needs to start it. */
+export interface JupyterKernel {
+    /** Its folder's name, which Jupyter knows it by ("java", ".net-csharp", "julia-1.10", "python3"). */
+    name: string;
+    /** "Java", ".NET (C#)", "Julia 1.10.4". */
+    displayName: string;
+    /** The language it runs ("java", "C#", "julia", "python"), as its kernel.json says. */
+    language: string;
+    /** Its command, "{resource_dir}" filled in and the executable resolved on PATH: what kernelArgv takes. */
+    argv: string[];
+    /** The environment it adds: what kernelEnv takes. */
+    env: Record<string, string>;
+    /** How it is interrupted: 'message' (an interrupt_request) or 'signal' (an OS signal, which the supervisor does not send). */
+    interruptMode: 'message' | 'signal';
+    /** Its kernelspec folder. */
+    resourceDir: string;
+    /** Whether its executable was found; `problem` says why not. */
+    usable: boolean;
+    problem?: string;
+}
+
+/**
+ * The folders Jupyter looks in for kernelspecs, in its order: $JUPYTER_PATH's, the user's data folder
+ * (%APPDATA%\jupyter, ~/Library/Jupyter, $XDG_DATA_HOME/jupyter or ~/.local/share/jupyter), then the system's
+ * (%PROGRAMDATA%\jupyter, /usr/local/share/jupyter, /usr/share/jupyter) -- each with its kernels/ folder.
+ */
+function jupyterKernelDirs(context: DiscoveryContext): string[] {
+    const { path } = helpers(context);
+    const { env } = context;
+    const home = env.USERPROFILE ?? env.HOME;
+    const dataDirs: string[] = (env.JUPYTER_PATH ?? '').split(path.delimiter).filter(Boolean);
+    if (context.platform === 'win32') {
+        if (env.APPDATA) dataDirs.push(path.join(env.APPDATA, 'jupyter'));
+        if (env.PROGRAMDATA) dataDirs.push(path.join(env.PROGRAMDATA, 'jupyter'));
+    } else if (context.platform === 'darwin') {
+        if (home) dataDirs.push(path.join(home, 'Library', 'Jupyter'));
+        dataDirs.push('/usr/local/share/jupyter', '/usr/share/jupyter');
+    } else {
+        dataDirs.push(env.XDG_DATA_HOME ? path.join(env.XDG_DATA_HOME, 'jupyter') : home ? path.join(home, '.local', 'share', 'jupyter') : '');
+        dataDirs.push('/usr/local/share/jupyter', '/usr/share/jupyter');
+    }
+    return [...new Set(dataDirs.filter(Boolean).map((dir) => path.join(dir, 'kernels')))];
+}
+
+/** A command's executable: as given when it is a path, else the first match on PATH (with PATHEXT on Windows). */
+function resolveOnPath(context: DiscoveryContext, command: string): string | undefined {
+    const { path, exists } = helpers(context);
+    if (path.isAbsolute(command)) return exists(command) ? command : undefined;
+    if (/[\\/]/.test(command)) return undefined;
+    const extensions = context.platform === 'win32'
+        ? ['', ...(context.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)]
+        : [''];
+    for (const dir of (context.env.PATH ?? context.env.Path ?? '').split(path.delimiter).filter(Boolean)) {
+        for (const extension of extensions) {
+            const candidate = path.join(dir, command + extension);
+            if (exists(candidate)) return candidate;
+        }
+    }
+    return undefined;
+}
+
+/**
+ * Every installed Jupyter kernel -- each kernelspec folder (kernels/<name>/kernel.json) Jupyter itself would find, the
+ * first of a name winning as in Jupyter -- with its command ready to start: "{resource_dir}" filled in, the executable
+ * resolved on PATH. One whose executable can't be found is listed, not usable. Unreadable kernel.json files are
+ * skipped.
+ */
+export async function listJupyterKernels(context: DiscoveryContext = defaultContext()): Promise<JupyterKernel[]> {
+    const { path, listDir, readFile } = helpers(context);
+    const kernels: JupyterKernel[] = [];
+    const seen = new Set<string>();
+    for (const kernelsDir of jupyterKernelDirs(context)) {
+        for (const name of listDir(kernelsDir)) {
+            if (seen.has(name.toLowerCase())) continue;
+            const resourceDir = path.join(kernelsDir, name);
+            let spec: { argv?: unknown; display_name?: unknown; language?: unknown; env?: unknown; interrupt_mode?: unknown };
+            try {
+                spec = JSON.parse(readFile(path.join(resourceDir, 'kernel.json')) ?? '');
+            } catch {
+                continue;
+            }
+            if (!Array.isArray(spec.argv) || spec.argv.length === 0 || !spec.argv.every((arg) => typeof arg === 'string')) continue;
+            seen.add(name.toLowerCase());
+            const argv = (spec.argv as string[]).map((arg) => arg.split('{resource_dir}').join(resourceDir));
+            const executable = resolveOnPath(context, argv[0]!);
+            const env = spec.env && typeof spec.env === 'object'
+                ? Object.fromEntries(Object.entries(spec.env as Record<string, unknown>).filter(([, value]) => typeof value === 'string')) as Record<string, string>
+                : {};
+            kernels.push({
+                name,
+                displayName: typeof spec.display_name === 'string' ? spec.display_name : name,
+                language: typeof spec.language === 'string' ? spec.language : '',
+                argv: executable ? [executable, ...argv.slice(1)] : argv,
+                env,
+                interruptMode: spec.interrupt_mode === 'message' ? 'message' : 'signal',
+                resourceDir,
+                usable: Boolean(executable),
+                ...(executable ? {} : { problem: `its command, ${argv[0]}, was not found` })
+            });
+        }
+    }
+    return kernels;
+}
+
 /** What findRuntime() is asked for. */
 export interface RuntimeChoice {
     /**
@@ -614,7 +718,9 @@ const NEEDS: Record<KernelType, DiscoveredField[]> = {
     r: ['rHome'],
     python: ['pythonHome'],
     stata: ['stataHome'],
-    ark: ['rHome', 'arkPath']
+    ark: ['rHome', 'arkPath'],
+    // its command comes with the request (kernelArgv, from listJupyterKernels())
+    jupyter: []
 };
 const DISCOVER: Record<DiscoveredField, (context?: DiscoveryContext) => Promise<string | undefined>> = {
     rHome: discoverRHome,

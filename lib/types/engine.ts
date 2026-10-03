@@ -75,8 +75,8 @@ export interface BusyRequestOptions {
 
 export type LoggerFunction = (level: LogLevel, message: string, data?: any) => void;
 
-/** The kernels a session can run: R (Elara), Python (Carpo) or Stata (Callisto). */
-export type KernelType = 'r' | 'python' | 'stata' | 'ark';
+/** The kernels a session can run: R (Elara), Python (Carpo), Stata (Callisto), Ark, or any installed Jupyter kernel. */
+export type KernelType = 'r' | 'python' | 'stata' | 'ark' | 'jupyter';
 
 export interface EngineOptions {
     /**
@@ -124,6 +124,20 @@ export interface EngineOptions {
      * install, or ark on PATH when omitted. R comes from rHome, as for 'r'.
      */
     arkPath?: string | undefined;
+
+    /**
+     * Only used when kernelType is 'jupyter' -- any installed Jupyter kernel (IJava, .NET Interactive, IJulia,
+     * ipykernel ...; see listJupyterKernels()), started the classic way: its kernel.json command, the executable
+     * first (a full path), with "{connection_file}" where the connection file the supervisor writes goes.
+     */
+    kernelArgv?: string[] | undefined;
+    /** Only used when kernelType is 'jupyter' -- the environment its kernel.json adds. */
+    kernelEnv?: Record<string, string> | undefined;
+    /**
+     * Only used when kernelType is 'jupyter' -- how it is interrupted, as its kernel.json says: 'message' (an
+     * interrupt_request it handles) or 'signal' (the default: the supervisor signals the process).
+     */
+    kernelInterruptMode?: 'message' | 'signal' | undefined;
 
     /**
      * Directory the kernel process starts in -- what `getwd()` (R) /

@@ -90,6 +90,11 @@ namespace themisto
         {
             pollThread.join();
         }
+        if (!connectionFile.empty())
+        {
+            std::error_code ec;
+            std::filesystem::remove(connectionFile, ec);
+        }
     }
 
     void Session::emitMessage(const std::string& jsonText)
@@ -183,6 +188,70 @@ namespace themisto
         return m_registrationPort;
     }
 
+    adrastea::KernelConfiguration SessionRegistry::startJupyterKernel(Session& session, const SessionOptions& options, KernelProcessOptions procOptions)
+    {
+        adrastea::KernelConfiguration config;
+        config.m_ip = "127.0.0.1";
+        config.m_key = adrastea::newGuid().toString();
+        // five distinct free ports (findFreePort() could hand the same one out twice before the kernel binds any)
+        std::set<std::string> taken;
+        auto freePort = [&taken]() {
+            for (;;)
+            {
+                std::string port = adrastea::findFreePort();
+                if (taken.insert(port).second)
+                {
+                    return port;
+                }
+            }
+        };
+        config.m_shellPort = freePort();
+        config.m_iopubPort = freePort();
+        config.m_stdinPort = freePort();
+        config.m_controlPort = freePort();
+        config.m_hbPort = freePort();
+
+        session.connectionFile = std::filesystem::temp_directory_path() / ("jovian-kernel-" + session.id + ".json");
+        json connection = {
+            { "transport", config.m_transport },
+            { "ip", config.m_ip },
+            { "key", config.m_key },
+            { "signature_scheme", config.m_signatureScheme },
+            { "shell_port", std::stoi(config.m_shellPort) },
+            { "iopub_port", std::stoi(config.m_iopubPort) },
+            { "stdin_port", std::stoi(config.m_stdinPort) },
+            { "control_port", std::stoi(config.m_controlPort) },
+            { "hb_port", std::stoi(config.m_hbPort) }
+        };
+        std::ofstream(session.connectionFile, std::ios::binary) << connection.dump();
+
+        // the rest of the kernel's command, "{connection_file}" replaced by the file's path wherever it appears
+        const std::string placeholder = "{connection_file}";
+        const std::string connectionPath = session.connectionFile.string();
+        std::vector<std::string> args;
+        for (std::size_t i = 1; i < options.kernelArgv.size(); ++i)
+        {
+            std::string arg = options.kernelArgv[i];
+            for (std::size_t at = arg.find(placeholder); at != std::string::npos; at = arg.find(placeholder, at + connectionPath.size()))
+            {
+                arg.replace(at, placeholder.size(), connectionPath);
+            }
+            args.push_back(std::move(arg));
+        }
+        if (args.empty())
+        {
+            throw std::runtime_error("the kernel's command has no arguments: it needs \"{connection_file}\" to know its ports");
+        }
+        procOptions.explicitArgs = std::move(args);
+        procOptions.extraEnv = options.kernelEnv;
+        procOptions.interruptBySignal = options.kernelInterruptMode != "message";
+        procOptions.key = config.m_key;
+
+        session.process = std::make_unique<KernelProcess>(procOptions);
+        session.process->start();
+        return config;
+    }
+
     std::string SessionRegistry::createSession(SessionOptions options, std::string& error)
     {
         std::string id = adrastea::newGuid().toString();
@@ -194,7 +263,14 @@ namespace themisto
         // Ark (Posit's R kernel) is not shipped with Jovian: its executable
         // comes with the request (arkPath), or from --ark-exe.
         std::string kernelExePath;
-        if (options.kernelType == "ark" && !options.arkPath.empty())
+        if (options.kernelType == "jupyter")
+        {
+            if (!options.kernelArgv.empty())
+            {
+                kernelExePath = options.kernelArgv.front();
+            }
+        }
+        else if (options.kernelType == "ark" && !options.arkPath.empty())
         {
             kernelExePath = options.arkPath;
         }
@@ -204,7 +280,9 @@ namespace themisto
         }
         if (kernelExePath.empty())
         {
-            error = options.kernelType == "ark"
+            error = options.kernelType == "jupyter"
+                ? std::string("kernelType 'jupyter' needs kernelArgv: the kernel's command, from its kernel.json")
+                : options.kernelType == "ark"
                 ? std::string("kernelType 'ark' needs arkPath: the ark executable (Positron ships one)")
                 : "no kernel executable is configured for kernelType '" + options.kernelType +
                     "' (this supervisor was started without one -- see main.cpp's kernel discovery)";
@@ -256,63 +334,70 @@ namespace themisto
             // on the underlying router socket (see
             // ClientHandshakeZmqImpl's constructor, client_handshake_zmq.cpp)
             // -- this now throws a clear, actionable error instead.
-            std::lock_guard<std::mutex> regLock(m_registrationMutex);
-
-            // Reuse the supervisor's single registration key so the kernel
-            // signs both its handshake and its subsequent channel traffic
-            // with the key ClientHandshakeZmqImpl::waitForConfiguration()
-            // will hand back as the resulting KernelConfiguration's key
-            // (see the comment in startRegistrationListener()).
-            procOptions.key = m_registrationKey;
-            if (options.kernelType == "r" || options.kernelType == "ark")
+            if (options.kernelType == "jupyter")
             {
-                ensureRBinOnPath(options.rHome, options.rPath);
+                kernelConfig = startJupyterKernel(*session, options, procOptions);
             }
-
-            // Ark takes the standard Jupyter launch: a registration file
-            // (JEP 66) naming this supervisor's registration socket and key,
-            // instead of Adrastea's --registration-port/--key flags, and R
-            // from R_HOME. Removed once it has registered (or failed to).
-            std::filesystem::path registrationFile;
-            if (options.kernelType == "ark")
+            else
             {
-                registrationFile = std::filesystem::temp_directory_path() / ("jovian-ark-" + id + ".json");
-                json registration = {
-                    { "transport", "tcp" },
-                    { "signature_scheme", "hmac-sha256" },
-                    { "ip", m_registrationIp },
-                    { "key", m_registrationKey },
-                    { "registration_port", std::stoi(m_registrationPort) }
-                };
-                std::ofstream(registrationFile, std::ios::binary) << registration.dump();
-                procOptions.explicitArgs = { "--connection_file", registrationFile.string(), "--session-mode", "notebook" };
-                if (!options.rHome.empty())
+                std::lock_guard<std::mutex> regLock(m_registrationMutex);
+
+                // Reuse the supervisor's single registration key so the kernel
+                // signs both its handshake and its subsequent channel traffic
+                // with the key ClientHandshakeZmqImpl::waitForConfiguration()
+                // will hand back as the resulting KernelConfiguration's key
+                // (see the comment in startRegistrationListener()).
+                procOptions.key = m_registrationKey;
+                if (options.kernelType == "r" || options.kernelType == "ark")
                 {
-                    procOptions.extraEnv["R_HOME"] = options.rHome;
+                    ensureRBinOnPath(options.rHome, options.rPath);
                 }
+
+                // Ark takes the standard Jupyter launch: a registration file
+                // (JEP 66) naming this supervisor's registration socket and key,
+                // instead of Adrastea's --registration-port/--key flags, and R
+                // from R_HOME. Removed once it has registered (or failed to).
+                std::filesystem::path registrationFile;
+                if (options.kernelType == "ark")
+                {
+                    registrationFile = std::filesystem::temp_directory_path() / ("jovian-ark-" + id + ".json");
+                    json registration = {
+                        { "transport", "tcp" },
+                        { "signature_scheme", "hmac-sha256" },
+                        { "ip", m_registrationIp },
+                        { "key", m_registrationKey },
+                        { "registration_port", std::stoi(m_registrationPort) }
+                    };
+                    std::ofstream(registrationFile, std::ios::binary) << registration.dump();
+                    procOptions.explicitArgs = { "--connection_file", registrationFile.string(), "--session-mode", "notebook" };
+                    if (!options.rHome.empty())
+                    {
+                        procOptions.extraEnv["R_HOME"] = options.rHome;
+                    }
+                }
+                struct RemoveOnExit
+                {
+                    std::filesystem::path path;
+                    ~RemoveOnExit()
+                    {
+                        std::error_code ec;
+                        if (!path.empty()) std::filesystem::remove(path, ec);
+                    }
+                } removeRegistration{ registrationFile };
+
+                session->process = std::make_unique<KernelProcess>(procOptions);
+                session->process->start();
+
+                // Lets waitForConfiguration() fail fast (a poll interval, not
+                // the full timeout) the moment this specific process dies,
+                // instead of always waiting out the timeout even when the
+                // process itself already exited near-instantly (confirmed
+                // directly: elara.exe exits in well under 100ms when R can't be
+                // loaded, but this used to still take the full 60s to surface).
+                KernelProcess* spawnedProcess = session->process.get();
+                kernelConfig = m_registrationListener->waitForConfiguration(
+                    [spawnedProcess]() { return !spawnedProcess->isAlive(); });
             }
-            struct RemoveOnExit
-            {
-                std::filesystem::path path;
-                ~RemoveOnExit()
-                {
-                    std::error_code ec;
-                    if (!path.empty()) std::filesystem::remove(path, ec);
-                }
-            } removeRegistration{ registrationFile };
-
-            session->process = std::make_unique<KernelProcess>(procOptions);
-            session->process->start();
-
-            // Lets waitForConfiguration() fail fast (a poll interval, not
-            // the full timeout) the moment this specific process dies,
-            // instead of always waiting out the timeout even when the
-            // process itself already exited near-instantly (confirmed
-            // directly: elara.exe exits in well under 100ms when R can't be
-            // loaded, but this used to still take the full 60s to surface).
-            KernelProcess* spawnedProcess = session->process.get();
-            kernelConfig = m_registrationListener->waitForConfiguration(
-                [spawnedProcess]() { return !spawnedProcess->isAlive(); });
         }
         catch (const std::exception& e)
         {
@@ -636,6 +721,23 @@ namespace themisto
         {
             error = "session not found";
             return false;
+        }
+
+        // A Jupyter kernel interrupted by signal: the supervisor interrupts the
+        // process itself, and answers for it (the kernel sends no reply)
+        if (msgType == "interrupt_request" && session->options.kernelType == "jupyter" && session->options.kernelInterruptMode != "message")
+        {
+            const bool interrupted = session->process && session->process->interrupt();
+            json envelope = {
+                { "type", "message" },
+                { "channel", "control" },
+                { "topic", "interrupt_reply" },
+                { "msg_type", "interrupt_reply" },
+                { "parent_msg_id", msgId },
+                { "content", interrupted ? json{ { "status", "ok" } } : json{ { "status", "error" }, { "ename", "InterruptFailed" }, { "evalue", "the kernel process could not be interrupted" } } }
+            };
+            session->emitMessage(envelope.dump());
+            return true;
         }
 
         json header = adrastea::makeHeader(msgType, "client_user", sessionId);

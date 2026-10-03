@@ -229,6 +229,13 @@ namespace themisto
     KernelProcess::~KernelProcess()
     {
         kill();
+#ifdef _WIN32
+        if (m_interruptEvent)
+        {
+            CloseHandle(static_cast<HANDLE>(m_interruptEvent));
+            m_interruptEvent = nullptr;
+        }
+#endif
     }
 
     // Reads lines from the kernel's stdout/stderr (redirected into one pipe
@@ -299,7 +306,23 @@ namespace themisto
             cmd << " " << quoteArg(arg);
         }
         std::string commandLine = cmd.str();
-        std::vector<char> environment = environmentBlock(m_options.extraEnv);
+
+        // A kernel interrupted by signal waits on an event it inherits, named
+        // in JPY_INTERRUPT_EVENT (jupyter_client's win_interrupt.py): an
+        // auto-reset one, so a set interrupts once.
+        std::map<std::string, std::string> extraEnv = m_options.extraEnv;
+        if (m_options.interruptBySignal && !m_interruptEvent)
+        {
+            SECURITY_ATTRIBUTES eventAttrs{};
+            eventAttrs.nLength = sizeof(eventAttrs);
+            eventAttrs.bInheritHandle = TRUE;
+            m_interruptEvent = CreateEventA(&eventAttrs, FALSE, FALSE, nullptr);
+        }
+        if (m_interruptEvent)
+        {
+            extraEnv["JPY_INTERRUPT_EVENT"] = std::to_string(reinterpret_cast<std::uintptr_t>(m_interruptEvent));
+        }
+        std::vector<char> environment = environmentBlock(extraEnv);
 
         SECURITY_ATTRIBUTES pipeAttrs{};
         pipeAttrs.nLength = sizeof(pipeAttrs);
@@ -338,10 +361,14 @@ namespace themisto
             CloseHandle(readHandle);
             throw std::runtime_error("Failed to initialize process attribute list for elara process");
         }
-        HANDLE inheritList[] = { writeHandle };
+        std::vector<HANDLE> inheritList{ writeHandle };
+        if (m_interruptEvent)
+        {
+            inheritList.push_back(static_cast<HANDLE>(m_interruptEvent));
+        }
         if (!UpdateProcThreadAttribute(
                 attrList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-                inheritList, sizeof(inheritList), nullptr, nullptr))
+                inheritList.data(), inheritList.size() * sizeof(HANDLE), nullptr, nullptr))
         {
             DeleteProcThreadAttributeList(attrList);
             CloseHandle(writeHandle);
@@ -419,6 +446,11 @@ namespace themisto
             return false;
         }
         return exitCode == STILL_ACTIVE;
+    }
+
+    bool KernelProcess::interrupt()
+    {
+        return m_interruptEvent && isAlive() && SetEvent(static_cast<HANDLE>(m_interruptEvent));
     }
 
     void KernelProcess::kill()
@@ -697,6 +729,11 @@ namespace themisto
             return false;
         }
         return waitpidCached(WNOHANG) == 0;
+    }
+
+    bool KernelProcess::interrupt()
+    {
+        return m_options.interruptBySignal && m_processId > 0 && isAlive() && ::kill(m_processId, SIGINT) == 0;
     }
 
     void KernelProcess::kill()

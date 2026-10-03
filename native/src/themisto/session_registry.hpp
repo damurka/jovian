@@ -2,6 +2,7 @@
 #define THEMISTO_SESSION_REGISTRY_HPP
 
 #include <atomic>
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <memory>
@@ -9,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "adrastea/context.hpp"
 #include "adrastea/json.hpp"
@@ -51,6 +53,18 @@ namespace themisto
         // Jupyter way; its executable (it is not shipped with Jovian). R comes
         // from rHome.
         std::string arkPath;
+
+        // kernelType "jupyter": any installed Jupyter kernel (IJava, .NET
+        // Interactive, IJulia, ipykernel ...), launched the classic way -- a
+        // connection file naming ports the supervisor chose, which the kernel
+        // binds; no registration handshake. Its kernel.json command, the
+        // executable first and resolved by the caller, with "{connection_file}"
+        // where the file goes; and the environment kernel.json adds.
+        std::vector<std::string> kernelArgv;
+        std::map<std::string, std::string> kernelEnv;
+        // How it is interrupted: "message" (an interrupt_request, which it
+        // handles) or "signal" (the default, as in Jupyter: an OS signal).
+        std::string kernelInterruptMode;
 
         // Directory the kernel process starts in (empty = the supervisor's own).
         std::string workingDirectory;
@@ -112,6 +126,10 @@ namespace themisto
         // spurious kernelExit and flip the status to Crashed for a perfectly
         // orderly, protocol-driven shutdown).
         std::atomic<bool> expectingExit{ false };
+
+        // kernelType "jupyter": the connection file the kernel was started
+        // with, removed when the session goes (empty for the others).
+        std::filesystem::path connectionFile;
 
         ~Session();
 
@@ -206,6 +224,11 @@ namespace themisto
 
     private:
         std::string createSessionWithId(const std::string& id, SessionOptions options, std::string& error);
+
+        // kernelType "jupyter": writes the connection file (five free ports, a
+        // fresh key), starts the kernel's own command with it, and returns the
+        // configuration to connect with -- the kernel binds those ports itself.
+        adrastea::KernelConfiguration startJupyterKernel(Session& session, const SessionOptions& options, KernelProcessOptions procOptions);
 
         // Serializes every stop/restart operation targeting a given session
         // id against every other one targeting the *same* id (a fresh id
