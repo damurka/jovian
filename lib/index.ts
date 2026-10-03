@@ -5,9 +5,9 @@ export type { SupervisorSessionInfo } from './session/supervisor-client.js';
 // The R, Python and Stata installations on this computer, best first (each kernel uses the first unless told which)
 export { listRInstallations, listPythonInstallations, listStataInstallations, listJupyterKernels, findRuntime, readRLibraries, findRscript } from './session/runtimes.js';
 export type { RuntimeInstallation, RuntimeSource, RuntimeChoice, FoundRuntime, JupyterKernel } from './session/runtimes.js';
-// Installing R packages and what they need, in a process of their own (not a session)
-export { ensureRPackage, R_PACKAGES_OFFLINE } from './session/r-packages.js';
-export type { RPackageRequest, RPackageOptions, RPackageProgress, RPackageResult } from './session/r-packages.js';
+// Installing R packages and what they need (SessionManager.ensureRPackage(), in a packages session of its own)
+export { R_PACKAGES_OFFLINE } from './session/r-packages.js';
+export type { EnsureRPackageRequest, EnsureRPackageOptions, RPackageProgress, RPackageResult } from './session/r-packages.js';
 // Installing Python packages into a virtual environment, with pip, in a process of its own
 export { ensurePythonEnvironment, ensurePythonPackages, venvPython, venvSitePackages, PYTHON_PACKAGES_OFFLINE } from './session/python-packages.js';
 export type { PythonPackageRequest, PythonPackageOptions, PythonPackageResult } from './session/python-packages.js';

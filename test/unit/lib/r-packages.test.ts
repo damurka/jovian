@@ -4,10 +4,11 @@ import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-    ensureRPackage,
+    ensureRPackageIn,
     folderSize,
     followRInstall,
     LIBRARY_LOCK_FILE,
+    R_PACKAGES_OFFLINE,
     lockLibrary,
     type RPackageProgress
 } from '../../../dist/lib/session/r-packages.js';
@@ -130,8 +131,73 @@ test('lockLibrary', async (t) => {
     });
 });
 
-test('ensureRPackage', async (t) => {
-    await t.test('rejects at once when the R home has no Rscript', async () => {
-        await assert.rejects(ensureRPackage({ name: 'glue' }, { rHome: join(tmpdir(), 'no-such-r') }), /no Rscript/);
+test('ensureRPackageIn', async (t) => {
+    /**
+     * A packages session that answers .jv.pkg.ensure() as given: the plan (plan_only = TRUE) and the install, each a
+     * list of lines it prints (in two chunks, a line split across them, as a kernel's stream can).
+     */
+    function fakeSession(plan: string[], install: string[]) {
+        const listeners = new Set<(message: { msgType: string; content: unknown }) => void>();
+        const calls: string[] = [];
+        return {
+            calls,
+            on(_event: 'message', listener: (message: { msgType: string; content: unknown }) => void) { listeners.add(listener); },
+            off(_event: 'message', listener: (message: { msgType: string; content: unknown }) => void) { listeners.delete(listener); },
+            async execute(code: string) {
+                calls.push(code.includes('plan_only = TRUE') ? 'plan' : 'install');
+                const text = (code.includes('plan_only = TRUE') ? plan : install).map((line) => `${line}\n`).join('');
+                const half = Math.floor(text.length / 2);
+                for (const chunk of [text.slice(0, half), text.slice(half)]) {
+                    for (const listener of listeners) listener({ msgType: 'stream', content: { name: 'stdout', text: chunk } });
+                }
+                return { success: true };
+            }
+        };
+    }
+    function fakeHost(session: ReturnType<typeof fakeSession>, using: string[][]) {
+        const holds: string[] = [];
+        return {
+            holds,
+            async packagesSession() { return session; },
+            sessionsUsing() { return using.length > 1 ? using.shift()! : using[0] ?? []; },
+            hold(library: string, until: Promise<unknown>) { holds.push(library); void until; }
+        };
+    }
+    const library = await scratch('jovian-ensure-');
+    t.after(() => fs.promises.rm(library, { recursive: true, force: true }));
+
+    await t.test('nothing to install: one call, the plan says so', async () => {
+        const session = fakeSession(['JOVIAN_PKG_RESULT: 1.8.1 1.8.1 - online'], []);
+        const result = await ensureRPackageIn(fakeHost(session, [['app']]), { name: 'glue' }, { rHome: 'R', libraries: [library] });
+        assert.deepStrictEqual(result, { previousVersion: '1.8.1', version: '1.8.1', installed: [], offline: false });
+        assert.deepStrictEqual(session.calls, ['plan']);
+    });
+
+    await t.test('an update replacing packages waits for the sessions on the library, then holds new ones back', async () => {
+        const session = fakeSession(['JOVIAN_PKG_PLAN: glue,cli glue'], ['JOVIAN_PKG: Installing glue, cli', 'package \'glue\' successfully unpacked and MD5 sums checked', 'JOVIAN_PKG_RESULT: 1.7.0 1.8.1 glue,cli online']);
+        const host = fakeHost(session, [['app'], []]);
+        const phases: string[] = [];
+        const result = await ensureRPackageIn(host, { name: 'glue', update: true }, { rHome: 'R', libraries: [library], onProgress: (p) => phases.push(p.phase) });
+        assert.deepStrictEqual(result.installed, ['glue', 'cli']);
+        assert.deepStrictEqual(session.calls, ['plan', 'install']);
+        assert.strictEqual(phases[0], 'waiting');
+        assert.ok(phases.includes('installing'));
+        assert.deepStrictEqual(host.holds, [library]);
+    });
+
+    await t.test('installing only what is missing does not wait for anyone', async () => {
+        const session = fakeSession(['JOVIAN_PKG_PLAN: glue -'], ['JOVIAN_PKG_RESULT: NA 1.8.1 glue online']);
+        const host = fakeHost(session, [['app']]);
+        const phases: string[] = [];
+        await ensureRPackageIn(host, { name: 'glue' }, { rHome: 'R', libraries: [library], onProgress: (p) => phases.push(p.phase) });
+        assert.ok(!phases.includes('waiting'));
+        assert.deepStrictEqual(host.holds, []);
+    });
+
+    await t.test('offline and failures reject as before', async () => {
+        const offline = fakeSession(['JOVIAN_PKG_OFFLINE: Could not reach https://x.r-universe.dev.'], []);
+        await assert.rejects(ensureRPackageIn(fakeHost(offline, [[]]), { name: 'glue' }, { rHome: 'R', libraries: [library] }), (e: Error) => e.name === R_PACKAGES_OFFLINE);
+        const failed = fakeSession(['JOVIAN_PKG_PLAN: glue -'], ['JOVIAN_PKG_ERROR: Could not install glue.']);
+        await assert.rejects(ensureRPackageIn(fakeHost(failed, [[]]), { name: 'glue' }, { rHome: 'R', libraries: [library] }), /Could not install glue/);
     });
 });

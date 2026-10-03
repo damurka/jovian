@@ -48,12 +48,29 @@ import { ErrorHandler } from '../handlers/error-handler.js';
 import { DisplayHandler } from '../handlers/display-handler.js';
 import { findFreePort, waitForPort } from '../utils/network.js';
 import { SupervisorClient, sessionSocketUrl, supervisorHeaders, type SessionConnectionInfo, type SupervisorSessionInfo } from './supervisor-client.js';
-import { homedir } from 'os';
-import { join as joinPath } from 'path';
+import { homedir, tmpdir } from 'os';
+import { delimiter, join as joinPath, resolve as resolvePath } from 'path';
 import { withAbsolutePaths, withDiscoveredRuntime } from './runtimes.js';
 import { analyzeR, type RCodeFacts } from './r-static.js';
 import { RHelper, R_STATE_EXPRESSION, R_STATE_KEY, mergeCompletions, parseRState, type RSessionState } from './r-helper.js';
+import { ensureRPackageIn, type EnsureRPackageOptions, type EnsureRPackageRequest, type RPackageResult, type RPackagesHost } from './r-packages.js';
 import { Comm } from './comm.js';
+
+/** How long ensureRPackage()'s packages session waits for the next install before it stops. */
+const PACKAGES_SESSION_IDLE_MS = 5 * 60 * 1000;
+
+/** A library path in one form, to compare (Windows paths are case-insensitive, with either slash). */
+function libraryKey(library: string): string {
+    const resolved = resolvePath(library).replace(/[\\/]+$/, '');
+    return process.platform === 'win32' ? resolved.replace(/\//g, '\\').toLowerCase() : resolved;
+}
+
+/** The library an R session installs into and loads from first (its rLibs' first entry), in libraryKey() form. */
+function firstLibrary(options: EngineOptions): string | undefined {
+    if (options.kernelType && options.kernelType !== 'r') return undefined;
+    const first = options.rLibs?.split(delimiter).find((library) => library.length > 0);
+    return first ? libraryKey(first) : undefined;
+}
 
 // Reuses lib/types/engine.ts's ShinyAppHandle instead of declaring a
 // second, structurally-identical interface here -- lib/index.ts used to
@@ -167,6 +184,11 @@ export class Session extends EventEmitter {
      */
     get options(): EngineOptions {
         return this.currentOptions;
+    }
+
+    /** Whether the session was stopped, or its kernel ended for good. */
+    get isStopped(): boolean {
+        return this.stopped;
     }
 
     private readyPromise: Promise<void>;
@@ -1272,6 +1294,10 @@ export class SessionManager {
     private readonly logger: Logger;
     private readonly supervisor: SupervisorClient;
     private readonly sessions = new Set<Session>();
+    // ensureRPackage()'s packages sessions, by R and libraries: kept warm between installs, stopped when idle
+    private readonly packagesSessions = new Map<string, { session: Promise<Session>; idle?: ReturnType<typeof setTimeout> }>();
+    // Libraries an install is replacing packages in: a new R session on one waits for it
+    private readonly libraryHolds = new Map<string, Promise<unknown>>();
     private exitHandlerRegistered = false;
     private readonly busyHelperEnabled: boolean;
     // One helper R process per R installation (see r-helper.ts).
@@ -1364,6 +1390,13 @@ export class SessionManager {
         // given (see runtimes.ts). Nothing is installed first: the R kernel
         // carries its own R code (hera) and needs no R package.
         const options = await withDiscoveredRuntime(withAbsolutePaths(requested));
+        // an R session doesn't start on a library while an install replaces its packages
+        const library = firstLibrary(options);
+        const hold = library && this.libraryHolds.get(library);
+        if (hold) {
+            this.logger.info(`Waiting for the install into ${library} to finish before starting the session`);
+            await hold.catch(() => undefined);
+        }
         const info = await this.supervisor.createSession(options);
         const session = new Session(info, options, this.supervisor, { level: this.logLevel, logger: this.customLogger },
             (current) => this.rHelperFor(current));
@@ -1380,8 +1413,74 @@ export class SessionManager {
         return session;
     }
 
+    /**
+     * Installs or updates an R package, and what its dependency tree needs, into the first of `options.libraries`.
+     * The work runs in a packages session of this manager's -- an R session of its own, kept warm between installs and
+     * stopped after a few idle minutes -- never in a caller's session. An update that would replace packages waits
+     * while this manager's other sessions use the library, and they start only once it is done. See r-packages.ts.
+     */
+    ensureRPackage(request: EnsureRPackageRequest, options: EnsureRPackageOptions): Promise<RPackageResult> {
+        return ensureRPackageIn(this.packagesHost(), request, options);
+    }
+
+    private packagesHost(): RPackagesHost {
+        return {
+            packagesSession: async (rHome, libraries) => {
+                const key = JSON.stringify([rHome, ...libraries]);
+                let entry = this.packagesSessions.get(key);
+                if (!entry) {
+                    const session = this.createSession({ kernelType: 'r', rHome, rLibs: libraries.join(delimiter), workingDirectory: tmpdir() })
+                        .then((created) => {
+                            // its errors are reported through ensureRPackage()'s result, not as the manager's
+                            created.on('error', (error: unknown) => this.logger.debug('packages session error', error));
+                            return created;
+                        });
+                    entry = { session };
+                    this.packagesSessions.set(key, entry);
+                    session.catch(() => this.packagesSessions.delete(key));
+                }
+                const current = entry;
+                const session = await current.session;
+                this.packagesSessionIds.add(session.info.sessionId);
+                if (session.isStopped) {
+                    this.packagesSessions.delete(key);
+                    return this.packagesHost().packagesSession(rHome, libraries);
+                }
+                // stopped after five idle minutes (the timer restarts with each install)
+                if (current.idle) clearTimeout(current.idle);
+                current.idle = setTimeout(() => {
+                    if (this.packagesSessions.get(key) === current) this.packagesSessions.delete(key);
+                    void session.stop().then(() => this.sessions.delete(session), () => undefined);
+                }, PACKAGES_SESSION_IDLE_MS);
+                current.idle.unref?.();
+                return session;
+            },
+            sessionsUsing: (library) => {
+                const key = libraryKey(library);
+                return [...this.sessions]
+                    .filter((session) => !session.isStopped && !this.packagesSessionIds.has(session.info.sessionId) && firstLibrary(session.options) === key)
+                    .map((session) => session.info.sessionId);
+            },
+            hold: (rawLibrary, until) => {
+                const library = libraryKey(rawLibrary);
+                const settled = until.then(() => undefined, () => undefined);
+                this.libraryHolds.set(library, settled);
+                void settled.then(() => {
+                    if (this.libraryHolds.get(library) === settled) this.libraryHolds.delete(library);
+                });
+            }
+        };
+    }
+
+    // The ids of ensureRPackage()'s packages sessions (not "other sessions using the library")
+    private readonly packagesSessionIds = new Set<string>();
+
     /** Gracefully stops every session managed by this instance. */
     async stopAll(): Promise<void> {
+        for (const entry of this.packagesSessions.values()) {
+            if (entry.idle) clearTimeout(entry.idle);
+        }
+        this.packagesSessions.clear();
         await Promise.all([
             ...[...this.sessions].map((session) => session.stop()),
             ...[...this.rHelpers.values()].map((helper) => helper.stop())

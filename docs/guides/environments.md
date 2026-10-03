@@ -112,12 +112,13 @@ const libraries = await readRLibraries(r.home);
 
 ### Installing R packages
 
-`ensureRPackage()` makes sure an R package — and whatever of its dependency tree it needs — is installed, in an `Rscript` process of its own: never in a session, which may have the very packages being replaced loaded (on Windows a loaded package's DLL can't be replaced).
+`manager.ensureRPackage()` makes sure an R package — and whatever of its dependency tree it needs — is installed. The work is hera's `.jv.pkg.ensure()`, run in a **packages session** of the manager's: an R session of its own, never a caller's (which may have the very packages being replaced loaded — on Windows a loaded package's DLL can't be replaced), kept warm between installs and stopped after five idle minutes. A check that finds nothing to do is a function call in that session (milliseconds), not an R start-up; no script file is written.
 
 ```ts
-import { ensureRPackage, R_PACKAGES_OFFLINE } from '@damurka/jovian';
+import { SessionManager, R_PACKAGES_OFFLINE } from '@damurka/jovian';
 
-const result = await ensureRPackage(
+const manager = new SessionManager();
+const result = await manager.ensureRPackage(
     { name: 'myapp', minVersion: '2.0.8', repos: ['https://me.r-universe.dev'], update: false },
     {
         rHome: r.home,
@@ -131,9 +132,11 @@ const result = await ensureRPackage(
 
 Without `update`, nothing is downloaded when `minVersion` is met and the installed tree is consistent, so it is cheap to call before every launch. It installs what is missing or older than any package in the tree requires (read from the installed copies R would load), with `update` also brings the package and its dependencies from `repos` up to date, and with `optional` (default) also the suggested packages of the packages from `repos`, except those named in `onDemandField`. One install runs at a time per library, across processes; R's own `00LOCK` folders left by a crash are removed; broken downloads are retried; on Linux, CRAN and r-universe binaries are used where they exist, and missing system libraries are named. It rejects with R's explanation, or with an error named `R_PACKAGES_OFFLINE` when the repos can't be reached and what is installed won't do.
 
+The manager knows its sessions, so updates and running sessions don't trip over each other: before an install that would **replace** packages already installed, it waits while the manager's other sessions use the library (`waitForSessions`, default true; progress `waiting`), and a session the manager starts on that library during the install waits for it. Installing only missing packages never waits — nothing uses them yet.
+
 ### Installing Python packages
 
-Python packages go into a virtual environment of your own (one per application and Python version), with pip, in a process of their own:
+Python packages go into a virtual environment of your own (one per application and Python version), with pip, in a process of their own (`python -c`, no script file):
 
 ```ts
 import { ensurePythonEnvironment, ensurePythonPackages, venvPython, venvSitePackages } from '@damurka/jovian';

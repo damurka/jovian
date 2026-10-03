@@ -47,7 +47,7 @@ export interface PythonPackageOptions {
 
 /**
  * Installs what a Python app needs into the virtual environment it runs in,
- * with pip. Run by the venv's python with one argument, a JSON file holding
+ * with pip. Run by the venv's python (`python -c`) with one argument, a JSON string holding
  * `{requirements, requirementsFile, pyproject, package, index, update}`.
  *
  * Every requirement already met means nothing is downloaded (unless `update`),
@@ -73,7 +73,7 @@ def fail(msg, kind="ERROR"):
     print("JOVIAN_PY_" + kind + ": " + " ".join(str(msg).split()), flush=True)
     sys.exit(1)
 
-args = json.load(open(sys.argv[1], encoding="utf-8"))
+args = json.loads(sys.argv[1])
 reqs = list(args.get("requirements") or [])
 opaque = False
 
@@ -256,19 +256,16 @@ export function findAppRequirementFiles(appDir: string | undefined): { requireme
  * {@link PYTHON_PACKAGES_OFFLINE} when the index can't be reached and what is installed won't do.
  */
 export async function ensurePythonPackages(venvPythonExecutable: string, request: PythonPackageRequest, options: PythonPackageOptions = {}): Promise<PythonPackageResult> {
-    const directory = await fs.promises.mkdtemp(join(tmpdir(), 'jovian-py-install-'));
-    try {
-        const scriptFile = join(directory, 'install.py');
-        const argsFile = join(directory, 'args.json');
-        await fs.promises.writeFile(scriptFile, PY_INSTALL_SCRIPT);
-        await fs.promises.writeFile(argsFile, JSON.stringify(buildInstallArgs(request, findAppRequirementFiles(request.appDir))));
+    {
+        // the installer is code passed to python (-c), its arguments one JSON argument: no file is written
+        const args = JSON.stringify(buildInstallArgs(request, findAppRequirementFiles(request.appDir)));
 
         let failure: string | undefined;
         let offline: string | undefined;
         let result: PythonPackageResult | undefined;
         const otherOutput: string[] = [];
         const env = { ...process.env, PYTHONNOUSERSITE: '1', PIP_DISABLE_PIP_VERSION_CHECK: '1', PYTHONIOENCODING: 'utf-8' };
-        const child = spawn(venvPythonExecutable, [scriptFile, argsFile], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+        const child = spawn(venvPythonExecutable, ['-c', PY_INSTALL_SCRIPT, args], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
         for (const stream of [child.stdout, child.stderr]) {
             createInterface({ input: stream }).on('line', line => {
                 if (line.startsWith('JOVIAN_PY_ERROR: ')) {
@@ -306,7 +303,5 @@ export async function ensurePythonPackages(venvPythonExecutable: string, request
             throw new Error(failure ?? `Installing Python packages failed (python exited with code ${code})${otherOutput.length ? `: ${otherOutput.slice(-5).join(' | ')}` : ''}`);
         }
         return result;
-    } finally {
-        await fs.promises.rm(directory, { recursive: true, force: true });
     }
 }
