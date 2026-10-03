@@ -272,6 +272,15 @@ namespace adrastea
                 status = reply.value("status", "error");
                 json metadata = getMetadata();
 
+                // stop_on_error: what is queued behind the failure is aborted BEFORE the reply goes out -- after
+                // it, a client that answers the reply at once (its next execute_request) had that request aborted
+                // too whenever it arrived while the queue was still being drained (a slow machine)
+                if (!config.silent && status == "error" && stop_on_error)
+                {
+                    constexpr long polling_interval = 50;
+                    p_server->abortQueue(std::bind(&KernelCore::abortRequest, this, _1), polling_interval);
+                }
+
                 sendReply(
                     RequestContext.id(),
                     "execute_reply",
@@ -293,11 +302,6 @@ namespace adrastea
                 if (!config.silent && config.store_history)
                 {
                     p_historyManager->storeInputs(0, execution_count, code);
-                }
-                if (!config.silent && status == "error" && stop_on_error)
-                {
-                    constexpr long polling_interval = 50;
-                    p_server->abortQueue(std::bind(&KernelCore::abortRequest, this, _1), polling_interval);
                 }
 
                 // idle
