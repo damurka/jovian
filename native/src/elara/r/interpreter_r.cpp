@@ -541,7 +541,7 @@ namespace elara
                 for (file in paths[startsWith(paths, "R/")]) {
                     for (e in parse(text = text_of(file), keep.source = FALSE, encoding = "UTF-8")) eval(e, env)
                 }
-                assign(".elara.version", version, envir = env)
+                assign(".elara.version", unname(version), envir = env)
                 # nothing that could mask: every name dot-named
                 plain <- grep("^[^.]", ls(env, all.names = TRUE), value = TRUE)
                 if (length(plain)) stop("names in tools:jovian without a dot: ", paste(plain, collapse = ", "), call. = FALSE)

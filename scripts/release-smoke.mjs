@@ -66,8 +66,9 @@ try {
     r.on('error', () => {});
     const sum = await r.execute('1 + 1');
     check('R: 1 + 1', sum.success && JSON.stringify(sum.output).includes('[1] 2'), JSON.stringify(sum));
-    const hera = await r.execute('as.character(packageVersion("hera"))');
-    check('R: hera loaded', hera.success, JSON.stringify(hera));
+    // hera is built into the kernel and loaded as tools:jovian (no package to find in the library)
+    const hera = await r.execute('as.environment("tools:jovian")$.elara.version');
+    check('R: hera loaded (tools:jovian)', hera.success && /\\d+\\.\\d+\\.\\d+/.test(JSON.stringify(hera.output)), JSON.stringify(hera));
     const completion = await r.complete('me', 2);
     check('R: complete()', Array.isArray(completion?.matches) && completion.matches.length > 0, JSON.stringify(completion));
 
