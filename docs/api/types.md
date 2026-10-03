@@ -13,7 +13,7 @@ Passed to `SessionManager.createSession()`; also `Partial<EngineOptions>` to `Se
 | `rPath` | string | `<rHome>/bin/x64` (Windows) | Directory containing `R.dll`; put on the kernel's `PATH`. |
 | `rLibs` | string | — | Extra library path (`R_LIBS`, `R_LIBS_USER`, and `R_LIBS_SITE` on Windows); where `hera` is looked up and installed. |
 | `pandocPath` | string | — | Directory with a `pandoc` binary, for bundled R installs that do not ship it on `PATH` (`RSTUDIO_PANDOC`). |
-| `pythonHome` | string | discovered | Python installation prefix (`PYTHONHOME`). Its shared library is loaded from here. When omitted it is found from `$PYTHONHOME`, then `python3` / `python` on PATH (`sys.base_prefix`). |
+| `pythonHome` | string | discovered | Python installation prefix (`PYTHONHOME`). Its shared library is loaded from here. When omitted it is found from `$PYTHONHOME`, then on Windows the `py` launcher's default, then `python3` / `python` on PATH (`sys.base_prefix`): the first of `listPythonInstallations()` (see [Environments](../guides/environments.md#choosing-at-runtime)). |
 | `pythonPath` | string | — | Extra `PYTHONPATH`. |
 | `venvPath` | string | — | A venv whose `site-packages` is added to `sys.path`. `pythonHome` must still point at the *base* install. |
 | `stataHome` | string | discovered | Stata directory (the one holding Stata's executable and, for Stata 17+, its shared library). When omitted it is found from `$STATA_HOME`, then the newest Stata in the standard location for the platform (see [Environments](../guides/environments.md#stata)). |

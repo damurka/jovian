@@ -5,6 +5,12 @@ import type { EngineOptions, KernelType } from '../types/index.js';
 
 type Maybe<T> = T | Promise<T>;
 
+/**
+ * How an installation was found: the caller's choice (findRuntime()'s `home`), an environment variable (R_HOME,
+ * PYTHONHOME, STATA_HOME), PATH, the Windows registry, the Windows `py` launcher, or a usual install folder.
+ */
+export type RuntimeSource = 'setting' | 'env' | 'path' | 'registry' | 'launcher' | 'folder';
+
 /** One installation of R, Python or Stata found on this machine. */
 export interface RuntimeInstallation {
     /** What to pass as rHome / pythonHome / stataHome. */
@@ -13,10 +19,27 @@ export interface RuntimeInstallation {
     version?: string;
     /** A name for people: "R 4.6.0", "Python 3.12", "StataNow 19". */
     label: string;
+    /** How it was found. */
+    source?: RuntimeSource;
+    /**
+     * Whether Jovian's kernel can run it. A Python without its shared library (libpython, python3XY.dll) cannot be
+     * embedded by the Python kernel; Stata will not start without a licence.
+     */
+    usable: boolean;
+    /** Why it is not usable, for people. */
+    problem?: string;
+    /** Python only: its interpreter. */
+    executable?: string;
     /** Stata only: the editions whose library is installed there, in the order they are tried. */
     editions?: Array<'mp' | 'se' | 'be'>;
     /** Stata only: whether a stata.lic is there (Stata will not start without one). */
     licensed?: boolean;
+}
+
+/** An installation findRuntime() chose, and whether it is as new as asked. */
+export interface FoundRuntime extends RuntimeInstallation {
+    /** Whether its version is at least the `minVersion` asked for (true when none was, or the version is unknown). */
+    meetsMinimum: boolean;
 }
 
 /** Runs a command and returns its last non-empty stdout line, or undefined if it failed or printed nothing. */
@@ -174,24 +197,31 @@ export async function listRInstallations(context: DiscoveryContext = defaultCont
     const { path, exists, sameKey } = helpers(context);
     const isRHome = (dir: string | undefined): dir is string => Boolean(dir) && exists(path.join(dir!, 'library', 'base'));
 
-    const candidates: Array<string | undefined> = [context.env.R_HOME, await context.run('R', ['RHOME'])];
+    const candidates: Array<{ dir: string | undefined; source: RuntimeSource }> = [
+        { dir: context.env.R_HOME, source: 'env' },
+        { dir: await context.run('R', ['RHOME']), source: 'path' }
+    ];
     if (context.platform === 'win32') {
         const { runLines } = helpers(context);
         for (const hive of ['HKLM', 'HKCU']) {
             const line = await context.run('reg', ['query', `${hive}\\SOFTWARE\\R-core\\R`, '/v', 'InstallPath']);
-            candidates.push(line?.match(/InstallPath\s+REG_SZ\s+(.+)$/)?.[1]?.trim());
+            candidates.push({ dir: line?.match(/InstallPath\s+REG_SZ\s+(.+)$/)?.[1]?.trim(), source: 'registry' });
             // Each version R's installer recorded (R-core\R\<version>\InstallPath), not only the default
             for (const versionLine of await runLines('reg', ['query', `${hive}\\SOFTWARE\\R-core\\R`, '/s', '/v', 'InstallPath'])) {
-                candidates.push(versionLine.match(/^InstallPath\s+REG_SZ\s+(.+)$/)?.[1]?.trim());
+                candidates.push({ dir: versionLine.match(/^InstallPath\s+REG_SZ\s+(.+)$/)?.[1]?.trim(), source: 'registry' });
             }
         }
     }
-    candidates.push(...wellKnownRHomes(context));
+    candidates.push(...wellKnownRHomes(context).map((dir) => ({ dir, source: 'folder' as const })));
 
-    return unique(candidates.filter(isRHome), sameKey).map((home) => {
-        const version = rVersion(context, home);
-        return { home, ...(version ? { version } : {}), label: version ? `R ${version}` : 'R' };
-    });
+    return unique(candidates.filter((c): c is { dir: string; source: RuntimeSource } => isRHome(c.dir)), (c) => sameKey(c.dir))
+        .map(({ dir, source }) => describeR(context, dir, source));
+}
+
+/** An R home as an installation (its version read from its base package). */
+function describeR(context: DiscoveryContext, home: string, source: RuntimeSource): RuntimeInstallation {
+    const version = rVersion(context, home);
+    return { home, ...(version ? { version } : {}), label: version ? `R ${version}` : 'R', source, usable: true };
 }
 
 /**
@@ -204,52 +234,105 @@ export async function discoverRHome(context: DiscoveryContext = defaultContext()
     return (await listRInstallations(context))[0]?.home;
 }
 
-// sys.base_prefix, not sys.prefix: inside a virtual environment the latter is
-// the venv, which has no libpython to load. The version comes along on the
-// same line, so each Python is started once.
-const PYTHON_SCRIPT = 'import sys; print(sys.base_prefix + "|" + ".".join(map(str, sys.version_info[:3])))';
+// What each Python is asked, one line: its base prefix (sys.base_prefix, not sys.prefix: inside a virtual
+// environment the latter is the venv, which has no libpython to load), its version, its interpreter, and whether
+// the prefix has Python's shared library -- what the Python kernel loads: python3XY.dll on Windows,
+// libpython3.X.so / .dylib in lib/, lib64/ or lib/<arch>-linux-gnu/ elsewhere. Each Python is started once.
+export const PYTHON_SCRIPT = [
+    'import glob, os, sys',
+    'v = sys.version_info',
+    'p = sys.base_prefix',
+    'n = "python%d%d.dll" % (v[0], v[1]) if os.name == "nt" else "libpython%d.%d*" % (v[0], v[1])',
+    'd = [p] if os.name == "nt" else [os.path.join(p, "lib"), os.path.join(p, "lib64")] + glob.glob(os.path.join(p, "lib", "*-linux-gnu"))',
+    'print("|".join([p, "%d.%d.%d" % (v[0], v[1], v[2]), sys.executable, "1" if any(glob.glob(os.path.join(x, n)) for x in d) else "0"]))'
+].join('; ');
+
+interface PythonAnswer {
+    home: string;
+    version?: string;
+    executable?: string;
+    /** Whether its shared library is there; undefined when the answer did not say. */
+    shared?: boolean;
+    source: RuntimeSource;
+}
+
+/** A Python's answer to PYTHON_SCRIPT ("home|version|executable|1"), or undefined when it gave none. */
+function parsePythonAnswer(answer: string | undefined, source: RuntimeSource): PythonAnswer | undefined {
+    const [home, version, executable, shared] = (answer ?? '').split('|');
+    if (!home) return undefined;
+    return {
+        home,
+        ...(version ? { version } : {}),
+        ...(executable ? { executable } : {}),
+        ...(shared === '1' ? { shared: true } : shared === '0' ? { shared: false } : {}),
+        source
+    };
+}
+
+/** A Python's answer as an installation: usable unless it said its shared library is missing. */
+function describePython({ home, version, executable, shared, source }: PythonAnswer): RuntimeInstallation {
+    return {
+        home,
+        ...(version ? { version } : {}),
+        label: version ? `Python ${version}` : 'Python',
+        source,
+        usable: shared !== false,
+        ...(shared === false ? { problem: 'it has no shared library (libpython / python3XY.dll), which the Python kernel loads; the python.org installers include it' } : {}),
+        ...(executable ? { executable } : {})
+    };
+}
+
+// Windows' "App execution alias" python.exe (WindowsApps) only offers to install Python from the Store
+const isStoreAlias = (executable: string | undefined) => Boolean(executable && /[\\/]WindowsApps[\\/]/i.test(executable));
 
 /**
  * Every Python installation found, the one discoverPythonHome() picks first:
- * $PYTHONHOME, the base prefix of `python3` / `python` on PATH (and of the
- * `py` launcher's default on Windows), then on Windows every other Python the
- * launcher knows (`py -0p`). Only prefixes that exist count; each is listed
- * once.
+ * $PYTHONHOME, on Windows the `py` launcher's default, the base prefix of
+ * `python3` / `python` on PATH, Pythons outside PATH (pyenv, conda, macOS
+ * frameworks), then on Windows every other Python the launcher knows
+ * (`py -0p`). Only prefixes that exist count; each is listed once. A Python
+ * without its shared library is listed, not usable.
  */
 export async function listPythonInstallations(context: DiscoveryContext = defaultContext()): Promise<RuntimeInstallation[]> {
-    const { path, exists, runLines, sameKey } = helpers(context);
-    const found: Array<{ home: string; version?: string }> = [];
-    if (context.env.PYTHONHOME) found.push({ home: context.env.PYTHONHOME });
-
-    const commands: Array<[string, string[]]> = [['python3', []], ['python', []]];
-    if (context.platform === 'win32') commands.push(['py', ['-3']]);
-    for (const [command, args] of commands) {
-        const answer = await context.run(command, [...args, '-c', PYTHON_SCRIPT]);
-        const [home, version] = (answer ?? '').split('|');
-        if (home) found.push({ home, ...(version ? { version } : {}) });
+    const { exists, runLines, sameKey } = helpers(context);
+    const found: PythonAnswer[] = [];
+    if (context.env.PYTHONHOME) {
+        // asked through its interpreter, for its version and shared library; listed as it is when it has none
+        const executable = pythonExecutablesIn(context, context.env.PYTHONHOME).find((candidate) => exists(candidate));
+        const answer = executable ? parsePythonAnswer(await context.run(executable, ['-c', PYTHON_SCRIPT]), 'env') : undefined;
+        found.push(answer ?? { home: context.env.PYTHONHOME, source: 'env' });
     }
 
-    // Pythons outside PATH: pyenv's, conda's (base and environments), and on macOS python.org's frameworks
-    for (const executable of otherPythonExecutables(context)) {
-        if (!exists(executable)) continue;
-        const answer = await context.run(executable, ['-c', PYTHON_SCRIPT]);
-        const [home, version] = (answer ?? '').split('|');
-        if (home) found.push({ home, ...(version ? { version } : {}) });
-    }
+    // In this order: the launcher's default first on Windows (the Python the user chose there), python3 / python on
+    // PATH, Pythons outside PATH (pyenv's, conda's base and environments, macOS python.org's frameworks), then on
+    // Windows every Python the launcher knows (" -V:3.12[-64] *   C:\...\python.exe"; older launchers
+    // " -3.12-64 *  ..."). Each is asked, for its shared library -- all at once, kept in this order.
+    const ask = async (command: string, args: string[], source: RuntimeSource) =>
+        parsePythonAnswer(await context.run(command, [...args, '-c', PYTHON_SCRIPT]), source);
+    const onPath: Array<Promise<PythonAnswer | undefined>> = (context.platform === 'win32'
+        ? [['py', ['-3'], 'launcher'], ['python3', [], 'path'], ['python', [], 'path']] as const
+        : [['python3', [], 'path'], ['python', [], 'path']] as const).map(([command, args, source]) => ask(command, [...args], source));
+    const elsewhere = otherPythonExecutables(context).filter((executable) => exists(executable)).map((executable) => ask(executable, [], 'folder'));
+    const fromLauncher = context.platform === 'win32'
+        ? Promise.resolve(runLines('py', ['-0p'])).then((lines) => Promise.all(lines
+            .map((line) => line.trim().match(/^-(?:V:)?[\d.]+\S*\s+(?:\*\s+)?(.+\.exe)$/i)?.[1]?.trim())
+            .filter((executable): executable is string => Boolean(executable))
+            .map((executable) => ask(executable, [], 'launcher'))))
+        : Promise.resolve([]);
+    const [first, second, third] = await Promise.all([Promise.all(onPath), Promise.all(elsewhere), fromLauncher]);
+    found.push(...[...first, ...second, ...third].filter((answer): answer is PythonAnswer => Boolean(answer)));
 
-    if (context.platform === 'win32') {
-        // " -V:3.12[-64] *   C:\...\python.exe" (older launchers: " -3.12-64 *  ...")
-        for (const line of await runLines('py', ['-0p'])) {
-            const match = line.trim().match(/^-(?:V:)?([\d.]+)\S*\s+(?:\*\s+)?(.+\.exe)$/i);
-            if (match) found.push({ home: path.dirname(match[2]!.trim()), version: match[1]! });
-        }
-    }
+    return unique(found.filter(({ home, executable }) => exists(home) && !isStoreAlias(executable)), ({ home }) => sameKey(home)).map(describePython);
+}
 
-    return unique(found.filter(({ home }) => exists(home)), ({ home }) => sameKey(home)).map(({ home, version }) => ({
-        home,
-        ...(version ? { version } : {}),
-        label: version ? `Python ${version}` : 'Python'
-    }));
+/** The interpreters a Python path may mean: the path itself when it is one, else those in the installation folder. */
+function pythonExecutablesIn(context: DiscoveryContext, path: string): string[] {
+    const { path: p } = helpers(context);
+    const name = p.basename(path.replace(/[\\/]+$/, ''));
+    if (context.platform === 'win32' ? /\.exe$/i.test(name) : /^python(\d+(\.\d+)?)?$/.test(name)) return [path];
+    return context.platform === 'win32'
+        ? [p.join(path, 'python.exe'), p.join(path, 'Scripts', 'python.exe')]
+        : [p.join(path, 'bin', 'python3'), p.join(path, 'bin', 'python'), p.join(path, 'python3')];
 }
 
 /** The interpreters of Pythons that are often not on PATH: pyenv's versions, conda's base and environments, python.org's macOS frameworks. */
@@ -277,11 +360,13 @@ function otherPythonExecutables(context: DiscoveryContext): string[] {
 
 /**
  * Which Python to embed, when the caller did not say: $PYTHONHOME (taken as
- * given), else the first of listPythonInstallations() -- the Python on PATH.
+ * given), else the first usable one of listPythonInstallations() (one with its
+ * shared library), else the first.
  */
 export async function discoverPythonHome(context: DiscoveryContext = defaultContext()): Promise<string | undefined> {
     if (context.env.PYTHONHOME) return context.env.PYTHONHOME;
-    return (await listPythonInstallations(context))[0]?.home;
+    const pythons = await listPythonInstallations(context);
+    return (pythons.find((python) => python.usable) ?? pythons[0])?.home;
 }
 
 /**
@@ -356,37 +441,50 @@ export async function listStataInstallations(context: DiscoveryContext = default
         ? [context.env.ProgramW6432, context.env.ProgramFiles, 'C:\\Program Files']
         : context.platform === 'darwin' ? ['/Applications'] : ['/usr/local', '/opt'];
 
-    const found: Array<{ dir: string; name: string }> = [];
-    if (context.env.STATA_HOME) found.push({ dir: context.env.STATA_HOME, name: path.basename(context.env.STATA_HOME) });
+    const found: Array<{ dir: string; name: string; source: RuntimeSource }> = [];
+    if (context.env.STATA_HOME) found.push({ dir: context.env.STATA_HOME, name: path.basename(context.env.STATA_HOME), source: 'env' });
     for (const root of new Set(roots.filter((r): r is string => Boolean(r)))) {
         for (const name of listDir(root)) {
-            if (STATA_NAME.test(name)) found.push({ dir: path.join(root, name), name });
+            if (STATA_NAME.test(name)) found.push({ dir: path.join(root, name), name, source: 'folder' });
         }
     }
-    if (windows) found.push(...await stataRegistryHomes(context));
+    if (windows) found.push(...(await stataRegistryHomes(context)).map((home) => ({ ...home, source: 'registry' as const })));
     for (const dir of (context.env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
-        found.push({ dir: dir.replace(/[\\/]+$/, ''), name: path.basename(dir) });
+        found.push({ dir: dir.replace(/[\\/]+$/, ''), name: path.basename(dir), source: 'path' });
     }
 
-    const libraries = stataLibraries(context.platform);
     const candidates = unique(found, ({ dir }) => sameKey(dir))
-        .map(({ dir, name }) => {
-            const version = Number(name.match(/(\d+)\D*$/)?.[1] ?? 0);
-            const now = /^stata\s*now/i.test(name);
-            return {
-                home: dir,
-                ...(version ? { version: String(version) } : {}),
-                label: `${now ? 'StataNow' : 'Stata'}${version ? ` ${version}` : ''}`,
-                editions: libraries.filter(({ file }) => exists(path.join(dir, file))).map(({ edition }) => edition),
-                licensed: exists(path.join(dir, 'stata.lic')),
-                rank: { version, now }
-            };
-        })
-        .filter(({ editions }) => editions.length > 0);
+        .map(({ dir, name, source }) => ({ ...describeStata(context, dir, name, source), rank: stataRank(name) }))
+        .filter(({ editions }) => editions!.length > 0);
 
     candidates.sort((a, b) =>
         Number(b.licensed) - Number(a.licensed) || b.rank.version - a.rank.version || Number(b.rank.now) - Number(a.rank.now));
     return candidates.map(({ rank: _rank, ...installation }) => installation);
+}
+
+/** A Stata directory's version and kind from its name ("StataNow19" -> 19, now). */
+function stataRank(name: string): { version: number; now: boolean } {
+    return { version: Number(name.match(/(\d+)\D*$/)?.[1] ?? 0), now: /^stata\s*now/i.test(name) };
+}
+
+/** A Stata directory as an installation: its editions and licence (usable only with both). */
+function describeStata(context: DiscoveryContext, dir: string, name: string, source: RuntimeSource): RuntimeInstallation {
+    const { path, exists } = helpers(context);
+    const { version, now } = stataRank(name);
+    const editions = stataLibraries(context.platform).filter(({ file }) => exists(path.join(dir, file))).map(({ edition }) => edition);
+    const licensed = exists(path.join(dir, 'stata.lic'));
+    const problem = editions.length === 0 ? 'it has no Stata shared library (Stata 17 or newer has one)'
+        : !licensed ? 'it has no licence (stata.lic); Stata will not start without one' : undefined;
+    return {
+        home: dir,
+        ...(version ? { version: String(version) } : {}),
+        label: `${now ? 'StataNow' : 'Stata'}${version ? ` ${version}` : ''}`,
+        source,
+        usable: !problem,
+        ...(problem ? { problem } : {}),
+        editions,
+        licensed
+    };
 }
 
 /**
@@ -397,6 +495,79 @@ export async function listStataInstallations(context: DiscoveryContext = default
 export async function discoverStataHome(context: DiscoveryContext = defaultContext()): Promise<string | undefined> {
     if (context.env.STATA_HOME) return context.env.STATA_HOME;
     return (await listStataInstallations(context))[0]?.home;
+}
+
+/** What findRuntime() is asked for. */
+export interface RuntimeChoice {
+    /**
+     * The installation the user chose (a setting): R's home; Python's installation folder or interpreter; Stata's
+     * directory. It is the one returned even when it is too old or not usable -- the caller says why rather than
+     * silently using another -- and undefined when it is not an installation of that runtime at all.
+     */
+    home?: string;
+    /** The oldest version wanted ("4.1.0", "3.10"). */
+    minVersion?: string;
+}
+
+/**
+ * The installation of R, Python or Stata to use. With `home`, that one (see RuntimeChoice). Without, the first
+ * the list*Installations() function gives that is usable and at least `minVersion`; when none is, the first found
+ * (its `usable` / `meetsMinimum` say why it can't be used); undefined when there is none at all.
+ */
+export async function findRuntime(kind: 'r' | 'python' | 'stata', choice: RuntimeChoice = {}, context: DiscoveryContext = defaultContext()): Promise<FoundRuntime | undefined> {
+    const meets = (installation: RuntimeInstallation): FoundRuntime => ({
+        ...installation,
+        meetsMinimum: !choice.minVersion || !installation.version || compareVersions(installation.version, choice.minVersion) >= 0
+    });
+    if (choice.home) {
+        const chosen = await describeHome(kind, choice.home, context);
+        return chosen && meets(chosen);
+    }
+    const list = kind === 'r' ? await listRInstallations(context) : kind === 'python' ? await listPythonInstallations(context) : await listStataInstallations(context);
+    const found = list.map(meets);
+    return found.find((installation) => installation.usable && installation.meetsMinimum) ?? found[0];
+}
+
+/** The installation at a path the user gave, or undefined when there is none of that runtime there. */
+async function describeHome(kind: 'r' | 'python' | 'stata', home: string, context: DiscoveryContext): Promise<RuntimeInstallation | undefined> {
+    const { path, exists } = helpers(context);
+    if (kind === 'r') {
+        return exists(path.join(home, 'library', 'base')) ? describeR(context, home, 'setting') : undefined;
+    }
+    if (kind === 'python') {
+        for (const executable of pythonExecutablesIn(context, home).filter(exists)) {
+            const answer = parsePythonAnswer(await context.run(executable, ['-c', PYTHON_SCRIPT]), 'setting');
+            if (answer && !isStoreAlias(answer.executable)) return describePython(answer);
+        }
+        return undefined;
+    }
+    const stata = describeStata(context, home.replace(/[\\/]+$/, ''), path.basename(home.replace(/[\\/]+$/, '')), 'setting');
+    return stata.editions!.length > 0 ? stata : undefined;
+}
+
+/** The Rscript of an R home (bin/Rscript, or bin/x64 on older Windows R), if there is one. */
+export function findRscript(rHome: string, platform: string = process.platform): string | undefined {
+    const path = platform === 'win32' ? win32 : posix;
+    const name = platform === 'win32' ? 'Rscript.exe' : 'Rscript';
+    return [path.join(rHome, 'bin', name), ...(platform === 'win32' ? [path.join(rHome, 'bin', 'x64', name)] : [])].find((p) => existsSync(p));
+}
+
+/**
+ * R's own libraries other than its base one -- the user library and any site library -- as `.libPaths()` has them
+ * in a plain R of that installation (R_LIBS and R_LIBS_USER of this process are not passed on, so it is R's own
+ * answer). A caller that puts its own library first lists these after it, so the user's packages stay visible.
+ */
+export async function readRLibraries(rHome: string): Promise<string[]> {
+    const rscript = findRscript(rHome);
+    if (!rscript) throw new Error(`There is no Rscript in ${rHome}`);
+    const env = { ...process.env };
+    delete env.R_LIBS;
+    delete env.R_LIBS_USER;
+    const output = await new Promise<string>((resolve, reject) => {
+        execFile(rscript, ['-e', 'cat(setdiff(normalizePath(.libPaths(), "/"), normalizePath(.Library, "/")), sep = "\\n")'],
+            { env, encoding: 'utf8', timeout: 30_000, windowsHide: true }, (error, stdout) => (error ? reject(error) : resolve(stdout)));
+    });
+    return output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
 /**

@@ -89,4 +89,23 @@ Stata sessions need **Stata 17 or newer**, installed and licensed. Callisto does
 
 ## Choosing at runtime
 
-Your application decides the paths; Jovian only consumes them. The playground has a discovery module (`tools/playground/lib/env.mjs`) that finds R and Python on Windows, macOS and Linux (env vars, `R RHOME`, `python3`, the Windows registry, common install locations) — a good reference if you need the same.
+A session left without `rHome` / `pythonHome` / `stataHome` uses the first installation Jovian finds. An application that lets people choose — or needs a minimum version — asks Jovian what is there:
+
+```ts
+import { listRInstallations, listPythonInstallations, listStataInstallations, findRuntime, readRLibraries } from '@damurka/jovian';
+
+// Every installation, best first: { home, version, label, source, usable, problem?, executable? (Python), editions? / licensed? (Stata) }
+const pythons = await listPythonInstallations();
+
+// The one to use: the first that is usable and new enough, else the first found (usable / meetsMinimum say why not)
+const r = await findRuntime('r', { minVersion: '4.1.0' });
+// A setting's choice is kept even when it is too old or not usable, so the user can be told; undefined if it is not R at all
+const chosen = await findRuntime('python', { home: settings.pythonPath, minVersion: '3.10' });
+
+// R's own user and site libraries, to list after a library of your own in rLibs
+const libraries = await readRLibraries(r.home);
+```
+
+- **`source`** — how it was found: `setting` (findRuntime's `home`), `env` (`R_HOME`, `PYTHONHOME`, `STATA_HOME`), `path`, `registry` (Windows), `launcher` (Windows `py`), `folder` (a usual install location).
+- **`usable`** — whether Jovian's kernel can run it. A Python without its shared library (`python3XY.dll`, `libpython3.X.so` / `.dylib`) can't be embedded by the Python kernel; a Stata without `stata.lic` won't start. `problem` says why, for people.
+- **Order** — R: `$R_HOME`, `R RHOME`, the registry, the usual folders. Python: `$PYTHONHOME`, on Windows the `py` launcher's default, `python3` / `python` on `PATH`, pyenv / conda / macOS frameworks, then every Python the launcher knows (the Store's `python.exe` alias is skipped). Stata: licensed first, then newest, StataNow before Stata.

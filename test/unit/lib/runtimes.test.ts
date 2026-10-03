@@ -5,16 +5,15 @@ import {
     discoverPythonHome,
     discoverRHome,
     discoverStataHome,
+    findRuntime,
     listPythonInstallations,
     listRInstallations,
     listStataInstallations,
     withAbsolutePaths,
     withDiscoveredRuntime,
+    PYTHON_SCRIPT,
     type DiscoveryContext
 } from '../../../dist/lib/session/runtimes.js';
-
-// What discoverPythonHome() asks each python to print.
-const PYTHON_SCRIPT = 'import sys; print(sys.base_prefix + "|" + ".".join(map(str, sys.version_info[:3])))';
 
 // A fake machine. answers maps "command arg arg" to the output that command
 // would print (anything not listed fails, like a command that is not
@@ -397,8 +396,8 @@ test('listRInstallations', async (t) => {
             aliases: { 'C:\\PROGRA~1\\R\\R-46~1.0': 'C:\\Program Files\\R\\R-4.6.0' }
         });
         assert.deepStrictEqual(await listRInstallations(ctx), [
-            { home: 'C:\\PROGRA~1\\R\\R-46~1.0', version: '4.6.0', label: 'R 4.6.0' },
-            { home: 'C:\\Program Files\\R\\R-4.5.2', version: '4.5.2', label: 'R 4.5.2' }
+            { home: 'C:\\PROGRA~1\\R\\R-46~1.0', version: '4.6.0', label: 'R 4.6.0', source: 'path', usable: true },
+            { home: 'C:\\Program Files\\R\\R-4.5.2', version: '4.5.2', label: 'R 4.5.2', source: 'folder', usable: true }
         ]);
     });
 
@@ -409,21 +408,92 @@ test('listRInstallations', async (t) => {
 
 test('listPythonInstallations', async (t) => {
     await t.test('lists the Python on PATH first, then the others the py launcher knows, once each', async () => {
-        const ctx = context({ [`python3 -c ${PYTHON_SCRIPT}`]: 'C:\\Py312|3.12.10' }, {
+        const ctx = context({
+            [`python3 -c ${PYTHON_SCRIPT}`]: String.raw`C:\Py312|3.12.10|C:\Py312\python.exe|1`,
+            [String.raw`C:\Python314\python.exe -c ` + PYTHON_SCRIPT]: String.raw`C:\Python314|3.14.0|C:\Python314\python.exe|1`,
+            [String.raw`C:\Py312\python.exe -c ` + PYTHON_SCRIPT]: String.raw`C:\Py312|3.12.10|C:\Py312\python.exe|1`
+        }, {
             platform: 'win32',
             runLines: (command, args) => command === 'py' && args[0] === '-0p'
-                ? ['-V:3.14          C:\\Python314\\python.exe', '-V:3.12[-64] *   C:\\Py312\\python.exe']
+                ? [String.raw`-V:3.14          C:\Python314\python.exe`, String.raw`-V:3.12[-64] *   C:\Py312\python.exe`]
                 : []
-        }, { files: ['C:\\Py312', 'C:\\Python314'] });
+        }, { files: [String.raw`C:\Py312`, String.raw`C:\Python314`] });
         assert.deepStrictEqual(await listPythonInstallations(ctx), [
-            { home: 'C:\\Py312', version: '3.12.10', label: 'Python 3.12.10' },
-            { home: 'C:\\Python314', version: '3.14', label: 'Python 3.14' }
+            { home: String.raw`C:\Py312`, version: '3.12.10', label: 'Python 3.12.10', source: 'path', usable: true, executable: String.raw`C:\Py312\python.exe` },
+            { home: String.raw`C:\Python314`, version: '3.14.0', label: 'Python 3.14.0', source: 'launcher', usable: true, executable: String.raw`C:\Python314\python.exe` }
         ]);
     });
 
     await t.test('reads the older launcher format too', async () => {
-        const ctx = context({}, { platform: 'win32', runLines: () => [' -3.11-64 *    C:\\Python311\\python.exe'] }, { files: ['C:\\Python311'] });
-        assert.deepStrictEqual(await listPythonInstallations(ctx), [{ home: 'C:\\Python311', version: '3.11', label: 'Python 3.11' }]);
+        const ctx = context({ [String.raw`C:\Python311\python.exe -c ` + PYTHON_SCRIPT]: String.raw`C:\Python311|3.11.9|C:\Python311\python.exe|1` },
+            { platform: 'win32', runLines: () => [String.raw` -3.11-64 *    C:\Python311\python.exe`] }, { files: [String.raw`C:\Python311`] });
+        assert.deepStrictEqual((await listPythonInstallations(ctx)).map((p) => p.home), [String.raw`C:\Python311`]);
+    });
+
+    await t.test('on Windows the py launcher’s default comes first', async () => {
+        const ctx = context({
+            [`py -3 -c ${PYTHON_SCRIPT}`]: String.raw`C:\Py313|3.13.1|C:\Py313\python.exe|1`,
+            [`python -c ${PYTHON_SCRIPT}`]: String.raw`C:\Py311|3.11.9|C:\Py311\python.exe|1`
+        }, { platform: 'win32' }, { files: [String.raw`C:\Py313`, String.raw`C:\Py311`] });
+        assert.deepStrictEqual((await listPythonInstallations(ctx)).map((p) => [p.home, p.source]), [[String.raw`C:\Py313`, 'launcher'], [String.raw`C:\Py311`, 'path']]);
+    });
+
+    await t.test('a Python without its shared library is listed, not usable; the Store’s alias is skipped', async () => {
+        const ctx = context({
+            [`python3 -c ${PYTHON_SCRIPT}`]: '/usr|3.12.3|/usr/bin/python3|0',
+            [`python -c ${PYTHON_SCRIPT}`]: String.raw`/store|3.12.3|C:\Users\me\AppData\Local\Microsoft\WindowsApps\python.exe|1`
+        }, {}, { files: ['/usr', '/store'] });
+        const found = await listPythonInstallations(ctx);
+        assert.deepStrictEqual(found.map((p) => [p.home, p.usable]), [['/usr', false]]);
+        assert.match(found[0]!.problem!, /shared library/);
+    });
+});
+
+test('findRuntime', async (t) => {
+    const twoRs = () => context({ 'R RHOME': '/opt/R/4.0.5/lib/R' }, {}, {
+        dirs: { '/opt/R': ['4.0.5', '4.6.0'] },
+        files: ['/opt/R/4.0.5/lib/R/library/base', '/opt/R/4.6.0/lib/R/library/base'],
+        texts: {
+            '/opt/R/4.0.5/lib/R/library/base/DESCRIPTION': 'Version: 4.0.5\n',
+            '/opt/R/4.6.0/lib/R/library/base/DESCRIPTION': 'Version: 4.6.0\n'
+        }
+    });
+
+    await t.test('picks the first installation that is new enough, past an older one found first', async () => {
+        const found = await findRuntime('r', { minVersion: '4.1.0' }, twoRs());
+        assert.deepStrictEqual([found?.home, found?.meetsMinimum, found?.source], ['/opt/R/4.6.0/lib/R', true, 'folder']);
+    });
+
+    await t.test('falls back to the first found, saying it is too old, when none is new enough', async () => {
+        const found = await findRuntime('r', { minVersion: '5.0.0' }, twoRs());
+        assert.deepStrictEqual([found?.home, found?.meetsMinimum], ['/opt/R/4.0.5/lib/R', false]);
+    });
+
+    await t.test('keeps the chosen home even when too old, and is undefined when it is not R', async () => {
+        const found = await findRuntime('r', { home: '/opt/R/4.0.5/lib/R', minVersion: '4.1.0' }, twoRs());
+        assert.deepStrictEqual([found?.home, found?.version, found?.meetsMinimum, found?.source], ['/opt/R/4.0.5/lib/R', '4.0.5', false, 'setting']);
+        assert.strictEqual(await findRuntime('r', { home: '/not/R' }, twoRs()), undefined);
+    });
+
+    await t.test('a chosen Python folder is asked through its interpreter; a usable one wins over one without its library', async () => {
+        const ctx = context({
+            [`/opt/py/bin/python3 -c ${PYTHON_SCRIPT}`]: '/opt/py|3.12.1|/opt/py/bin/python3|1',
+            [`python3 -c ${PYTHON_SCRIPT}`]: '/usr|3.12.3|/usr/bin/python3|0',
+            [`python -c ${PYTHON_SCRIPT}`]: '/usr/local|3.11.2|/usr/local/bin/python|1'
+        }, {}, { files: ['/opt/py/bin/python3', '/usr', '/usr/local'] });
+        const chosen = await findRuntime('python', { home: '/opt/py' }, ctx);
+        assert.deepStrictEqual([chosen?.home, chosen?.executable, chosen?.source], ['/opt/py', '/opt/py/bin/python3', 'setting']);
+        assert.strictEqual((await findRuntime('python', { minVersion: '3.10' }, ctx))?.home, '/usr/local');
+    });
+
+    await t.test('a Stata without a licence is found, not usable, and says why', async () => {
+        const found = await findRuntime('stata', {}, stataContext('linux', { '/usr/local': ['stata18'] }, ['/usr/local/stata18/libstata-mp.so']));
+        assert.deepStrictEqual([found?.home, found?.usable], ['/usr/local/stata18', false]);
+        assert.match(found!.problem!, /licence/);
+    });
+
+    await t.test('is undefined when there is none', async () => {
+        assert.strictEqual(await findRuntime('r', {}, context({})), undefined);
     });
 });
 
@@ -440,15 +510,15 @@ test('listStataInstallations', async (t) => {
             ]
         );
         assert.deepStrictEqual(await listStataInstallations(ctx), [
-            { home: 'C:\\Program Files\\Stata18', version: '18', label: 'Stata 18', editions: ['mp', 'se'], licensed: true },
-            { home: 'C:\\Program Files\\StataNow19', version: '19', label: 'StataNow 19', editions: ['mp'], licensed: false }
+            { home: 'C:\\Program Files\\Stata18', version: '18', label: 'Stata 18', source: 'folder', usable: true, editions: ['mp', 'se'], licensed: true },
+            { home: 'C:\\Program Files\\StataNow19', version: '19', label: 'StataNow 19', source: 'folder', usable: false, problem: 'it has no licence (stata.lic); Stata will not start without one', editions: ['mp'], licensed: false }
         ]);
     });
 
     await t.test('includes STATA_HOME when it is a Stata directory', async () => {
         const ctx = stataContext('linux', {}, ['/opt/custom/libstata-se.so'], { STATA_HOME: '/opt/custom' });
         assert.deepStrictEqual(await listStataInstallations(ctx), [
-            { home: '/opt/custom', label: 'Stata', editions: ['se'], licensed: false }
+            { home: '/opt/custom', label: 'Stata', source: 'env', usable: false, problem: 'it has no licence (stata.lic); Stata will not start without one', editions: ['se'], licensed: false }
         ]);
     });
 });
