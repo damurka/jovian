@@ -108,4 +108,25 @@ const libraries = await readRLibraries(r.home);
 
 - **`source`** — how it was found: `setting` (findRuntime's `home`), `env` (`R_HOME`, `PYTHONHOME`, `STATA_HOME`), `path`, `registry` (Windows), `launcher` (Windows `py`), `folder` (a usual install location).
 - **`usable`** — whether Jovian's kernel can run it. A Python without its shared library (`python3XY.dll`, `libpython3.X.so` / `.dylib`) can't be embedded by the Python kernel; a Stata without `stata.lic` won't start. `problem` says why, for people.
-- **Order** — R: `$R_HOME`, `R RHOME`, the registry, the usual folders. Python: `$PYTHONHOME`, on Windows the `py` launcher's default, `python3` / `python` on `PATH`, pyenv / conda / macOS frameworks, then every Python the launcher knows (the Store's `python.exe` alias is skipped). Stata: licensed first, then newest, StataNow before Stata.
+- **Order** — R: `$R_HOME`, `R RHOME`, the registry, the usual folders.
+
+### Installing R packages
+
+`ensureRPackage()` makes sure an R package — and whatever of its dependency tree it needs — is installed, in an `Rscript` process of its own: never in a session, which may have the very packages being replaced loaded (on Windows a loaded package's DLL can't be replaced).
+
+```ts
+import { ensureRPackage, R_PACKAGES_OFFLINE } from '@damurka/jovian';
+
+const result = await ensureRPackage(
+    { name: 'myapp', minVersion: '2.0.8', repos: ['https://me.r-universe.dev'], update: false },
+    {
+        rHome: r.home,
+        libraries: [myLibrary, ...await readRLibraries(r.home)], // installed into the first
+        minRVersion: '4.1.0',
+        onProgress: (p) => console.log(p.phase, p.done, p.total, p.current, p.bytes) // bytes: downloaded so far
+    }
+);
+// { previousVersion, version, installed: [...], offline }
+```
+
+Without `update`, nothing is downloaded when `minVersion` is met and the installed tree is consistent, so it is cheap to call before every launch. It installs what is missing or older than any package in the tree requires (read from the installed copies R would load), with `update` also brings the package and its dependencies from `repos` up to date, and with `optional` (default) also the suggested packages of the packages from `repos`, except those named in `onDemandField`. One install runs at a time per library, across processes; R's own `00LOCK` folders left by a crash are removed; broken downloads are retried; on Linux, CRAN and r-universe binaries are used where they exist, and missing system libraries are named. It rejects with R's explanation, or with an error named `R_PACKAGES_OFFLINE` when the repos can't be reached and what is installed won't do. Python: `$PYTHONHOME`, on Windows the `py` launcher's default, `python3` / `python` on `PATH`, pyenv / conda / macOS frameworks, then every Python the launcher knows (the Store's `python.exe` alias is skipped). Stata: licensed first, then newest, StataNow before Stata.
