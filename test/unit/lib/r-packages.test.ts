@@ -8,6 +8,7 @@ import {
     folderSize,
     followRInstall,
     LIBRARY_LOCK_FILE,
+    PACKAGES_IN_USE,
     R_PACKAGES_OFFLINE,
     lockLibrary,
     type RPackageProgress
@@ -100,7 +101,7 @@ test('lockLibrary', async (t) => {
     await t.test('one install at a time: the second waits until the first gives the library back', async () => {
         const library = await scratch('jovian-lock-');
         try {
-            const release = await lockLibrary(library, 60_000, () => {});
+            const release = await lockLibrary(library, 60_000, () => { });
             assert.ok(fs.existsSync(join(library, LIBRARY_LOCK_FILE)));
             let waited = false;
             let second = false;
@@ -156,10 +157,15 @@ test('ensureRPackageIn', async (t) => {
     }
     function fakeHost(session: ReturnType<typeof fakeSession>, using: string[][]) {
         const holds: string[] = [];
+        const asked: string[][] = [];
         return {
             holds,
+            asked,
             async packagesSession() { return session; },
-            sessionsUsing() { return using.length > 1 ? using.shift()! : using[0] ?? []; },
+            async sessionsUsing(_library: string, packages: readonly string[]) {
+                asked.push([...packages]);
+                return using.length > 1 ? using.shift()! : using[0] ?? [];
+            },
             hold(library: string, until: Promise<unknown>) { holds.push(library); void until; }
         };
     }
@@ -183,6 +189,21 @@ test('ensureRPackageIn', async (t) => {
         assert.strictEqual(phases[0], 'waiting');
         assert.ok(phases.includes('installing'));
         assert.deepStrictEqual(host.holds, [library]);
+        // the sessions are asked about what would be replaced, not the whole install
+        assert.deepStrictEqual(host.asked[0], ['glue']);
+    });
+
+    await t.test('whenInUse defer: nothing installed, an error naming the sessions; proceed: no plan, no waiting', async () => {
+        const plan = ['JOVIAN_PKG_PLAN: glue,cli glue'];
+        const deferred = fakeSession(plan, ['JOVIAN_PKG_RESULT: 1.7.0 1.8.1 glue,cli online']);
+        await assert.rejects(ensureRPackageIn(fakeHost(deferred, [['app']]), { name: 'glue', update: true }, { rHome: 'R', libraries: [library], whenInUse: 'defer' }),
+            (e: Error & { sessions?: string[] }) => e.name === PACKAGES_IN_USE && e.sessions?.[0] === 'app' && /glue can't be replaced while 1 session uses it/.test(e.message));
+        assert.deepStrictEqual(deferred.calls, ['plan']);
+        const proceeding = fakeSession(plan, ['JOVIAN_PKG_RESULT: 1.7.0 1.8.1 glue,cli online']);
+        const host = fakeHost(proceeding, [['app']]);
+        await ensureRPackageIn(host, { name: 'glue', update: true }, { rHome: 'R', libraries: [library], whenInUse: 'proceed' });
+        assert.deepStrictEqual(proceeding.calls, ['install']);
+        assert.deepStrictEqual(host.asked, []);
     });
 
     await t.test('installing only what is missing does not wait for anyone', async () => {

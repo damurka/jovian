@@ -216,7 +216,7 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
         const manager = new SessionManager();
         const session = await manager.createSession({ rHome: discoverRHome() });
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
             await session.execute('cars <- head(mtcars, 3); x <- c(1.5, NA); f <- function(a, b = 2) a; d <- data.frame(when = as.Date("2020-01-02"), kind = factor("b"))');
             const variables = await session.listVariables();
             assert.deepStrictEqual(variables.map((v) => v.name), ['cars', 'd', 'f', 'x']);
@@ -264,7 +264,7 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
         const manager = new SessionManager();
         const session = await manager.createSession({ kernelType: 'python', pythonHome });
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
             await session.execute('import sys\nx = 1.5\nitems = [1, 2, 3]\n_hidden = 1');
             const variables = await session.listVariables();
             assert.deepStrictEqual(variables.map((v) => v.name), ['items', 'x'], 'modules and _names are left out');
@@ -405,7 +405,7 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
         const session = await manager.createSession({ rHome: discoverRHome() });
 
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
 
             const result = await session.execute('x <- 21', {
                 userExpressions: { double: 'x * 2', boom: 'stop("kaboom")' }
@@ -429,7 +429,7 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
         const session = await manager.createSession({ rHome: discoverRHome() });
 
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
             const result = await session.execute('x <- c(3, 1, 2) |>\r\n  sort()\r\nx[1]');
             assert.strictEqual(result.success, true, 'a \\r would be an "unexpected invalid token"');
             const shown = result.output.find((m: any) => m.msgType === 'execute_result')?.content?.data?.['text/plain'];
@@ -445,7 +445,7 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
         const session = await manager.createSession({ rHome: discoverRHome() });
 
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
 
             const [first, second, third] = await Promise.all([
                 session.execute('stop("first fails")', { stopOnError: true }),
@@ -601,7 +601,7 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
         const session = await manager.createSession({ kernelType: 'python', pythonHome });
 
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
 
             const info = await session.kernelInfo();
             assert.strictEqual(info.language_info.name, 'python');
@@ -647,7 +647,7 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
         const session = await manager.createSession({ rHome: discoverRHome() });
 
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
 
             // Each snippet announces itself first, so the interrupt is sent once
             // the code is really running (not while it is still being set up).
@@ -687,7 +687,7 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
         const session = await manager.createSession({ kernelType: 'python', pythonHome });
 
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
 
             const snippets: Array<[string, string]> = [
                 ['sleeping', 'import time\nprint("sleeping", flush=True)\ntime.sleep(60)'],
@@ -722,7 +722,7 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
         const session = await manager.createSession({ rHome: discoverRHome(), workingDirectory: dir });
 
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
             const cwdOf = async () => {
                 const result = await session.execute('getwd()');
                 const text = String(result.output.find((m) => m.msgType === 'execute_result')?.content?.data?.['text/plain'] ?? '');
@@ -752,7 +752,7 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
         const session = await manager.createSession({ kernelType: 'python', pythonHome, workingDirectory: dir });
 
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
             const out: string[] = [];
             session.on('stdout', (text: string) => out.push(text));
 
@@ -781,7 +781,7 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
         const session = await manager.createSession({ rHome: discoverRHome() });
 
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
             const out: string[] = [];
             const err: string[] = [];
             session.on('stdout', (text: string) => out.push(text));
@@ -863,7 +863,7 @@ comm$send(list(second = 2))
         const session = await manager.createSession({ rHome: discoverRHome() });
 
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
 
             const started = Date.now();
             await assert.rejects(session.execute('Sys.sleep(120)', { timeout: 1500 }), /timed out.*interrupted/);
@@ -901,6 +901,7 @@ comm$send(list(second = 2))
         const finished = Date.now();
 
         assert.strictEqual(result.success, true);
+        assert.match(arrivals.map((a) => a.text).join(''), expectedLast);
         return { arrivals, streamMessages, started, finished };
     }
 
@@ -909,7 +910,7 @@ comm$send(list(second = 2))
         const session = await manager.createSession({ rHome: discoverRHome() });
 
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
             const { arrivals, started, finished } = await checkStreaming(
                 session, 'for (i in 1:6) { cat("tick", i, "\\n"); Sys.sleep(0.4) }', /tick 6/);
 
@@ -928,7 +929,7 @@ comm$send(list(second = 2))
         const session = await manager.createSession({ rHome: discoverRHome() });
 
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
             const { arrivals, streamMessages } = await checkStreaming(session, 'for (i in 1:30000) print(i)', /30000/);
 
             const text = arrivals.map((a) => a.text).join('');
@@ -953,7 +954,7 @@ comm$send(list(second = 2))
         const session = await manager.createSession({ kernelType: 'python', pythonHome });
 
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
             const live = await checkStreaming(session, 'import time\nfor i in range(6):\n    print("tick", i)\n    time.sleep(0.4)', /tick 5/);
             const firstAt = firstSeenAt(live.arrivals, 'tick 0')!;
             assert.ok(firstAt - live.started < (live.finished - live.started) - 1000, 'tick 0 was buffered until the end');
@@ -973,7 +974,7 @@ comm$send(list(second = 2))
         const session = await manager.createSession({ rHome: discoverRHome() });
 
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
 
             let status = await session.status();
             for (let i = 0; i < 100 && !status.heartbeat?.hasPong; i++) {
@@ -1008,7 +1009,7 @@ comm$send(list(second = 2))
         const manager = new SessionManager();
         const session = await manager.createSession({ kernelType: 'python', pythonHome });
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
             const busy = session.execute('import time\ntime.sleep(3)', { timeout: 10000 });
             await new Promise((resolve) => setTimeout(resolve, 300));
 
@@ -1042,7 +1043,7 @@ comm$send(list(second = 2))
         const manager = new SessionManager();
         const session = await manager.createSession({ kernelType: 'python', pythonHome });
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
             const stdout: string[] = [];
             session.on('stdout', (text: string) => stdout.push(text));
 
@@ -1071,7 +1072,7 @@ comm$send(list(second = 2))
         const manager = new SessionManager();
         const session = await manager.createSession({ kernelType: 'python', pythonHome });
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
             const valueOf = async (code: string) => {
                 const result = await session.execute(code, { timeout: 30000 });
                 assert.strictEqual(result.success, true, JSON.stringify(result.output.find((m) => m.msgType === 'error')?.content));
@@ -1089,7 +1090,7 @@ comm$send(list(second = 2))
         const manager = new SessionManager();
         const session = await manager.createSession({ rHome: discoverRHome() });
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
             const stdout: string[] = [];
             session.on('stdout', (text: string) => stdout.push(text));
             const hasLater = await session.execute('cat(requireNamespace("later", quietly = TRUE), "\\n")');
@@ -1113,7 +1114,7 @@ comm$send(list(second = 2))
         const manager = new SessionManager();
         const session = await manager.createSession({ rHome: discoverRHome() });
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
             await session.execute('my_data <- mtcars');
             const busy = session.execute('library(stats)\nSys.sleep(6)', { timeout: 30000 });
             await new Promise((resolve) => setTimeout(resolve, 300));
@@ -1206,7 +1207,7 @@ comm$send(list(second = 2))
             const closeCode = await new Promise<number>((resolve) => {
                 const ws = new WebSocket(`${wsBase}/sessions/${sessionId}/messages`);
                 ws.addEventListener('close', (event) => resolve(event.code));
-                ws.addEventListener('error', () => {});
+                ws.addEventListener('error', () => { });
             });
             assert.strictEqual(closeCode, 4401);
             // The session itself, which sends the token, is unaffected.
@@ -1268,14 +1269,14 @@ comm$send(list(second = 2))
             assert.deepStrictEqual(installed.failed, []);
             assert.match(installed.installed[0].version ?? '', /^\d+\./);
             assert.ok(existsSync(join(lib, 'praise')));
-            assert.ok(streamed.length > 0, 'install.packages() output arrives as the session\'s stream events');
+            assert.ok(streamed.length > 0, 'the install\'s progress arrives as the session\'s stdout events');
 
             assert.deepStrictEqual(await session.removePackages(['praise'], { lib }), ['praise']);
             assert.ok(!existsSync(join(lib, 'praise')));
 
             const missing = await session.installPackages(['no.such.pkg.jovian'], { lib });
             assert.deepStrictEqual(missing.failed, ['no.such.pkg.jovian']);
-            assert.ok(missing.warnings.some((w) => /not available/.test(w)), JSON.stringify(missing.warnings));
+            assert.ok(missing.warnings.some((w) => /was not found in/.test(w)), JSON.stringify(missing.warnings));
         } finally {
             await manager.stopAll();
             rmSync(lib, { recursive: true, force: true });
@@ -1420,7 +1421,7 @@ comm$send(list(second = 2))
         const manager = new SessionManager();
         try {
             const ark = await manager.createSession({ kernelType: 'ark', rHome: discoverRHome(), arkPath });
-            ark.on('error', () => {});
+            ark.on('error', () => { });
             assert.strictEqual((await ark.kernelInfo()).implementation, 'ark');
             const result = await ark.execute('21 * 2');
             assert.strictEqual(result.success, true);
@@ -1457,7 +1458,7 @@ comm$send(list(second = 2))
         }
 
         try {
-            session.on('error', () => {});
+            session.on('error', () => { });
             const stdout: string[] = [];
             session.on('stdout', (text: string) => stdout.push(text));
 

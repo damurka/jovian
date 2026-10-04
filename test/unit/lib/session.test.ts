@@ -75,7 +75,7 @@ class FakeWebSocket {
 }
 
 const fakeSupervisor: any = {
-    stopSession: async () => {},
+    stopSession: async () => { },
     // no kernel output to add (see supervisor-client.test.ts for what is added)
     describeKernelExit: (reason: string) => reason
 };
@@ -515,7 +515,7 @@ test('Session', async (t) => {
     await t.test('in-flight requests reject when the kernel exits or the session stops', async () => {
         await withFakeWebSocket(async () => {
             const { session, ws } = await readySession();
-            session.on('exit', () => {});
+            session.on('exit', () => { });
 
             const first = session.kernelInfo();
             await flushMicrotasks();
@@ -619,6 +619,8 @@ test('Session', async (t) => {
 
     await t.test('stop() waits for the kernel\'s shutdown_reply so it is observable before "stopped"', async () => {
         await withFakeWebSocket(async () => {
+            // set once the session has connected; the supervisor below, made before that, uses it
+            // eslint-disable-next-line prefer-const
             let ws!: FakeWebSocket;
             // The reply lands while the supervisor's stop call is still in flight.
             const supervisor: any = {
@@ -676,7 +678,7 @@ test('Session', async (t) => {
                 type: 'message', channel: 'iopub', topic: 'error', msg_type: 'error', parent_msg_id: firstId,
                 content: { ename: 'simpleError', evalue: 'no', traceback: [] }
             });
-            session.on('error', () => {});
+            session.on('error', () => { });
 
             const [r1, r2, r3] = await Promise.all([first.catch((e) => e), second, third]);
             assert.strictEqual((r1 as any).success, false);
@@ -693,7 +695,7 @@ test('Session', async (t) => {
     await t.test('without stopOnError a failure does not abort what is queued behind it', async () => {
         await withFakeWebSocket(async () => {
             const { session, ws } = await readySession();
-            session.on('error', () => {});
+            session.on('error', () => { });
 
             const first = session.execute('stop("no")');
             const second = session.execute('1 + 1');
@@ -853,7 +855,7 @@ test('Session', async (t) => {
         await withFakeWebSocket(async () => {
             const restartCalls: unknown[] = [];
             const supervisor: any = {
-                stopSession: async () => {},
+                stopSession: async () => { },
                 restartSession: async (_info: unknown, options: unknown) => { restartCalls.push(options); }
             };
             const session = new Session(

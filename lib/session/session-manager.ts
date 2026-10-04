@@ -54,6 +54,7 @@ import { withAbsolutePaths, withDiscoveredRuntime } from './runtimes.js';
 import { analyzeR, type RCodeFacts } from './r-static.js';
 import { RHelper, R_STATE_EXPRESSION, R_STATE_KEY, mergeCompletions, parseRState, type RSessionState } from './r-helper.js';
 import { ensureRPackageIn, type EnsureRPackageOptions, type EnsureRPackageRequest, type RPackageResult, type RPackagesHost } from './r-packages.js';
+import { ensurePythonEnvironmentIn, ensurePythonPackagesIn, type PythonPackageOptions, type PythonPackageRequest, type PythonPackageResult, type PythonPackagesHost } from './python-packages.js';
 import { Comm } from './comm.js';
 
 /** How long ensureRPackage()'s packages session waits for the next install before it stops. */
@@ -70,6 +71,11 @@ function firstLibrary(options: EngineOptions): string | undefined {
     if (options.kernelType && options.kernelType !== 'r') return undefined;
     const first = options.rLibs?.split(delimiter).find((library) => library.length > 0);
     return first ? libraryKey(first) : undefined;
+}
+
+/** The virtual environment a Python session loads packages from (its venvPath), in libraryKey() form. */
+function sessionVenv(options: EngineOptions): string | undefined {
+    return options.kernelType === 'python' && options.venvPath ? libraryKey(options.venvPath) : undefined;
 }
 
 // Reuses lib/types/engine.ts's ShinyAppHandle instead of declaring a
@@ -157,6 +163,9 @@ function rpcCode(method: string, args: Record<string, unknown>): string {
     return `base::as.environment("tools:jovian")$.jv.rpc.call(${JSON.stringify(method)}, ${JSON.stringify(JSON.stringify(args))})`;
 }
 
+/** SessionManager.ensureRPackage(), as a session gets it. */
+type EnsureR = (request: EnsureRPackageRequest, options: EnsureRPackageOptions) => Promise<RPackageResult>;
+
 export class Session extends EventEmitter {
     private debugSeq = 0;
     private ws: WebSocket | undefined;
@@ -203,6 +212,8 @@ export class Session extends EventEmitter {
     // session had attached and defined when it last finished a cell, and the
     // packages the cells now running attach themselves.
     private readonly rHelperFor: ((options: EngineOptions) => RHelper | undefined) | undefined;
+    // The session manager's R package installer (SessionManager.ensureRPackage()), for installPackages()
+    private readonly ensureR: EnsureR | undefined;
     private rState: RSessionState = { packages: [], globals: [] };
     // What the R cells now running attach and define, read from their code
     // (r-static.ts): they report it themselves only when they finish.
@@ -220,13 +231,15 @@ export class Session extends EventEmitter {
         options: EngineOptions,
         supervisor: SupervisorClient,
         logging: { level?: LogThreshold | undefined; logger?: LoggerFunction | undefined } = {},
-        rHelperFor?: (options: EngineOptions) => RHelper | undefined
+        rHelperFor?: (options: EngineOptions) => RHelper | undefined,
+        ensureR?: EnsureR
     ) {
         super();
         this.info = info;
         this.currentOptions = options;
         this.supervisor = supervisor;
         this.rHelperFor = rHelperFor;
+        this.ensureR = ensureR;
         this.logger = new Logger(options.logger ?? logging.logger, logging.level);
         this.on('message', (message: JupyterMessage) => {
             this.recordExecutionHistory(message);
@@ -606,6 +619,25 @@ export class Session extends EventEmitter {
             facts.defines.forEach((n) => globals.add(n));
         }
         return { packages: [...packages], globals: [...globals] };
+    }
+
+    /**
+     * The R packages this session has loaded (loadedNamespaces(): their DLLs are in use), asked of it now; undefined
+     * when that can't be known -- code is running (it may load anything), or the kernel doesn't say (not Elara).
+     */
+    async loadedRPackages(): Promise<string[] | undefined> {
+        if ((this.currentOptions.kernelType ?? 'r') !== 'r' || this.queue.busy || this.isStopped) return undefined;
+        try {
+            const result = await this.queue.execute('', {
+                silent: true,
+                storeHistory: false,
+                userExpressions: { [R_STATE_KEY]: R_STATE_EXPRESSION },
+                timeout: 10_000
+            });
+            return parseRState(result.userExpressions?.[R_STATE_KEY])?.loaded;
+        } catch {
+            return undefined;
+        }
     }
 
     // Whether `msgType` sent now would wait for a running cell.
@@ -990,23 +1022,37 @@ export class Session extends EventEmitter {
     }
 
     /**
-     * Installs packages, and what they need, from the repositories (the session's own, after `options.repos`). Run
-     * as a cell: what install.packages() prints arrives as the session's 'stdout' / 'stderr' events as it is written.
-     * The session loads no package of its own besides R's, so any package can be installed or updated -- unless the
-     * user's code has it loaded (on Windows a loaded package's DLL cannot be replaced).
+     * Installs packages, and what they need, from the repositories (`options.repos` before CRAN), or updates them to
+     * the newest there, into `options.lib` (the session's first library by default). The session manager's installer
+     * does it (SessionManager.ensureRPackage()), in a packages session of its own, not in this one: its progress
+     * arrives as this session's 'stdout' events. A package this session has loaded can't be replaced on Windows.
      */
     async installPackages(packages: string[], options: RPackageOptions = {}): Promise<RPackageInstallResult> {
-        const args: Record<string, unknown> = { packages, repos: options.repos ?? [] };
-        if (options.lib) args.lib = options.lib;
-        const result = await this.execute(rpcCode('install_packages', args), { storeHistory: false, timeout: options.timeout ?? 30 * 60_000 });
-        if (!result.success) throw new Error(`installing ${packages.join(', ')} failed: ${result.error?.message ?? 'error'}`);
-        const value = result.output.find((m) => m.msgType === 'execute_result')?.content?.data?.['text/plain'];
-        const parsed = JSON.parse(String(value ?? '{}')) as Partial<RPackageInstallResult>;
-        return {
-            installed: (parsed.installed ?? []).map((row) => ({ name: row.name, version: row.version ?? null })),
-            failed: parsed.failed ?? [],
-            warnings: parsed.warnings ?? []
-        };
+        const rHome = this.currentOptions.rHome;
+        if (!this.ensureR || !rHome) {
+            throw new Error('installPackages() needs an R session created by a SessionManager');
+        }
+        const libraries = [options.lib, ...(this.currentOptions.rLibs ?? '').split(delimiter)]
+            .filter((library): library is string => !!library);
+        const result: RPackageInstallResult = { installed: [], failed: [], warnings: [] };
+        for (const name of packages) {
+            try {
+                const done = await this.ensureR({ name, repos: options.repos ?? [], update: true, optional: false }, {
+                    rHome,
+                    libraries,
+                    timeoutMs: options.timeout ?? 30 * 60_000,
+                    // this session may have the packages loaded itself: waiting would be waiting for itself
+                    whenInUse: 'proceed',
+                    onOutput: (line) => this.emit('stdout', `${line}\n`)
+                });
+                result.installed.push({ name, version: done.version ?? null });
+            } catch (error) {
+                result.installed.push({ name, version: null });
+                result.failed.push(name);
+                result.warnings.push(error instanceof Error ? error.message : String(error));
+            }
+        }
+        return result;
     }
 
     /** Removes packages from the library they are installed in. */
@@ -1218,7 +1264,7 @@ export class Session extends EventEmitter {
                 `Shiny app exited before it started listening (status: ${result.success ? 'ok' : 'error'})`
             );
         });
-        earlyExit.catch(() => {});
+        earlyExit.catch(() => { });
 
         try {
             await Promise.race([waitForPort(host, port, readyTimeout), earlyExit]);
@@ -1296,8 +1342,8 @@ export class SessionManager {
     private readonly sessions = new Set<Session>();
     // ensureRPackage()'s packages sessions, by R and libraries: kept warm between installs, stopped when idle
     private readonly packagesSessions = new Map<string, { session: Promise<Session>; idle?: ReturnType<typeof setTimeout> }>();
-    // Libraries an install is replacing packages in: a new R session on one waits for it
-    private readonly libraryHolds = new Map<string, Promise<unknown>>();
+    // R libraries and Python environments an install is replacing packages in: a new session on one waits for it
+    private readonly installHolds = new Map<string, Promise<unknown>>();
     private exitHandlerRegistered = false;
     private readonly busyHelperEnabled: boolean;
     // One helper R process per R installation (see r-helper.ts).
@@ -1354,7 +1400,7 @@ export class SessionManager {
         );
         const info = await this.supervisor.connectionFor(sessionId);
         const session = new Session(info, options, this.supervisor, { level: this.logLevel, logger: this.customLogger },
-            (current) => this.rHelperFor(current));
+            (current) => this.rHelperFor(current), (request, options) => this.ensureRPackage(request, options));
         this.sessions.add(session);
         this.registerExitHandler();
         try {
@@ -1390,16 +1436,16 @@ export class SessionManager {
         // given (see runtimes.ts). Nothing is installed first: the R kernel
         // carries its own R code (hera) and needs no R package.
         const options = await withDiscoveredRuntime(withAbsolutePaths(requested));
-        // an R session doesn't start on a library while an install replaces its packages
-        const library = firstLibrary(options);
-        const hold = library && this.libraryHolds.get(library);
+        // an R session doesn't start on a library, nor a Python session on an environment, while an install replaces its packages
+        const library = firstLibrary(options) ?? sessionVenv(options);
+        const hold = library && this.installHolds.get(library);
         if (hold) {
             this.logger.info(`Waiting for the install into ${library} to finish before starting the session`);
             await hold.catch(() => undefined);
         }
         const info = await this.supervisor.createSession(options);
         const session = new Session(info, options, this.supervisor, { level: this.logLevel, logger: this.customLogger },
-            (current) => this.rHelperFor(current));
+            (current) => this.rHelperFor(current), (request, options) => this.ensureRPackage(request, options));
         this.sessions.add(session);
         this.registerExitHandler();
 
@@ -1421,6 +1467,48 @@ export class SessionManager {
      */
     ensureRPackage(request: EnsureRPackageRequest, options: EnsureRPackageOptions): Promise<RPackageResult> {
         return ensureRPackageIn(this.packagesHost(), request, options);
+    }
+
+    /**
+     * Installs what a Python app needs into the virtual environment `venvDir` (made by ensurePythonEnvironment()), with
+     * pip in a process of its own. An install that would replace packages already installed waits while this manager's
+     * Python sessions use the environment (their `venvPath`), and new ones on it start only once it is done. With no
+     * session on it, pip isn't asked first what it would replace: new sessions wait for the whole install. See
+     * python-packages.ts.
+     */
+    ensurePythonPackages(venvDir: string, request: PythonPackageRequest, options: PythonPackageOptions = {}): Promise<PythonPackageResult> {
+        return ensurePythonPackagesIn(this.pythonHost(), venvDir, request, options);
+    }
+
+    /**
+     * Makes the virtual environment `venvDir` with this Python when it is missing, or re-makes it when it was made from
+     * another (see ensurePythonEnvironment()). Re-making empties it: it first waits while this manager's Python sessions
+     * use it, and new ones on it start only once it is made.
+     */
+    ensurePythonEnvironment(pythonExecutable: string, venvDir: string, onOutput?: (line: string) => void): Promise<void> {
+        return ensurePythonEnvironmentIn(this.pythonHost(), pythonExecutable, venvDir, onOutput);
+    }
+
+    private pythonHost(): PythonPackagesHost {
+        return {
+            sessionsUsing: async (venv) => {
+                const key = libraryKey(venv);
+                return [...this.sessions]
+                    .filter((session) => !session.isStopped && sessionVenv(session.options) === key)
+                    .map((session) => session.info.sessionId);
+            },
+            hold: (venv, until) => this.holdInstall(venv, until)
+        };
+    }
+
+    // New sessions on the library or environment wait until `until` settles
+    private holdInstall(path: string, until: Promise<unknown>): void {
+        const key = libraryKey(path);
+        const settled = until.then(() => undefined, () => undefined);
+        this.installHolds.set(key, settled);
+        void settled.then(() => {
+            if (this.installHolds.get(key) === settled) this.installHolds.delete(key);
+        });
     }
 
     private packagesHost(): RPackagesHost {
@@ -1455,20 +1543,17 @@ export class SessionManager {
                 current.idle.unref?.();
                 return session;
             },
-            sessionsUsing: (library) => {
+            sessionsUsing: async (library, packages) => {
                 const key = libraryKey(library);
-                return [...this.sessions]
-                    .filter((session) => !session.isStopped && !this.packagesSessionIds.has(session.info.sessionId) && firstLibrary(session.options) === key)
+                const onLibrary = [...this.sessions]
+                    .filter((session) => !session.isStopped && !this.packagesSessionIds.has(session.info.sessionId) && firstLibrary(session.options) === key);
+                // asked now, of each: what a session loaded is what can't be replaced under it (not knowing counts as yes)
+                const loaded = await Promise.all(onLibrary.map((session) => session.loadedRPackages()));
+                return onLibrary
+                    .filter((_session, i) => !loaded[i] || loaded[i]!.some((name) => packages.includes(name)))
                     .map((session) => session.info.sessionId);
             },
-            hold: (rawLibrary, until) => {
-                const library = libraryKey(rawLibrary);
-                const settled = until.then(() => undefined, () => undefined);
-                this.libraryHolds.set(library, settled);
-                void settled.then(() => {
-                    if (this.libraryHolds.get(library) === settled) this.libraryHolds.delete(library);
-                });
-            }
+            hold: (library, until) => this.holdInstall(library, until)
         };
     }
 
@@ -1512,7 +1597,7 @@ export class SessionManager {
                 this.logger.debug('Starting a helper R process to answer while R sessions are busy');
                 const info = await this.supervisor.createSession(helperOptions);
                 const session = new Session(info, helperOptions, this.supervisor, { level: this.logLevel, logger: this.customLogger });
-                session.on('error', () => {});
+                session.on('error', () => { });
                 await session.ready();
                 return session;
             });

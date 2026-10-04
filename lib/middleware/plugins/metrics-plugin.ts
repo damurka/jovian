@@ -9,7 +9,7 @@ export class MetricsMiddleware implements Middleware {
         this.messageCount++;
         const elapsed = (Date.now() - this.startTime) / 1000;
         const rate = this.messageCount / elapsed;
-        
+
         console.log(`Messages/sec: ${rate.toFixed(2)}`);
         return message;
     }

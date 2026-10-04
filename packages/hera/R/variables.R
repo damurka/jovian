@@ -1,7 +1,7 @@
 # The session's variables, for a frontend's variables pane and data viewer (Jovian's Session.listVariables(),
 # readTable()), as Ark's variables comm: the objects of the global environment -- name, class, size, a short preview,
 # and whether it is a table -- and a page of a table's rows as text, as R prints them. Called through .jv.rpc.call()
-# (packages.R).
+# (rpc.R).
 
 # At most this many objects are listed, and this many characters of a preview or a cell
 .jv.vars.MAX_OBJECTS <- 5000L

@@ -13,7 +13,7 @@ Thanks for helping. Bug reports, fixes, docs and new ideas are all welcome. This
 You need a C++23 toolchain, CMake, vcpkg, Node.js 24 and R (Python for the Python kernel). [Building from source](docs/building.md) has the requirements per platform; the short version:
 
 ```sh
-npm install --legacy-peer-deps
+npm install
 npm run build            # native kernels into dist/native, then TypeScript into dist/lib
 npm test                 # native ctest + TypeScript unit + integration tests
 ```

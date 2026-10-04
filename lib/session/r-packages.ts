@@ -58,6 +58,26 @@ export interface RPackageResult {
 /** The name of the error ensureRPackage() rejects with when the repos can't be reached and what is installed won't do. */
 export const R_PACKAGES_OFFLINE = 'RPackagesOffline';
 
+/**
+ * The name of the error an install rejects with, `whenInUse: 'defer'`, when it would replace packages sessions have
+ * loaded; nothing was installed. Its `sessions` are their ids. (Python's installs reject with the same name.)
+ */
+export const PACKAGES_IN_USE = 'PackagesInUse';
+
+/**
+ * What an install that would replace packages does while sessions of the manager have them loaded (on Windows a
+ * loaded package's files can't be replaced): `wait` until they end (the default), `defer` -- reject with an error
+ * named {@link PACKAGES_IN_USE}, installing nothing, for the caller to try again later -- or `proceed` regardless.
+ */
+export type WhenInUse = 'wait' | 'defer' | 'proceed';
+
+/** The {@link PACKAGES_IN_USE} error: what would have been replaced, and the sessions that have it loaded. */
+export function packagesInUse(replacing: readonly string[], sessions: readonly string[]): Error & { sessions: string[] } {
+    const error = Object.assign(new Error(`${replacing.join(', ')} can't be replaced while ${sessions.length} session${sessions.length === 1 ? '' : 's'} use${sessions.length === 1 ? 's' : ''} ${replacing.length === 1 ? 'it' : 'them'}`), { sessions: [...sessions] });
+    error.name = PACKAGES_IN_USE;
+    return error;
+}
+
 export interface EnsureRPackageOptions {
     /** The R installation. */
     rHome: string;
@@ -80,11 +100,11 @@ export interface EnsureRPackageOptions {
     /** Default 30 minutes. */
     timeoutMs?: number;
     /**
-     * Before an install that replaces packages already installed, wait while other sessions of this manager use the
-     * library -- they may have them loaded, and on Windows a loaded package can't be replaced (default true).
-     * Installing only missing packages never waits.
+     * An install that replaces packages already installed, while other sessions of this manager on the library have
+     * them loaded (a session running code counts: it may load anything): see {@link WhenInUse}. Installing only missing
+     * packages never waits.
      */
-    waitForSessions?: boolean;
+    whenInUse?: WhenInUse;
 }
 
 const R_PACKAGE = `([A-Za-z][A-Za-z0-9.]*)`;
@@ -207,8 +227,11 @@ export interface RPackagesSession {
 export interface RPackagesHost {
     /** The packages session for this R and these libraries, started if need be. */
     packagesSession(rHome: string, libraries: readonly string[]): Promise<RPackagesSession>;
-    /** The other sessions (not packages sessions) using `library`: their ids, for the progress and the log. */
-    sessionsUsing(library: string): string[];
+    /**
+     * The other sessions (not packages sessions) on `library` that have any of `packages` loaded, or may have (one
+     * running code): their ids, for the progress and the log.
+     */
+    sessionsUsing(library: string, packages: readonly string[]): Promise<string[]>;
     /** New R sessions on `library` wait until `until` settles. */
     hold(library: string, until: Promise<unknown>): void;
 }
@@ -280,10 +303,11 @@ async function runEnsure(session: RPackagesSession, call: string, timeoutMs: num
 /**
  * Installs or updates an R package, and whatever of its dependency tree it needs, into the first of
  * `options.libraries`, in the host's packages session (SessionManager.ensureRPackage() is the way in). One install at a
- * time per library, across processes ({@link lockLibrary}). When it would replace packages already installed (an
- * update), it first waits for the host's other sessions using the library (`waitForSessions`), and new R sessions on
- * the library wait for it. Rejects with R's explanation when the install fails, and with an error named
- * {@link R_PACKAGES_OFFLINE} when the repos can't be reached and what is installed won't do.
+ * time per library, across processes ({@link lockLibrary}). When it would replace packages that the host's other
+ * sessions on the library have loaded (an update), it waits for them, or defers (`whenInUse`), and new R sessions on
+ * the library wait for it. Rejects with R's explanation when the install fails, with an error named
+ * {@link R_PACKAGES_OFFLINE} when the repos can't be reached and what is installed won't do, and with one named
+ * {@link PACKAGES_IN_USE} when it defers.
  */
 export async function ensureRPackageIn(host: RPackagesHost, request: EnsureRPackageRequest, options: EnsureRPackageOptions): Promise<RPackageResult> {
     const libraries = (options.libraries ?? []).filter((library) => library.length > 0);
@@ -324,19 +348,23 @@ export async function ensureRPackageIn(host: RPackagesHost, request: EnsureRPack
             follow(line, fromScript);
         };
 
-        // What it would replace: an update of packages other sessions on the library may have loaded waits for them
+        // What it would replace: an update of packages other sessions on the library have loaded waits for them
         let replacing: string[] = [];
-        if (library && options.waitForSessions !== false) {
+        if (library && options.whenInUse !== 'proceed') {
             const plan = await runEnsure(session, call(true), timeoutMs, onLine);
             if (plan.failure || plan.offline || plan.result) {
                 // nothing to install (plan.result), or why it can't be: the same outcome as the install itself
                 return outcomeOf(plan, request);
             }
             replacing = plan.plan?.replace ?? [];
-            for (let waited = false; replacing.length > 0 && host.sessionsUsing(library).length > 0; waited = true) {
+            for (let waited = false; replacing.length > 0; waited = true) {
+                const using = await host.sessionsUsing(library, replacing);
+                if (using.length === 0) break;
+                if (options.whenInUse === 'defer') {
+                    throw packagesInUse(replacing, using);
+                }
                 if (!waited) {
-                    const using = host.sessionsUsing(library);
-                    options.onOutput?.(`Waiting for ${using.length} session${using.length === 1 ? '' : 's'} using the library to end before replacing ${replacing.join(', ')}`);
+                    options.onOutput?.(`Waiting for ${using.length} session${using.length === 1 ? '' : 's'} using ${replacing.join(', ')} to end before replacing ${replacing.length === 1 ? 'it' : 'them'}`);
                     options.onProgress?.({ phase: 'waiting' });
                 }
                 await sleep(2000);

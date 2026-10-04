@@ -13,7 +13,6 @@ Messages below are quoted from the code. **First habit:** a kernel that fails to
 | `undefined reference to uuid_generate` (Linux) | Install `uuid-dev` (`sudo apt-get install uuid-dev`). |
 | `LNK1104: cannot open file '…\themisto.exe'` (Windows) | A `themisto` / `elara` / `carpo` process is still running from an earlier run. Kill strays (`tasklist \| findstr /i "themisto elara carpo"`) — or run against a *copy* of `dist/native/Release` via `JOVIAN_NATIVE_DIR`. |
 | C++23 / `/std:c++latest` errors on Windows | Use Visual Studio 2026 (the toolset the repo is built with); older toolsets are untested. |
-| `npm ci` fails on peer dependencies | Use `--legacy-peer-deps` (as CI does): TypeScript 7 conflicts with the `@typescript-eslint` plugin's declared range. |
 | Unit tests fail after editing `lib/` | The tests import `dist/lib`: run `npm run build:lib`. |
 
 ## Creating a session

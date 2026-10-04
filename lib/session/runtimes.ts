@@ -435,7 +435,7 @@ async function stataRegistryHomes(context: DiscoveryContext): Promise<Array<{ di
  */
 export async function listStataInstallations(context: DiscoveryContext = defaultContext()): Promise<RuntimeInstallation[]> {
     const windows = context.platform === 'win32';
-    const { path, listDir, exists, sameKey } = helpers(context);
+    const { path, listDir, sameKey } = helpers(context);
 
     const roots = windows
         ? [context.env.ProgramW6432, context.env.ProgramFiles, 'C:\\Program Files']

@@ -1,6 +1,6 @@
 import { chmodSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, sep } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** The npm scope the packages are published under (also set in scripts/release.mjs; a test keeps them in step). */

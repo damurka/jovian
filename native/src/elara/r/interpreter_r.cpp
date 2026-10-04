@@ -410,9 +410,9 @@ namespace elara
     // not sink the others (or the execution itself), so each is evaluated
     // separately and R-level failures come back as that expression's error.
     // The user expression Jovian adds to every cell for its busy-time helper (R_STATE_KEY in lib/session/r-helper.ts):
-    // what the session has attached and defined. Answered here, from search() and ls(), as {"search": [...],
-    // "globals": [...]} -- not by evaluating the expression it came with, which would parse, run, print and re-read
-    // R code after every cell.
+    // what the session has attached, defined and loaded. Answered here, from search(), ls() and loadedNamespaces(),
+    // as {"search": [...], "globals": [...], "loaded": [...]} -- not by evaluating the expression it came with, which
+    // would parse, run, print and re-read R code after every cell.
     static const char* const kSessionStateKey = ".jovian_state";
 
     static adrastea::json sessionState()
@@ -436,8 +436,13 @@ namespace elara
 
         SEXP search = PROTECT(call(Rf_install("search"), false));
         SEXP globals = PROTECT(call(Rf_install("ls"), true));
-        adrastea::json state = { { "search", strings(search, R_XLEN_T_MAX) }, { "globals", strings(globals, 5000) } };
-        UNPROTECT(2);
+        // the namespaces loaded, attached or not: their DLLs are in use (on Windows they can't be replaced), so an
+        // install replacing one of them waits for this session (SessionManager.ensureRPackage())
+        SEXP loaded = PROTECT(call(Rf_install("loadedNamespaces"), false));
+        adrastea::json state = {
+            { "search", strings(search, R_XLEN_T_MAX) }, { "globals", strings(globals, 5000) }, { "loaded", strings(loaded, R_XLEN_T_MAX) }
+        };
+        UNPROTECT(3);
         return { { "status", "ok" }, { "data", { { "text/plain", state.dump() } } }, { "metadata", adrastea::json::object() } };
     }
 

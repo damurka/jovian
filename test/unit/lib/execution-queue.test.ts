@@ -102,7 +102,8 @@ test('ExecutionQueue', async (t) => {
         emitter.emit('message', message('execute_reply', 'msg-backlog', { status: 'ok', execution_count: 1 }));
         for (let i = 0; i < 6; i++) { // 150 ms of output, far past the 40 ms wait
             await new Promise((resolve) => setTimeout(resolve, 25));
-            emitter.emit('message', message('stream', 'msg-backlog', { name: 'stdout', text: `${i}
+            emitter.emit('message', message('stream', 'msg-backlog', {
+                name: 'stdout', text: `${i}
 ` }));
         }
         emitter.emit('message', message('status', 'msg-backlog', { execution_state: 'idle' }));
