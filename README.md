@@ -68,7 +68,7 @@ What you must already have on the machine:
 - **Crash detection in milliseconds.** The supervisor watches the OS process handle, with the ZMQ heartbeat as a backstop for a kernel that is alive but stuck. A crashed session can be `restart()`ed in place under the same session id.
 - **Restart with different options.** Switch R or Python installations on restart; unchanged options are kept ([details](docs/guides/sessions-lifecycle.md)).
 - **A browser playground** (Next.js) for exercising live sessions — see [`tools/playground`](tools/playground/README.md).
-- **Standard Jupyter launch mode.** `elara`, `carpo` and `callisto` can also be started directly by `jupyter lab` / `jupyter console` via a generated kernelspec (`npm run jupyter:kernelspec`), no supervisor involved.
+- **Standard Jupyter launch mode.** `elara`, `carpo` and `callisto` can also be started directly by `jupyter lab` / `jupyter console` via a generated kernelspec (`npm run jupyter:kernelspec`), no supervisor involved: [Jovian and Jupyter](docs/guides/jupyter.md).
 
 ## Environment variables
 
@@ -112,7 +112,7 @@ See [`tools/playground/README.md`](tools/playground/README.md).
 | [Architecture](docs/architecture/overview.md) | Components, process and thread model, message flows. |
 | [Protocol](docs/protocol.md) | Jupyter messages supported, Themisto's HTTP API and WebSocket frames. |
 | [API reference](docs/api/README.md) | `SessionManager`, `Session`, `Comm`, options and result types. |
-| Guides | [Interactive input](docs/guides/interactive-input.md) · [Interrupting](docs/guides/interrupting.md) · [Comms](docs/guides/comms.md) · [History](docs/guides/history.md) · [Session lifecycle](docs/guides/sessions-lifecycle.md) · [R, Python and Stata environments](docs/guides/environments.md) · [Playground](docs/guides/playground.md) |
+| Guides | [Interactive input](docs/guides/interactive-input.md) · [Interrupting](docs/guides/interrupting.md) · [Comms](docs/guides/comms.md) · [History](docs/guides/history.md) · [Session lifecycle](docs/guides/sessions-lifecycle.md) · [Jovian and Jupyter](docs/guides/jupyter.md) · [R, Python and Stata environments](docs/guides/environments.md) · [Playground](docs/guides/playground.md) |
 | [Kernels](docs/kernels.md) | How Elara, Carpo and Callisto work, and where they differ. |
 | [Building from source](docs/building.md) | Requirements per platform, build and test commands, using your own build. |
 | [Development](docs/development.md) | Repo layout, build system, test layers, CI, debugging. |
