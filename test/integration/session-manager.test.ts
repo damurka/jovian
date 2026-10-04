@@ -616,9 +616,10 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
             assert.ok(completion.matches.some((m) => m.startsWith('print')), `completing "pri": ${JSON.stringify(completion.matches)}`);
 
             // inspect() reads the whole name under the cursor (a hover asks from the middle of a word), and a keyword
-            // gets Python's own help for it
+            // gets Python's own help for it. (print: its signature first where Python can tell it -- 3.10 cannot --
+            // then its documentation, which names it too.)
             const text = (reply: { found?: boolean; data?: Record<string, unknown> }) => String(reply.found ? reply.data?.['text/plain'] ?? '' : '');
-            assert.match(text(await session.inspect('print', 2)), /^print\(/, 'hovering the middle of "print" describes print');
+            assert.match(text(await session.inspect('print', 2)), /print\(/, 'hovering the middle of "print" describes print');
             assert.match(text(await session.inspect('for', 1)), /"for" statement/, 'hovering "for" shows the language reference');
             assert.match(text(await session.inspect('def', 3)), /Function definitions/);
 
