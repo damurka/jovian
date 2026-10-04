@@ -1468,7 +1468,9 @@ export class SessionManager {
         try {
             const info = await this.supervisor.createSession(options);
             session = new Session(info, options, this.supervisor, { level: this.logLevel, logger: this.customLogger },
-                (current) => this.rHelperFor(current), (request, options) => this.ensureRPackage(request, options));
+                // the packages session has no helper: nothing is asked of it while it installs
+                (current) => this.packagesSessionIds.has(info.sessionId) ? undefined : this.rHelperFor(current),
+                (request, options) => this.ensureRPackage(request, options));
             this.sessions.add(session);
         } finally {
             this.starting.delete(starting);
