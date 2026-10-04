@@ -14,12 +14,14 @@
 // the cell, as before.
 import type { UserExpressionResult } from '../types/index.js';
 
-/** What an R session had attached and defined when it last finished a cell. */
+/** What an R session had attached, defined and loaded when it last finished a cell. */
 export interface RSessionState {
     /** Attached packages, from search(): "purrr", "stats", ... */
     packages: string[];
     /** Names in the global environment (at most 5000). */
     globals: string[];
+    /** Loaded namespaces, attached or not (loadedNamespaces()): their DLLs are in use. Undefined: not known. */
+    loaded?: string[];
 }
 
 /** The user_expressions key an R execution carries to report its state (removed from the result). */
@@ -34,11 +36,12 @@ export function parseRState(result: UserExpressionResult | undefined): RSessionS
     const text = (result as { data?: Record<string, unknown> }).data?.['text/plain'];
     if (typeof text !== 'string') return undefined;
     try {
-        const parsed = JSON.parse(text.trim()) as { search?: unknown; globals?: unknown };
+        const parsed = JSON.parse(text.trim()) as { search?: unknown; globals?: unknown; loaded?: unknown };
         const strings = (value: unknown) => (Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []);
         return {
             packages: strings(parsed.search).filter((entry) => entry.startsWith('package:')).map((entry) => entry.slice('package:'.length)),
-            globals: strings(parsed.globals)
+            globals: strings(parsed.globals),
+            ...(Array.isArray(parsed.loaded) ? { loaded: strings(parsed.loaded) } : {})
         };
     } catch {
         return undefined;
@@ -95,13 +98,13 @@ export class RHelper {
     // One answer at a time: attaching packages and asking must not interleave.
     private chain: Promise<unknown> = Promise.resolve();
 
-    constructor(private readonly create: () => Promise<HelperSession>) {}
+    constructor(private readonly create: () => Promise<HelperSession>) { }
 
     /** Starts the helper and attaches `state`'s packages ahead of the first question. */
     warm(state: RSessionState): void {
         void this.enqueue(async () => {
             await this.prepare(state);
-        }).catch(() => {});
+        }).catch(() => { });
     }
 
     /** Asks the helper `msgType` with the busy session's packages attached. */
@@ -115,18 +118,18 @@ export class RHelper {
     async stop(): Promise<void> {
         const session = this.session;
         this.session = undefined;
-        if (session) await (await session.catch(() => undefined))?.stop().catch(() => {});
+        if (session) await (await session.catch(() => undefined))?.stop().catch(() => { });
     }
 
     kill(): void {
         const session = this.session;
         this.session = undefined;
-        void session?.then((s) => s.kill(), () => {});
+        void session?.then((s) => s.kill(), () => { });
     }
 
     private enqueue<T>(work: () => Promise<T>): Promise<T> {
         const next = this.chain.then(work, work);
-        this.chain = next.catch(() => {});
+        this.chain = next.catch(() => { });
         return next;
     }
 

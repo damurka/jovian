@@ -44,14 +44,15 @@ jobs:
         with:
           node-version: '24'
 
-      # A real, pre-existing version conflict: package.json pins typescript@^7.0.2, but
-      # @typescript-eslint/eslint-plugin@^8.0.0's peer dependency wants typescript <6.1.0.
-      # --legacy-peer-deps doesn't change any declared version, just how npm resolves the conflict.
+      # typescript is TypeScript 6 (the API ESLint and the formatter use), @typescript/native TypeScript 7 (tsc)
       - name: npm ci
-        run: npm ci --legacy-peer-deps
+        run: npm ci
 
       - name: Build TypeScript
         run: npx tsc --build
+
+      - name: Lint and formatting (VS Code's formatter, ESLint)
+        run: npm run format:check
 
       - name: Unit tests
         run: npm run test:unit
@@ -205,13 +206,6 @@ jobs:
           path: native.tar
           if-no-files-found: error
 
-      # A real, pre-existing version conflict, unrelated to anything else
-      # in this workflow: package.json pins typescript@^7.0.2, but
-      # @typescript-eslint/eslint-plugin@^8.0.0's peer dependency wants
-      # typescript <6.1.0. `npm ci`'s strict peer-dependency resolution
-      # surfaces this. --legacy-peer-deps doesn't change any declared
-      # version, just how npm resolves the conflict; the real fix is a version
-      # decision for whoever owns that choice.
       # ---- The platform package: only when release.yml asks for it -------------
 
       - name: Pack the platform package
@@ -281,7 +275,7 @@ jobs:
           packages: any::later, any::IRdisplay${{ matrix.target == 'linux-x64' && matrix.r == 'release' && ', any::ragg' || '' }}
 
       - name: npm ci
-        run: npm ci --legacy-peer-deps
+        run: npm ci
 
       - uses: actions/download-artifact@v8
         with:

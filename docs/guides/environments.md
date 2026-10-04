@@ -132,23 +132,27 @@ const result = await manager.ensureRPackage(
 
 Without `update`, nothing is downloaded when `minVersion` is met and the installed tree is consistent, so it is cheap to call before every launch. It installs what is missing or older than any package in the tree requires (read from the installed copies R would load), with `update` also brings the package and its dependencies from `repos` up to date, and with `optional` (default) also the suggested packages of the packages from `repos`, except those named in `onDemandField`. One install runs at a time per library, across processes; R's own `00LOCK` folders left by a crash are removed; broken downloads are retried; on Linux, CRAN and r-universe binaries are used where they exist, and missing system libraries are named. It rejects with R's explanation, or with an error named `R_PACKAGES_OFFLINE` when the repos can't be reached and what is installed won't do.
 
-The manager knows its sessions, so updates and running sessions don't trip over each other: before an install that would **replace** packages already installed, it waits while the manager's other sessions use the library (`waitForSessions`, default true; progress `waiting`), and a session the manager starts on that library during the install waits for it. Installing only missing packages never waits — nothing uses them yet.
+The manager knows its sessions, so updates and running sessions don't trip over each other. Before an install that would **replace** packages already installed, it asks the manager's other sessions on the library what they have loaded (`loadedNamespaces()`, asked at that moment; a session running code counts as having anything loaded — on Windows a loaded package's DLL can't be replaced), and `whenInUse` says what happens while any of them has: `'wait'` until they end (the default; progress `waiting`), `'defer'` — reject with an error named `PACKAGES_IN_USE`, installing nothing, its `sessions` the ids, for the caller to try again later (an update in the background, say) — or `'proceed'`. A session the manager starts on that library during the install waits for it. Installing only missing packages never waits — nothing uses them yet.
 
 ### Installing Python packages
 
-Python packages go into a virtual environment of your own (one per application and Python version), with pip, in a process of their own (`python -c`, no script file):
+Python packages go into a virtual environment of your own (one per application and Python version), with pip, in a process of their own (`python -c`, no script file; pip can't be run inside a running Python, so a warm session would gain nothing):
 
 ```ts
-import { ensurePythonEnvironment, ensurePythonPackages, venvPython, venvSitePackages } from '@damurka/jovian';
+import { SessionManager } from '@damurka/jovian';
 
 const python = await findRuntime('python', { minVersion: '3.10' });
-await ensurePythonEnvironment(python.executable, venvDir);          // made, or re-made when it came from another Python
-const result = await ensurePythonPackages(venvPython(venvDir), {
+const manager = new SessionManager();
+await manager.ensurePythonEnvironment(python.executable, venvDir);  // made, or re-made when it came from another Python
+const session = await manager.createSession({ kernelType: 'python', pythonHome: python.home, venvPath: venvDir });
+const result = await manager.ensurePythonPackages(venvDir, {
     appDir,                                  // its requirements.txt, else pyproject.toml's dependencies
     requirements: ['shiny>=1.0'],
     name: 'mypkg', minVersion: '1.2', update: false
 });
-// { previousVersion, version, changed, offline }; sessions see the packages through venvSitePackages(venvDir, python.version)
+// { previousVersion, version, changed, offline }
 ```
+
+A Python session with `venvPath` has the environment's site-packages first on `sys.path`, and its python as `sys.executable`. As for R, the manager knows which of its sessions use the environment: before an install that would **replace** packages already installed (an update, a raised requirement) — pip's own plan (`pip install --dry-run --report`; with a pip older than 22.2, or offline, every unmet requirement already installed counts as replaced) — it waits while they run, defers or proceeds (`whenInUse`, as for R; a Python session doesn't say what it has loaded, so every session on the environment counts; on Windows a loaded compiled module such as numpy's `.pyd` can't be replaced), and a Python session started on the environment during the install waits for it. Installing only missing packages never waits. When no session uses the environment, pip isn't asked first (there is no one to wait for, and the plan costs seconds on the network): new sessions on it wait for the whole install instead. One install runs at a time per environment, across processes. Re-making an environment made from another Python (`manager.ensurePythonEnvironment()`) empties it, so it too waits for the sessions using it, and new ones wait until it is made. The standalone `ensurePythonEnvironment()` and `ensurePythonPackages(venvPython(venvDir), request)` do the same work without any of this.
 
 Nothing is downloaded when every requirement is met (unless `update`), so it is cheap before every launch and works offline once set up. It rejects with pip's explanation, or with an error named `PYTHON_PACKAGES_OFFLINE` when the index can't be reached and what is installed won't do. Python: `$PYTHONHOME`, on Windows the `py` launcher's default, `python3` / `python` on `PATH`, pyenv / conda / macOS frameworks, then every Python the launcher knows (the Store's `python.exe` alias is skipped). Stata: licensed first, then newest, StataNow before Stata.

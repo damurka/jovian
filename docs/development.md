@@ -81,7 +81,7 @@ Playground tests are separate: `npm --prefix tools/playground test`.
 4. Clone and bootstrap vcpkg (`VCPKG_ROOT`), with the vcpkg binary cache keyed on the platform and `vcpkg.json`.
 5. **One** native build (`dist/native`, Release, `-DJOVIAN_BUILD_TESTS=ON`): elara, themisto, carpo, callisto and the tests. The release script ships only the kernels and their libraries, never the test binaries.
 6. `ctest -C Release --output-on-failure --timeout 180`.
-7. `npm ci --legacy-peer-deps` (a known peer-dependency conflict between TypeScript 7 and the `@typescript-eslint` plugin), `npx tsc --build`, unit tests, integration tests.
+7. `npm ci`, `npx tsc --build`, `npm run format:check` (VS Code's formatter and ESLint), unit tests, integration tests.
 
 `ci.yml` is also a reusable workflow: `release.yml` calls it with `package: true`, which adds staging, packing and a smoke test of the packed packages after step 7, using the same build (see [releasing.md](releasing.md)).
 

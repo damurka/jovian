@@ -88,7 +88,7 @@ What you must already have on the machine:
 You only need this to work on Jovian or to run it on a platform without a prebuilt package: [docs/building.md](docs/building.md) has the requirements per platform (Visual Studio on Windows, a compiler and vcpkg elsewhere), the build and test commands, and how to point the library at your own build.
 
 ```sh
-npm install --legacy-peer-deps
+npm install
 npm run build   # native kernels into dist/native, then TypeScript into dist/lib
 npm test
 ```

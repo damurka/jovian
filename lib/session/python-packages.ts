@@ -2,12 +2,16 @@
 // of its own -- never in a session's kernel, which may have the very packages
 // being replaced loaded. The environment is the caller's: one per application
 // and Python version, made (or re-made, for another Python) by
-// ensurePythonEnvironment().
+// ensurePythonEnvironment(). Through the session manager
+// (SessionManager.ensurePythonPackages()), an install that would replace
+// packages waits for the sessions using the environment (their venvPath), and
+// new sessions on it wait for the install, as for R (r-packages.ts).
 import { execFile, spawn } from 'node:child_process';
 import * as fs from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { lockLibrary, packagesInUse, type WhenInUse } from './r-packages.js';
 
 /** What to install: {@link ensurePythonPackages}' request. */
 export interface PythonPackageRequest {
@@ -43,6 +47,12 @@ export interface PythonPackageOptions {
     onOutput?: (line: string) => void;
     /** Default 30 minutes. */
     timeoutMs?: number;
+    /**
+     * SessionManager.ensurePythonPackages(): an install that replaces packages already installed while the manager's
+     * sessions use the environment -- `wait` for them to end (the default), `defer` (reject with an error named
+     * PACKAGES_IN_USE, installing nothing) or `proceed`. Installing only missing packages never waits.
+     */
+    whenInUse?: WhenInUse;
 }
 
 /**
@@ -131,6 +141,29 @@ if not todo and not opaque and not update:
     print("JOVIAN_PY_RESULT: " + json.dumps({"previous": previous, "version": previous, "changed": False, "offline": False}), flush=True)
     sys.exit(0)
 
+if args.get("planOnly"):
+    # what pip would install, and which of those are installed already (would be replaced): pip's own resolver, without
+    # installing (pip 22.2 or newer); else, when it can't say (older pip, offline), every unmet requirement installed already
+    names = list(todo) + ([pkg_req] if update and pkg_req and pkg_req not in todo else [])
+    cmd = [sys.executable, "-m", "pip", "install", "--dry-run", "--quiet", "--report", "-", "--disable-pip-version-check", "--no-input",
+        "--timeout", "30", "--retries", "2", "--upgrade-strategy", "only-if-needed"] + (["--upgrade"] if update and pkg_req else [])
+    if args.get("index"):
+        cmd += ["--extra-index-url", args["index"]]
+    say("Checking what " + ", ".join(names + (["-r " + os.path.basename(req_file)] if opaque else [])) + " would install")
+    proc = subprocess.run(cmd + names + (["-r", req_file] if opaque else []), capture_output=True, text=True, encoding="utf-8", errors="replace")
+    try:
+        install = [item["metadata"]["name"] for item in json.loads(proc.stdout).get("install", [])]
+    except Exception:
+        install = []
+        for text in names:
+            try:
+                install.append(Requirement(text).name)
+            except Exception:
+                pass
+    replace = [name for name in install if version_of(name) is not None]
+    print("JOVIAN_PY_PLAN: " + json.dumps({"install": install, "replace": replace}), flush=True)
+    sys.exit(0)
+
 NETWORK = ("NewConnectionError", "Failed to establish a new connection", "getaddrinfo failed", "Name or service not known",
     "Temporary failure in name resolution", "Could not fetch URL", "ConnectTimeoutError", "ReadTimeoutError", "No route to host", "ProxyError")
 
@@ -196,19 +229,55 @@ export function readVenvHome(cfg: string): string | undefined {
  * version, or moved it): a venv only works with the python it came from.
  */
 export async function ensurePythonEnvironment(pythonExecutable: string, venvDir: string, onOutput?: (line: string) => void): Promise<void> {
-    const executable = venvPython(venvDir);
+    const state = await environmentState(pythonExecutable, venvDir);
+    if (state !== 'ready') {
+        await makeEnvironment(pythonExecutable, venvDir, state === 'other', onOutput);
+    }
+}
+
+/**
+ * {@link ensurePythonEnvironment}, with the session manager's sessions in mind (SessionManager.ensurePythonEnvironment()
+ * is the way in): re-creating an environment made from another Python empties it, so it first waits while the host's
+ * sessions use it, and new sessions on it wait until it is made.
+ */
+export async function ensurePythonEnvironmentIn(host: PythonPackagesHost, pythonExecutable: string, venvDir: string, onOutput?: (line: string) => void): Promise<void> {
+    const state = await environmentState(pythonExecutable, venvDir);
+    if (state === 'ready') {
+        return;
+    }
+    if (state === 'other') {
+        for (let waited = false; ; waited = true) {
+            const using = await host.sessionsUsing(venvDir);
+            if (using.length === 0) break;
+            if (!waited) {
+                onOutput?.(`Waiting for ${using.length} session${using.length === 1 ? '' : 's'} using ${venvDir} to end before re-creating it for ${pythonExecutable}`);
+            }
+            await sleep(2000);
+        }
+    }
+    const making = makeEnvironment(pythonExecutable, venvDir, state === 'other', onOutput);
+    host.hold(venvDir, making);
+    await making;
+}
+
+/** Whether the environment at `venvDir` is there for this Python (`ready`), missing, or made from another Python. */
+async function environmentState(pythonExecutable: string, venvDir: string): Promise<'ready' | 'missing' | 'other'> {
     let home: string | undefined;
     try {
         home = readVenvHome(await fs.promises.readFile(join(venvDir, 'pyvenv.cfg'), 'utf8'));
     } catch { /* no venv yet */ }
-    const expected = dirname(pythonExecutable);
-    if (home && fs.existsSync(executable) && samePath(home, expected)) {
-        return;
+    if (!home) {
+        return 'missing';
     }
-    onOutput?.(home ? `Re-creating ${venvDir} for ${pythonExecutable}` : `Creating ${venvDir}`);
+    return fs.existsSync(venvPython(venvDir)) && samePath(home, dirname(pythonExecutable)) ? 'ready' : 'other';
+}
+
+/** Makes the environment with `python -m venv`; `clear` empties one made from another Python first. */
+async function makeEnvironment(pythonExecutable: string, venvDir: string, clear: boolean, onOutput?: (line: string) => void): Promise<void> {
+    onOutput?.(clear ? `Re-creating ${venvDir} for ${pythonExecutable}` : `Creating ${venvDir}`);
     await fs.promises.mkdir(dirname(venvDir), { recursive: true });
     await new Promise<void>((resolve, reject) => {
-        execFile(pythonExecutable, ['-m', 'venv', ...(home ? ['--clear'] : []), venvDir], { windowsHide: true, timeout: 5 * 60 * 1000 }, (error, _stdout, stderr) => {
+        execFile(pythonExecutable, ['-m', 'venv', ...(clear ? ['--clear'] : []), venvDir], { windowsHide: true, timeout: 5 * 60 * 1000 }, (error, _stdout, stderr) => {
             if (error) {
                 reject(new Error(`Could not create a Python virtual environment with ${pythonExecutable}${stderr ? `: ${String(stderr).trim().split(/\r?\n/).pop()}` : ''} (on Debian/Ubuntu, install python3-venv).`));
             } else {
@@ -249,59 +318,143 @@ export function findAppRequirementFiles(appDir: string | undefined): { requireme
     };
 }
 
+/** What one run of {@link PY_INSTALL_SCRIPT} said. */
+export interface PythonInstallRun {
+    failure?: string;
+    offline?: string;
+    result?: PythonPackageResult;
+    /** planOnly: what pip would install, and which of those are installed already. */
+    plan?: { install: string[]; replace: string[] };
+    /** What else it printed (pip's output), for an error without a reason. */
+    other: string[];
+    /** python's exit code; null when it was stopped. */
+    code: number | null;
+    timedOut?: boolean;
+}
+
+/** Runs {@link PY_INSTALL_SCRIPT} with the venv's python and the arguments (JSON), following its lines. */
+export type PythonInstallRunner = (python: string, args: string, timeoutMs: number, onOutput: (line: string) => void) => Promise<PythonInstallRun>;
+
+/** Runs the install script in a process of its own: `python -c`, its arguments one JSON argument -- no file is written. */
+export const runPythonInstallScript: PythonInstallRunner = async (python, args, timeoutMs, onOutput) => {
+    const run: PythonInstallRun = { other: [], code: null };
+    const env = { ...process.env, PYTHONNOUSERSITE: '1', PIP_DISABLE_PIP_VERSION_CHECK: '1', PYTHONIOENCODING: 'utf-8' };
+    const child = spawn(python, ['-c', PY_INSTALL_SCRIPT, args], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    for (const stream of [child.stdout, child.stderr]) {
+        createInterface({ input: stream }).on('line', line => {
+            if (line.startsWith('JOVIAN_PY_ERROR: ')) {
+                run.failure = line.slice('JOVIAN_PY_ERROR: '.length);
+            } else if (line.startsWith('JOVIAN_PY_OFFLINE: ')) {
+                run.offline = line.slice('JOVIAN_PY_OFFLINE: '.length);
+            } else if (line.startsWith('JOVIAN_PY_PLAN: ')) {
+                const parsed = JSON.parse(line.slice('JOVIAN_PY_PLAN: '.length)) as { install?: string[]; replace?: string[] };
+                run.plan = { install: parsed.install ?? [], replace: parsed.replace ?? [] };
+            } else if (line.startsWith('JOVIAN_PY_RESULT: ')) {
+                const parsed = JSON.parse(line.slice('JOVIAN_PY_RESULT: '.length)) as { previous?: string | null; version?: string | null; changed?: boolean; offline?: boolean };
+                run.result = { previousVersion: parsed.previous ?? undefined, version: parsed.version ?? undefined, changed: !!parsed.changed, offline: !!parsed.offline };
+            } else if (line.startsWith('JOVIAN_PY: ')) {
+                onOutput(line.slice('JOVIAN_PY: '.length));
+            } else if (line.trim()) {
+                run.other.push(line.trim());
+                if (run.other.length > 400) run.other.splice(0, 200);
+            }
+        });
+    }
+    const timer = setTimeout(() => { run.timedOut = true; child.kill(); }, timeoutMs);
+    run.code = await new Promise<number | null>((resolve, reject) => {
+        child.once('error', error => { clearTimeout(timer); reject(error); });
+        child.once('close', exitCode => { clearTimeout(timer); resolve(exitCode); });
+    });
+    return run;
+};
+
+/** A run's result, or the error it ended with. */
+function outcomeOf(run: PythonInstallRun, timeoutMs: number): PythonPackageResult {
+    if (run.timedOut) {
+        throw new Error(`Installing Python packages took longer than ${Math.round(timeoutMs / 60000)} minutes and was stopped.`);
+    }
+    if (run.offline) {
+        const error = new Error(run.offline);
+        error.name = PYTHON_PACKAGES_OFFLINE;
+        throw error;
+    }
+    if (run.code !== 0 || !run.result) {
+        throw new Error(run.failure ?? `Installing Python packages failed (python exited with code ${run.code})${run.other.length ? `: ${run.other.slice(-5).join(' | ')}` : ''}`);
+    }
+    return run.result;
+}
+
 /**
  * Installs what a request needs into the virtual environment whose python is `venvPythonExecutable` (see
  * {@link venvPython}), with {@link PY_INSTALL_SCRIPT} -- never in a session's kernel, which may have the very packages
  * being replaced loaded. Rejects with pip's explanation when the install fails, and with an error named
- * {@link PYTHON_PACKAGES_OFFLINE} when the index can't be reached and what is installed won't do.
+ * {@link PYTHON_PACKAGES_OFFLINE} when the index can't be reached and what is installed won't do. It knows nothing of
+ * the sessions using the environment: SessionManager.ensurePythonPackages() also waits for them.
  */
 export async function ensurePythonPackages(venvPythonExecutable: string, request: PythonPackageRequest, options: PythonPackageOptions = {}): Promise<PythonPackageResult> {
-    {
-        // the installer is code passed to python (-c), its arguments one JSON argument: no file is written
-        const args = JSON.stringify(buildInstallArgs(request, findAppRequirementFiles(request.appDir)));
+    const timeoutMs = options.timeoutMs ?? 30 * 60 * 1000;
+    const args = JSON.stringify(buildInstallArgs(request, findAppRequirementFiles(request.appDir)));
+    return outcomeOf(await runPythonInstallScript(venvPythonExecutable, args, timeoutMs, line => options.onOutput?.(line)), timeoutMs);
+}
 
-        let failure: string | undefined;
-        let offline: string | undefined;
-        let result: PythonPackageResult | undefined;
-        const otherOutput: string[] = [];
-        const env = { ...process.env, PYTHONNOUSERSITE: '1', PIP_DISABLE_PIP_VERSION_CHECK: '1', PYTHONIOENCODING: 'utf-8' };
-        const child = spawn(venvPythonExecutable, ['-c', PY_INSTALL_SCRIPT, args], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
-        for (const stream of [child.stdout, child.stderr]) {
-            createInterface({ input: stream }).on('line', line => {
-                if (line.startsWith('JOVIAN_PY_ERROR: ')) {
-                    failure = line.slice('JOVIAN_PY_ERROR: '.length);
-                } else if (line.startsWith('JOVIAN_PY_OFFLINE: ')) {
-                    offline = line.slice('JOVIAN_PY_OFFLINE: '.length);
-                } else if (line.startsWith('JOVIAN_PY_RESULT: ')) {
-                    const parsed = JSON.parse(line.slice('JOVIAN_PY_RESULT: '.length)) as { previous?: string | null; version?: string | null; changed?: boolean; offline?: boolean };
-                    result = { previousVersion: parsed.previous ?? undefined, version: parsed.version ?? undefined, changed: !!parsed.changed, offline: !!parsed.offline };
-                } else if (line.startsWith('JOVIAN_PY: ')) {
-                    options.onOutput?.(line.slice('JOVIAN_PY: '.length));
-                } else if (line.trim()) {
-                    otherOutput.push(line.trim());
+/** What ensurePythonPackagesIn() needs of the session manager. */
+export interface PythonPackagesHost {
+    /** The sessions using the virtual environment `venvDir` (their venvPath): their ids. */
+    sessionsUsing(venvDir: string): Promise<string[]>;
+    /** New Python sessions on `venvDir` wait until `until` settles. */
+    hold(venvDir: string, until: Promise<unknown>): void;
+}
+
+/**
+ * Installs what a request needs into the virtual environment `venvDir`, as {@link ensurePythonPackages} does, with the
+ * session manager's sessions in mind (SessionManager.ensurePythonPackages() is the way in). One install at a time per
+ * environment, across processes. When pip would replace packages already installed (an update, or a requirement
+ * raised), it first waits while the host's sessions use the environment, or defers (`whenInUse`) -- on Windows a
+ * loaded compiled module (numpy's .pyd) can't be replaced -- and new sessions on it wait for the install.
+ */
+export async function ensurePythonPackagesIn(host: PythonPackagesHost, venvDir: string, request: PythonPackageRequest,
+    options: PythonPackageOptions = {}, run: PythonInstallRunner = runPythonInstallScript): Promise<PythonPackageResult> {
+    const timeoutMs = options.timeoutMs ?? 30 * 60 * 1000;
+    const onOutput = (line: string) => options.onOutput?.(line);
+    const unlock = await lockLibrary(venvDir, timeoutMs + 5 * 60 * 1000,
+        () => onOutput('Waiting for another process to finish installing Python packages into the environment'));
+    try {
+        const args = buildInstallArgs(request, findAppRequirementFiles(request.appDir));
+        const python = venvPython(venvDir);
+
+        // What it would replace: an install replacing packages that sessions on the environment may have loaded waits for them
+        let replacing: string[] = [];
+        const coordinate = options.whenInUse !== 'proceed';
+        // No session uses the environment: pip's plan (seconds, on the network) would find no one to wait for. New
+        // sessions are kept back for the whole install instead, whatever it replaces.
+        const holdAll = coordinate && (await host.sessionsUsing(venvDir)).length === 0;
+        if (coordinate && !holdAll) {
+            const plan = await run(python, JSON.stringify({ ...args, planOnly: true }), timeoutMs, onOutput);
+            if (plan.result || plan.failure || plan.offline || plan.timedOut || !plan.plan) {
+                // nothing to install (plan.result), or why it can't be: the same outcome as the install itself
+                return outcomeOf(plan, timeoutMs);
+            }
+            replacing = plan.plan.replace;
+            for (let waited = false; replacing.length > 0; waited = true) {
+                const using = await host.sessionsUsing(venvDir);
+                if (using.length === 0) break;
+                if (options.whenInUse === 'defer') {
+                    throw packagesInUse(replacing, using);
                 }
-            });
+                if (!waited) {
+                    onOutput(`Waiting for ${using.length} session${using.length === 1 ? '' : 's'} using the environment to end before replacing ${replacing.join(', ')}`);
+                }
+                await sleep(2000);
+            }
         }
 
-        const timeoutMs = options.timeoutMs ?? 30 * 60 * 1000;
-        let timedOut = false;
-        const timer = setTimeout(() => { timedOut = true; child.kill(); }, timeoutMs);
-        const code = await new Promise<number | null>((resolve, reject) => {
-            child.once('error', error => { clearTimeout(timer); reject(error); });
-            child.once('close', exitCode => { clearTimeout(timer); resolve(exitCode); });
-        });
-
-        if (timedOut) {
-            throw new Error(`Installing Python packages took longer than ${Math.round(timeoutMs / 60000)} minutes and was stopped.`);
+        const install = run(python, JSON.stringify(args), timeoutMs, onOutput);
+        if (replacing.length > 0 || holdAll) {
+            // no session starts on the environment half way through replacing its packages
+            host.hold(venvDir, install);
         }
-        if (offline) {
-            const error = new Error(offline);
-            error.name = PYTHON_PACKAGES_OFFLINE;
-            throw error;
-        }
-        if (code !== 0 || !result) {
-            throw new Error(failure ?? `Installing Python packages failed (python exited with code ${code})${otherOutput.length ? `: ${otherOutput.slice(-5).join(' | ')}` : ''}`);
-        }
-        return result;
+        return outcomeOf(await install, timeoutMs);
+    } finally {
+        await unlock();
     }
 }

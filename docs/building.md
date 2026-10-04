@@ -47,7 +47,7 @@ Jovian builds C++ (Adrastea, Elara, Carpo, Callisto, Themisto) and TypeScript. R
 ## Build and test
 
 ```sh
-npm install --legacy-peer-deps   # CI uses `npm ci --legacy-peer-deps` (typescript and the eslint plugin disagree on peer versions)
+npm install   # typescript is TypeScript 6 (for ESLint and the formatter); tsc is TypeScript 7 (@typescript/native)
 npm run build                    # native (elara + carpo + callisto + themisto, Release) into dist/native, then TypeScript into dist/lib
 ```
 

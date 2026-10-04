@@ -64,7 +64,7 @@ Each is a real Jupyter request answered by the kernel; each rejects on an `error
 
 ## R packages
 
-R sessions (Elara) only: answered by the kernel's own R code (`.jv.rpc.*` in `packages/hera/R/packages.R`, as Ark's `.ps.rpc.pkg_*`). A session loads no package of its own besides R's, so it can install or update any package — unless the user's code has loaded it (on Windows a loaded package's DLL cannot be replaced). Repositories: `options.repos` first, then the session's own (`getOption("repos")`, CRAN's cloud mirror when unset).
+R sessions (Elara) only: answered by the kernel's own R code (`.jv.rpc.*` in `packages/hera/R/packages.R`, called through `rpc.R`, as Ark's `.ps.rpc.pkg_*`) -- except `installPackages()`, which goes through the session manager's installer (`manager.ensureRPackage()`, see [Installing R packages](../guides/environments.md)). A session loads no package of its own besides R's, so any package can be installed, updated or removed — unless the user's code has loaded it (on Windows a loaded package's DLL cannot be replaced). Repositories: `options.repos` first, then the session's own (`getOption("repos")`, CRAN's cloud mirror when unset); for `installPackages()`, then CRAN.
 
 | Method | Description |
 |---|---|
@@ -72,7 +72,7 @@ R sessions (Elara) only: answered by the kernel's own R code (`.jv.rpc.*` in `pa
 | `packagesInstalled(packages, minVersions?)` | `RPackageCheck[]`: `{ name, version (null if absent), installed }`, `installed` meaning at least `minVersions[name]`. |
 | `outdatedPackages(options?)` | `RPackageUpdate[]`: installed packages with a strictly newer version in the repositories (`installed`, `available`, `library`, `repository`). |
 | `searchPackages(query, options?)` | `RPackageSearchResult[]`: packages whose name matches `query`, an exact match first (`limit`, default 100). |
-| `installPackages(packages, options?)` | `RPackageInstallResult`: `{ installed: [{ name, version }], failed, warnings }`. Run as a cell (`storeHistory: false`): what `install.packages()` prints arrives as the session's `stdout`/`stderr` events as it is written. `options.lib` chooses the library (default: the first). Default timeout 30 minutes. |
+| `installPackages(packages, options?)` | `RPackageInstallResult`: `{ installed: [{ name, version }], failed, warnings }` (`warnings`: why each failed). Each package is installed, or updated to the newest in the repositories, with what it needs, by `manager.ensureRPackage()` in a packages session of the manager's, not in this session; its progress arrives as the session's `stdout` events. `options.lib` chooses the library (default: the session's first). Default timeout 30 minutes. |
 | `removePackages(packages, options?)` | The packages removed. |
 
 The quick ones are answered as a user expression of a silent execution (no output, no execution count).

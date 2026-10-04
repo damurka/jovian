@@ -28,7 +28,7 @@ Nothing to install: the R kernel carries its own R code (`hera`, in `packages/he
 ## 3. Build
 
 ```sh
-npm install --legacy-peer-deps
+npm install
 npm run build          # native (elara, carpo, callisto, themisto) -> dist/native/Release, then TypeScript -> dist/lib
 ```
 

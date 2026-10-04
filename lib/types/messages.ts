@@ -1,4 +1,4 @@
-export type MessageTopic = 
+export type MessageTopic =
     | 'stream'
     | 'execute_result'
     | 'display_data'

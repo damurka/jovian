@@ -99,7 +99,7 @@ export interface EngineOptions {
     pythonHome?: string | undefined;
     /** Only used when kernelType is 'python' -- Carpo's equivalent of rPath. */
     pythonPath?: string | undefined;
-    /** Only used when kernelType is 'python' -- not yet consulted by Carpo itself (see carpo::EnvironmentConfig). */
+    /** Only used when kernelType is 'python' -- a virtual environment whose site-packages come first on sys.path (and whose python is sys.executable). SessionManager.ensurePythonPackages() into it waits for the sessions using it. */
     venvPath?: string | undefined;
 
     /**
@@ -154,7 +154,7 @@ export interface EngineOptions {
     logger?: LoggerFunction | undefined;
 }
 
-export type EngineState = 
+export type EngineState =
     | 'idle'
     | 'starting'
     | 'running'
@@ -534,7 +534,7 @@ export interface RPackageSearchResult {
 }
 
 export interface RPackageOptions {
-    /** Repositories to look in before the session's own (an r-universe, say); CRAN's cloud mirror when it has none. */
+    /** Repositories to look in first (an r-universe, say): then the session's own (CRAN's cloud mirror when it has none) -- for installPackages(), CRAN. */
     repos?: string[] | undefined;
     /** The library to install into (or remove from); the session's first by default. */
     lib?: string | undefined;

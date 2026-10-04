@@ -9,11 +9,11 @@ export class MiddlewareChain {
 
     async process(message: string): Promise<string> {
         let result = message;
-        
+
         for (const middleware of this.middlewares) {
             result = await middleware.process(result);
         }
-        
+
         return result;
     }
 }
