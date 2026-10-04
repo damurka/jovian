@@ -37,7 +37,7 @@ namespace carpo
         Server() = default;
         explicit Server(const EnvironmentConfig& env) : env_config(env) {}
 
-        void start(const adrastea::KernelConfiguration& config, std::function<void()> on_ready = nullptr);
+        void start(const adrastea::KernelConfiguration& config, std::function<void(const adrastea::KernelConfiguration&)> on_ready = nullptr);
 
     private:
         void setupEnvironment();

@@ -185,6 +185,11 @@ namespace themisto
         m_registrationContext = adrastea::makeZmqContext();
         m_registrationListener = std::make_unique<adrastea::ClientHandshakeZmq>(*m_registrationContext, regConfig);
 
+        // The port the listener is bound to, which is what kernels are told to dial: the one probed above when it
+        // was still free, another when something took it in between (initSocket() then binds a fresh one). Telling
+        // kernels the probed port left them dialing nothing -- or another supervisor, which refuses their signature.
+        m_registrationPort = m_registrationListener->getRegistrationPort();
+
         return m_registrationPort;
     }
 

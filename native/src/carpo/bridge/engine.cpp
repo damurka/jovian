@@ -50,12 +50,16 @@ namespace carpo
         fflush(stdout);
     }
 
-    void Server::start(const adrastea::KernelConfiguration& config, std::function<void()> on_ready) {
+    void Server::start(const adrastea::KernelConfiguration& config, std::function<void(const adrastea::KernelConfiguration&)> on_ready) {
         bool on_ready_called = false;
-        auto call_on_ready_once = [&]() {
+        // on_ready gets the configuration with the ports the kernel's sockets are bound to. They are probed before
+        // (findFreePort(), so that all five can be named at once) and bound only here, after the interpreter has
+        // started: a port taken in between makes its socket bind another (initSocket()), and announcing the probed
+        // one left the client connected to nothing -- or to another kernel -- on that channel, for good.
+        auto call_on_ready_once = [&](const adrastea::KernelConfiguration& bound) {
             if (on_ready && !on_ready_called) {
                 on_ready_called = true;
-                on_ready();
+                on_ready(bound);
             }
         };
 
@@ -74,7 +78,7 @@ namespace carpo
 
             adrastea::Kernel engine(config, adrastea::getUserName(), std::move(context), std::move(interpreter), adrastea::makeServerDefault, std::move(history), std::move(logger));
 
-            call_on_ready_once();
+            call_on_ready_once(engine.getConfig());
 
             engine.start();
         }

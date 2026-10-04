@@ -86,6 +86,14 @@ namespace adrastea
             // picking a fresh port directly on this socket, the same
             // race-free path used below when no port was pre-selected at
             // all.
+            //
+            // Whoever told someone the pre-selected port must then tell them
+            // the bound one instead (getSocketPort()): the kernels announce
+            // Kernel::getConfig() -- not the configuration they probed -- and
+            // the supervisor the registration listener's own port. Announcing
+            // the probed port left that channel connected to nothing, or to
+            // another process, for good: a session whose shell never
+            // answered, about once in 400 on a busy machine.
             try
             {
                 socket.bind(getEndPoint(transport, ip, port));

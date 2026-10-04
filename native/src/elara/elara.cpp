@@ -196,19 +196,19 @@ int main(int argc, char* argv[])
     {
         if (standaloneJupyterMode)
         {
-            server.start(kernelConfig, [&]() {
+            server.start(kernelConfig, [&](const adrastea::KernelConfiguration& bound) {
                 // No registration listener to dial in this mode -- the
                 // connection file's ports are all a Jupyter frontend
                 // needs; it discovers liveness the same way it does for
                 // any other kernel (polling kernel_info_request until one
                 // succeeds), not an explicit handshake.
-                elara::log::info("ready (Jupyter connection-file mode), shell=" + kernelConfig.m_shellPort
-                                 + " control=" + kernelConfig.m_controlPort + " iopub=" + kernelConfig.m_iopubPort);
+                elara::log::info("ready (Jupyter connection-file mode), shell=" + bound.m_shellPort
+                                 + " control=" + bound.m_controlPort + " iopub=" + bound.m_iopubPort);
             });
         }
         else
         {
-            server.start(kernelConfig, [&]() {
+            server.start(kernelConfig, [&](const adrastea::KernelConfiguration& bound) {
                 // Registration: dial the supervisor's registration endpoint
                 // with our now-bound ports, HMAC-signed with the shared
                 // per-session key the supervisor generated and passed us
@@ -226,7 +226,7 @@ int main(int argc, char* argv[])
 
                 auto auth = adrastea::makeAuthentication("hmac-sha256", opts.key);
 
-                adrastea::sendConnectionInfo(zmqContext, regConfig, kernelConfig, *auth, adrastea::json::error_handler_t::strict);
+                adrastea::sendConnectionInfo(zmqContext, regConfig, bound, *auth, adrastea::json::error_handler_t::strict);
                 elara::log::info("registered with supervisor at " + opts.registrationIp + ":" + opts.registrationPort);
             });
         }
