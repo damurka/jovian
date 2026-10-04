@@ -33,6 +33,8 @@ R, Python and Stata are found by the library itself (`discoverRHome()` / `discov
 - Sessions sidebar (R, Python and Stata side by side) with live PID and memory, kernel version (from a real `kernel_info_request`), and the working directory each kernel started in.
 - Run code (`Shift+Enter`), interactive `input()` / `readline()`, plots, streaming output, errors with tracebacks, `clear_output` / `update_display_data`.
 - **Restart / Stop / Interrupt / Remove** — the lifecycle controls call the real protocol paths. There is no separate Kill: Stop already shuts the kernel down gracefully and force-kills it if it does not exit, and it also releases a crashed session.
+- **Packages tab** (right panel): installs an R package into the session's first library, or a pip requirement into a Python session's virtual environment, with the manager's installer (`manager.ensureRPackage()` / `manager.ensurePythonPackages()`, `POST /api/sessions/:id/packages`). The installer knows which sessions use a library, and *If a session has it loaded* picks what it does then (`whenInUse`): **wait** for them to end, **don't install now** (it fails at once and names the sessions) or **install anyway**. Progress lines arrive on the session's event stream and are shown in the tab. For R it also lists what the session has loaded now (`session.loadedRPackages()`), which is "not known" while a cell runs and never interrupts it. Sessions count as using a library when it is their first *library path* (New Kernel Session); a session on R's own library can install, but nothing waits for it. To try it: two R sessions with the same library path, `library(R6)` in one, update `R6` from the other.
+- **A kernel that ended is said to have ended**: when a kernel dies the console shows "The kernel has ended (reason). Restart starts a new one.", and code sent to it is refused at once (the library's `isStopped`), not after a timeout.
 - **Heartbeat readout** in the KERNEL LIFECYCLE header (`HEARTBEAT 0.7ms`): the round trip of the kernel's heartbeat ping, polled every second together with PID and memory (`/api/sessions/:id/info`, the supervisor's session JSON). Green under 100 ms, amber under 1 s, red for no reply or a crashed kernel, grey when idle/unknown. The kernel answers from its own thread, so it stays live while a cell runs.
 - **Shortcuts:** `Shift+Enter` run, `Tab` complete now, `Shift+Tab` / `Ctrl+I` inspect, `Ctrl+L` clear output, `Esc` interrupt a running cell (it closes an open completion list first). An interrupted cell ends with "Execution interrupted".
 - A refresh rebuilds everything from the server: sessions, names, transcripts (`Session.getHistory()`).
@@ -51,7 +53,7 @@ R, Python and Stata are found by the library itself (`discoverRHome()` / `discov
 
 ```
 app/                 Next.js App Router
-  api/…              route handlers (sessions, execute, complete, inspect, stream (SSE), …)
+  api/…              route handlers (sessions, execute, complete, inspect, packages, stream (SSE), …)
 components/          React components (Playground, Sidebar, ConsoleView, InputDock, …)
 lib/
   env.mjs            cross-platform R / Python / Stata discovery

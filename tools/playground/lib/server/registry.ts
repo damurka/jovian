@@ -30,6 +30,8 @@ export interface Entry {
 
 interface Registry {
     manager: SessionManager;
+    /** The library itself (readRLibraries(), PACKAGES_IN_USE). */
+    jovian: JovianModule;
     sessions: Map<string, Entry>;
 }
 
@@ -59,7 +61,7 @@ async function createRegistry(): Promise<Registry> {
             `Could not load the jovian library from ${distIndexUrl()} -- run \`npm run build:lib\` in the repo root first. (${(error as Error).message})`
         );
     }
-    return { manager: new jovian.SessionManager(), sessions: new Map() };
+    return { manager: new jovian.SessionManager(), jovian, sessions: new Map() };
 }
 
 export function getRegistry(): Promise<Registry> {

@@ -59,7 +59,9 @@ A kernel that dies — killed from Task Manager, a segfault (e.g. `STATUS_ACCESS
 
 A kernel that is *alive but unresponsive* (deadlocked, stuck in a native call) is caught later by the ZMQ heartbeat — three missed 20-second pings, so roughly a minute — and reported the same way with a `heartbeat gave up waiting for a response` reason.
 
-Recover with `await session.restart()`: same session id, fresh kernel. An `'exit'` is also emitted if the WebSocket to the supervisor drops (`WebSocket connection to the supervisor closed unexpectedly`) — that usually means the supervisor process itself ended, in which case you need a new `SessionManager`.
+From the `'exit'` on, the session is known as ended: `session.isStopped` is `true`, `execute()` rejects at once with `The session's kernel has ended (<reason>); restart() starts a new one` (it does not wait for its timeout), and an install waiting for sessions to end no longer waits for this one.
+
+Recover with `await session.restart()`: same session id, fresh kernel, `isStopped` false again. An `'exit'` is also emitted if the WebSocket to the supervisor drops (`WebSocket connection to the supervisor closed unexpectedly`) — that usually means the supervisor process itself ended, in which case you need a new `SessionManager`.
 
 ## Timeouts vs. kernel state
 

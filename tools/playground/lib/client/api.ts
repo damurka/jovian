@@ -1,6 +1,7 @@
 // Typed wrappers over the playground's route handlers (app/api/**).
 import type {
-    CompletionResult, Defaults, HistoryRecord, InspectResult, KernelInfo, KernelType, SessionSummary, StataEdition
+    CompletionResult, Defaults, HistoryRecord, InspectResult, KernelInfo, KernelType, PackagesInfo, PackagesInstallResult,
+    SessionSummary, StataEdition, WhenInUse
 } from '../types.ts';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -61,6 +62,10 @@ export const api = {
     interrupt: (id: string) => post(`/api/sessions/${id}/interrupt`) as Promise<{ ok: boolean; acknowledged: boolean }>,
     restart: (id: string) => post(`/api/sessions/${id}/restart`) as Promise<{ ok: boolean; error?: string }>,
     stop: (id: string) => post(`/api/sessions/${id}/stop`),
+
+    packages: (id: string) => request<PackagesInfo>(`/api/sessions/${id}/packages`),
+    installPackage: (id: string, name: string, update: boolean, whenInUse: WhenInUse) =>
+        post(`/api/sessions/${id}/packages`, { name, update, whenInUse }) as Promise<PackagesInstallResult>,
 
     complete: (id: string, code: string, cursorPos: number, signal?: AbortSignal, noWait = false) =>
         request<CompletionResult>(`/api/sessions/${id}/complete`, {
