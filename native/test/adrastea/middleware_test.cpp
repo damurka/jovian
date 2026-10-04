@@ -3,6 +3,8 @@
 // has no reason to share fixture/skip machinery with session_registry_test.
 #include <set>
 #include <string>
+#include <stdexcept>
+#include <vector>
 
 #include <gtest/gtest.h>
 #include <zmq.hpp>
@@ -53,28 +55,42 @@ TEST(MiddlewareTest, FindFreePortReturnsAPortInTheRequestedRange)
     EXPECT_LE(portNum, 65535);
 }
 
-TEST(MiddlewareTest, InitSocketFallsBackToAFreshPortWhenThePreSelectedOneIsTaken)
+TEST(MiddlewareTest, InitSocketFailsWhenTheGivenPortIsTaken)
 {
-    // Regression test for a real Ubuntu CI failure
-    // (SessionRegistryTest.ConcurrentRestartsForTheSameSessionDontLeakAnExtraKernelProcess):
-    // findFreePort() only proves a port is free at the moment it probes it
-    // (bind, then immediately unbind); the real bind against that port
-    // number happens much later (after R interpreter init), leaving a
-    // window where another concurrently-spawned kernel process can take
-    // it first. initSocket() must not let that surface as an unhandled
-    // "Address already in use" -- it should recover by picking a fresh
-    // port on the same socket, the same race-free path used when no port
-    // was requested at all.
-    std::string stalePort = findFreePort();
-
+    // A given port is one its chooser already knows (a Jupyter connection file): binding another instead left a
+    // kernel "ready" on a channel nobody could reach. It is an error, which names the endpoint.
     zmq::context_t ctx;
     zmq::socket_t occupier(ctx, zmq::socket_type::req);
-    occupier.bind(getEndPoint("tcp", "127.0.0.1", stalePort));
+    initSocket(occupier, "tcp", "127.0.0.1", "");
+    std::string taken = getSocketPort(occupier);
 
     zmq::socket_t contender(ctx, zmq::socket_type::req);
-    EXPECT_NO_THROW(initSocket(contender, "tcp", "127.0.0.1", stalePort));
+    try
+    {
+        initSocket(contender, "tcp", "127.0.0.1", taken);
+        FAIL() << "bound a port that was taken";
+    }
+    catch (const std::runtime_error& e)
+    {
+        EXPECT_NE(std::string(e.what()).find("127.0.0.1:" + taken), std::string::npos) << e.what();
+    }
+}
 
-    EXPECT_NE(getSocketPort(contender), stalePort);
+TEST(MiddlewareTest, InitSocketWithNoPortBindsAFreeOneAndKeepsIt)
+{
+    // How Jovian's kernels and supervisor start: nothing is probed, each socket binds its own port, and that
+    // port is what gets reported. Twenty sockets, twenty different ports, all still bound.
+    zmq::context_t ctx;
+    std::vector<zmq::socket_t> sockets;
+    std::set<std::string> ports;
+    for (int i = 0; i < 20; ++i)
+    {
+        sockets.emplace_back(ctx, zmq::socket_type::req);
+        initSocket(sockets.back(), "tcp", "127.0.0.1", "");
+        std::string port = getSocketPort(sockets.back());
+        EXPECT_FALSE(port.empty());
+        EXPECT_TRUE(ports.insert(port).second) << port << " bound twice";
+    }
 }
 
 TEST(MiddlewareTest, FindFreePortDoesNotKeepReturningTheSamePort)

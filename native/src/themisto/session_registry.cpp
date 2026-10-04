@@ -161,7 +161,8 @@ namespace themisto
 
     std::string SessionRegistry::startRegistrationListener()
     {
-        m_registrationPort = adrastea::findFreePort();
+        // no port: the listener binds a free one itself (below), which is the one kernels are told
+        m_registrationPort.clear();
 
         // One registration key for this supervisor's whole lifetime, shared
         // by every kernel it spawns. ClientHandshakeZmqImpl::waitForConfiguration()
@@ -185,9 +186,7 @@ namespace themisto
         m_registrationContext = adrastea::makeZmqContext();
         m_registrationListener = std::make_unique<adrastea::ClientHandshakeZmq>(*m_registrationContext, regConfig);
 
-        // The port the listener is bound to, which is what kernels are told to dial: the one probed above when it
-        // was still free, another when something took it in between (initSocket() then binds a fresh one). Telling
-        // kernels the probed port left them dialing nothing -- or another supervisor, which refuses their signature.
+        // The port the listener bound, which is what kernels are told to dial.
         m_registrationPort = m_registrationListener->getRegistrationPort();
 
         return m_registrationPort;

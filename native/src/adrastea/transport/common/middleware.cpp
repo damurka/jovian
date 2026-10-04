@@ -1,4 +1,5 @@
 #include <string>
+#include <stdexcept>
 #include <random>
 #include <cerrno>
 
@@ -65,51 +66,28 @@ namespace adrastea
 
         if (!port.empty())
         {
-            // 'port' was chosen ahead of time by findFreePort() (elara.cpp's
-            // makeKernelConfiguration(), so it can announce all 5 ports to
-            // themisto in one registration message before any socket
-            // exists yet). That's an inherent bind-then-unbind-then-bind-
-            // later TOCTOU: findFreePort() only proved the port was free at
-            // the moment it probed it, with real R interpreter
-            // initialization (seconds, not microseconds) sitting between
-            // that probe and this bind. A second kernel process racing
-            // through the same dance (e.g. two concurrent
-            // SessionRegistry::restartSession() calls each spawning their
-            // own elara.exe) can and did grab the same "free" port in that
-            // window -- confirmed via a real Ubuntu CI failure ("Address
-            // already in use") in
-            // ConcurrentRestartsForTheSameSessionDontLeakAnExtraKernelProcess.
-            // Rather than trying to make port reservation perfectly atomic
-            // across process boundaries (which POSIX/Winsock don't really
-            // support without holding the socket open across that whole
-            // gap), treat a stale reservation as recoverable: fall back to
-            // picking a fresh port directly on this socket, the same
-            // race-free path used below when no port was pre-selected at
-            // all.
-            //
-            // Whoever told someone the pre-selected port must then tell them
-            // the bound one instead (getSocketPort()): the kernels announce
-            // Kernel::getConfig() -- not the configuration they probed -- and
-            // the supervisor the registration listener's own port. Announcing
-            // the probed port left that channel connected to nothing, or to
-            // another process, for good: a session whose shell never
-            // answered, about once in 400 on a busy machine.
+            // A port that was given is one somebody else chose and already knows (a Jupyter connection file: the
+            // launcher dials it): this socket is bound to it or the start fails. Binding another instead left a
+            // kernel that said "ready" on a channel nobody could reach.
             try
             {
                 socket.bind(getEndPoint(transport, ip, port));
             }
             catch (const zmq::error_t& e)
             {
-                if (e.num() != EADDRINUSE)
-                {
-                    throw;
-                }
-                findFreePortImpl(socket, transport, ip, 100, 49152, 65536);
+                throw std::runtime_error("cannot bind " + getEndPoint(transport, ip, port) + ": " + e.what()
+                    + " (the port was chosen by whoever started this process, and something else has it)");
             }
         }
         else
         {
-            findFreePortImpl(socket, transport, ip, 100, 49152, 65536);
+            // No port given: this socket takes a free one itself and keeps it (no probe, so nothing can take it
+            // in between); whoever needs it asks for it afterwards (getSocketPort()). Jovian's kernels and its
+            // supervisor start this way, and report the ports they are bound to.
+            if (findFreePortImpl(socket, transport, ip, 100, 49152, 65536).empty())
+            {
+                throw std::runtime_error("no free port found on " + ip);
+            }
         }
     }
 

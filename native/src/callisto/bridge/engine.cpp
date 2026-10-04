@@ -43,10 +43,9 @@ namespace callisto
 
     void Server::start(const adrastea::KernelConfiguration& config, std::function<void(const adrastea::KernelConfiguration&)> on_ready) {
         bool on_ready_called = false;
-        // on_ready gets the configuration with the ports the kernel's sockets are bound to. They are probed before
-        // (findFreePort(), so that all five can be named at once) and bound only here, after the interpreter has
-        // started: a port taken in between makes its socket bind another (initSocket()), and announcing the probed
-        // one left the client connected to nothing -- or to another kernel -- on that channel, for good.
+        // on_ready gets the configuration with the ports the kernel's sockets are bound to. Started by the
+        // supervisor, the configuration names no ports: each socket binds a free one itself, here, and those are
+        // reported. (Probing five ports first and binding them later left a gap in which another process took one.)
         auto call_on_ready_once = [&](const adrastea::KernelConfiguration& bound) {
             if (on_ready && !on_ready_called) {
                 on_ready_called = true;

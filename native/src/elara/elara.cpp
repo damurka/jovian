@@ -104,11 +104,7 @@ namespace
         adrastea::KernelConfiguration config;
         config.m_transport = "tcp";
         config.m_ip = "127.0.0.1";
-        config.m_shellPort = adrastea::findFreePort();
-        config.m_controlPort = adrastea::findFreePort();
-        config.m_stdinPort = adrastea::findFreePort();
-        config.m_iopubPort = adrastea::findFreePort();
-        config.m_hbPort = adrastea::findFreePort();
+        // no ports: each socket binds a free one itself, and the bound ones are what is reported (Server::start())
         config.m_signatureScheme = "hmac-sha256";
         config.m_key = key;
         return config;
