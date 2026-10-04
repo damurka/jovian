@@ -346,12 +346,12 @@ jobs:
 
   # A pull request merges into main only once this passes: every build and test above passed (R-devel's
   # integration tests may fail -- they only warn -- and the smoke test runs only for a release). One name to
-  # require, however the matrix grows.
-  ci-passed:
-    name: CI passed
+  # require, however the matrix grows -- named so that it reads right green or red.
+  ci-result:
+    name: CI result
     if: always()
     needs: [library, native, integration, smoke]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Every job passed
