@@ -393,6 +393,11 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
             const inspection = await session.inspect('mean');
             assert.strictEqual(inspection.status, 'ok');
 
+            // a reserved word is not an expression (neither `if` nor `?if` parses): its help page is found by name
+            const text = (reply: { found?: boolean; data?: Record<string, unknown> }) => String(reply.found ? reply.data?.['text/plain'] ?? '' : '');
+            assert.match(text(await session.inspect('if', 1)), /Control/, 'hovering "if" shows R\'s Control Flow page');
+            assert.match(text(await session.inspect('function', 4)), /function/, 'hovering "function" shows its page');
+
             assert.strictEqual((await session.isComplete('1 +')).status, 'incomplete');
             assert.strictEqual((await session.isComplete('1 + 1')).status, 'complete');
         } finally {
@@ -609,6 +614,13 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
             const completion = await session.complete('pri');
             // Python's completer appends the call paren ("print(").
             assert.ok(completion.matches.some((m) => m.startsWith('print')), `completing "pri": ${JSON.stringify(completion.matches)}`);
+
+            // inspect() reads the whole name under the cursor (a hover asks from the middle of a word), and a keyword
+            // gets Python's own help for it
+            const text = (reply: { found?: boolean; data?: Record<string, unknown> }) => String(reply.found ? reply.data?.['text/plain'] ?? '' : '');
+            assert.match(text(await session.inspect('print', 2)), /^print\(/, 'hovering the middle of "print" describes print');
+            assert.match(text(await session.inspect('for', 1)), /"for" statement/, 'hovering "for" shows the language reference');
+            assert.match(text(await session.inspect('def', 3)), /Function definitions/);
 
             assert.strictEqual((await session.isComplete('for i in range(3):')).status, 'incomplete');
             assert.strictEqual((await session.isComplete('1 + 1')).status, 'complete');

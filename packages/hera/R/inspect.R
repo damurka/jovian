@@ -65,8 +65,20 @@
             NULL
         })
 
+        # A reserved word of the language (if, for, function ...) is not an expression: R's parser takes neither
+        # `if` nor `?if`, so both of the above found nothing. Its help page is asked for by name, as ?"if" is
+        # (Control Flow; "function" has its own).
+        keyword_data <- if (token %in% c("if", "else", "for", "in", "while", "repeat", "break", "next", "function")) {
+            tryCatch({
+                help_obj <- do.call(utils::help, list(token))
+                if (length(help_obj) > 0) bundle(help_obj)
+            }, error = function(e) NULL)
+        }
+
         # only show help if we have a function
-        if ('function' %in% class(obj) && !is.null(help_data)) {
+        if (!is.null(keyword_data)) {
+            data <- keyword_data
+        } else if ('function' %in% class(obj) && !is.null(help_data)) {
             data <- help_data
         } else {
             # any of those that are NULL are automatically skipped

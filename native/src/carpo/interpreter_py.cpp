@@ -315,12 +315,47 @@ def __carpo_complete(code, cursor_pos, g):
     return (matches, cursor_start, cursor_pos)
 
 
+# What Python's own help says about a keyword (help("for")): the language reference's section, from pydoc's topics.
+# None for a word that is not a keyword, or one pydoc has nothing for (True and False are objects: their own
+# documentation is shown instead). Soft keywords (match, case, type, _) are names too -- `type` is a builtin --
+# so they are looked up as names.
+def _carpo_keyword_help(word):
+    import keyword
+    if not keyword.iskeyword(word):
+        return None
+    try:
+        import pydoc
+        target = pydoc.Helper.keywords.get(word) or pydoc.Helper.topics.get(word.upper())
+        # a keyword names its topic ("BOOLEAN"), which names its section and related topics (("booleans", "..."))
+        for _ in range(3):
+            if isinstance(target, tuple):
+                target = target[0]
+            if isinstance(target, str) and target in pydoc.Helper.topics:
+                target = pydoc.Helper.topics[target]
+            else:
+                break
+        if not isinstance(target, str) or not target:
+            return None
+        from pydoc_data import topics as _topics
+        text = _topics.topics.get(target)
+        return text.strip() if isinstance(text, str) and text.strip() else None
+    except Exception:
+        return None
+
+
 def __carpo_inspect(code, cursor_pos, g):
-    prefix = code[:cursor_pos]
+    # the whole name under the cursor, not only what is before it: a hover asks from anywhere in a word
+    end = cursor_pos
+    while end < len(code) and (code[end].isalnum() or code[end] == "_"):
+        end += 1
+    prefix = code[:end]
     m = _carpo_token_re.search(prefix)
     token = m.group(0) if m else ""
     if not token:
         return (0, "")
+    keyword_help = _carpo_keyword_help(token)
+    if keyword_help:
+        return (1, keyword_help)
     try:
         obj = eval(token, g)
     except Exception:
