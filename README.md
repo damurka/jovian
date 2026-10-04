@@ -1,6 +1,6 @@
 # Jovian
 
-[![CI](https://github.com/damurka/jovian/actions/workflows/ci.yml/badge.svg)](https://github.com/damurka/jovian/actions/workflows/ci.yml)
+[![CI](https://github.com/damurka/jovian/actions/workflows/ci.yml/badge.svg?event=pull_request)](https://github.com/damurka/jovian/actions/workflows/ci.yml)
 
 Jovian runs **R**, **Python** and **Stata** as supervised Jupyter kernels that you can drive from Node.js and Electron. Every session is its own operating-system process with its own embedded interpreter, so one session blocking on a long call (a Shiny app, a slow loop) never starves another, and a kernel that crashes takes only its own session with it.
 

@@ -38,7 +38,7 @@ The main package goes last so nothing depends on a version that is not there yet
 
 `main` is protected: nothing is pushed to it directly. Every change comes in through a pull request, which can be merged only once the **CI result** check (`ci.yml`'s last job: every build and test passed) is green -- and is merged by hand then, not by itself. Releasing is separate, as in DataSuite: a tag you push.
 
-1. Make sure `main` is green on CI.
+1. Merge what is to be released (a pull request merges only once CI passed on it, up to date with `main`).
 2. Decide the version (semver). Nothing in the repository holds it: it comes from the tag.
 3. Tag and push:
 
@@ -51,7 +51,7 @@ The main package goes last so nothing depends on a version that is not there yet
    - **Build:** the TypeScript library and its unit tests, once (`library`, which also packs the main package), and the kernels, once per platform, with their native tests (`native <platform>`, which also packs the platform package).
    - **Test, in parallel, against those builds:** the integration tests per platform on the oldest R and Python the kernels support (R oldrel-1, Python 3.10) and on the current ones (R release, the latest Python), plus R-devel on Linux, which warns without holding the release back (`integration ...`); and the **smoke test of the packed tarballs** per platform (`smoke <platform>`: `scripts/release-smoke.mjs` installs the platform tarball and the main tarball into an empty project, outside the repository, with an **empty R library** -- which must stay empty -- and starts a real R kernel and a real Python kernel from them).
 
-   The same `ci.yml` runs on every push to `main` and pull request, without the packaging and the smoke test.
+   The same `ci.yml` runs on every pull request, without the packaging and the smoke test (and not again on the merge into `main`).
 5. Only if every platform passed does the `publish` job run (in `release.yml` itself, which is why it must keep that name). It **publishes** the packages with `npm publish --provenance` (trusted publishing: no token, no approval), platform packages first, then the main package, which depends on them. A version already on npm is skipped, so a run that failed half way can be re-run.
 
    If npm refuses with a message about staged publishing or 2FA, the package's settings on npmjs.com require it: in each package's **Settings** > **Publishing access**, allow publishing from its trusted publisher without approval.
