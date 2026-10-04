@@ -74,6 +74,7 @@ R sessions (Elara) only: answered by the kernel's own R code (`.jv.rpc.*` in `pa
 | `searchPackages(query, options?)` | `RPackageSearchResult[]`: packages whose name matches `query`, an exact match first (`limit`, default 100). |
 | `installPackages(packages, options?)` | `RPackageInstallResult`: `{ installed: [{ name, version }], failed, warnings }` (`warnings`: why each failed). Each package is installed, or updated to the newest in the repositories, with what it needs, by `manager.ensureRPackage()` in a packages session of the manager's, not in this session; its progress arrives as the session's `stdout` events. `options.lib` chooses the library (default: the session's first). Default timeout 30 minutes. |
 | `removePackages(packages, options?)` | The packages removed. |
+| `loadedRPackages()` | `string[] \| undefined`: the packages the session has loaded now (`loadedNamespaces()`; their DLLs are in use). `undefined` when that can't be known: the kernel is running code (it may load anything), or the kernel is not Elara. Answers at once and never interrupts a running cell. The installer asks this before replacing packages. |
 
 The quick ones are answered as a user expression of a silent execution (no output, no execution count).
 
@@ -202,7 +203,7 @@ All are Node `EventEmitter` events on the `Session`.
 | `'input_request'` | `{ prompt, password }` | The kernel is blocked waiting for input; answer with `sendInputReply()`. |
 | `'comm'` | `(comm: Comm, data)` | The kernel opened a comm. |
 | `'error'` | `string` (the error's `evalue`) or `Error` | A code error in the kernel, or an internal failure handling a message. **Requires a listener.** |
-| `'exit'` | `{ reason }` | Kernel died unexpectedly (or the supervisor connection dropped). The session is left recoverable via `restart()`. Not emitted for `stop()` / `restart()`. |
+| `'exit'` | `{ reason }` | Kernel died unexpectedly (or the supervisor connection dropped). From then on `isStopped` is `true` and `execute()` rejects at once with `The session's kernel has ended (<reason>); restart() starts a new one`, instead of waiting out its timeout. The session is left recoverable via `restart()`, which clears that. Not emitted for `stop()` / `restart()`. |
 | `'restarted'` | — | `restart()` finished. |
 | `'stopped'` | — | `stop()` finished. |
 | `'requestError'` | `{ id, error }` | The supervisor refused a fire-and-forget request (a `comm_*` message) — e.g. session not found. |

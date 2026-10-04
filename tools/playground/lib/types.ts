@@ -35,6 +35,8 @@ export type StreamEvent =
     | { event: 'message'; message: WireMessage }
     | { event: 'log'; level: string; message: string; data?: unknown }
     | { event: 'exit'; reason?: string }
+    // a progress line of an install started from this session's Packages tab
+    | { event: 'packages'; line: string }
     | { event: 'stopped' }
     | { event: 'restarted' }
     | { event: 'connectionError'; message: string };
@@ -96,6 +98,32 @@ export interface Defaults {
     installations: Record<KernelType, Installation[]>;
     platform: string;
     homeDirectory: string;
+}
+
+/** What an install does while sessions have the packages it would replace loaded (the library's WhenInUse). */
+export type WhenInUse = 'wait' | 'defer' | 'proceed';
+
+/** GET /api/sessions/:id/packages. */
+export interface PackagesInfo {
+    /** Whether packages can be installed for this session. */
+    supported: boolean;
+    reason?: string;
+    /** Where they go: the R library, or the Python virtual environment. */
+    library?: string;
+    /** Whether the manager knows which sessions use it (R: sessions created with it as their first library path). */
+    coordinated: boolean;
+    /** R: the packages the session has loaded now; null when not known (it is running code, or not an R session). */
+    loaded: string[] | null;
+}
+
+/** POST /api/sessions/:id/packages. */
+export interface PackagesInstallResult {
+    ok: boolean;
+    summary?: string;
+    error?: string;
+    /** With 'defer': the sessions that have the packages loaded. */
+    inUseBy?: string[];
+    ms?: number;
 }
 
 export interface KernelInfo {

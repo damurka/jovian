@@ -5,16 +5,21 @@ import { presetsFor } from '@/lib/client/presets';
 import { canRun, type SessionView } from '@/lib/client/store';
 import { formatBytes } from '@/lib/client/text';
 import { kernelLabel } from './ConsoleView';
+import { PackagesCard } from './PackagesCard';
 import { statusLabel } from './Sidebar';
 
 interface Props {
     session: SessionView | null;
     onRunPreset: (code: string, timeout?: number) => void;
+    /** Progress lines of the active session's installs. */
+    packageLog: readonly string[];
+    onPackageLog: (line: string) => void;
+    onClearPackageLog: () => void;
 }
 
 /** Right-hand panel: quick presets for the active kernel, and its runtime details. */
-export function InspectorPanel({ session, onRunPreset }: Props) {
-    const [tab, setTab] = useState<'presets' | 'env'>('presets');
+export function InspectorPanel({ session, onRunPreset, packageLog, onPackageLog, onClearPackageLog }: Props) {
+    const [tab, setTab] = useState<'presets' | 'packages' | 'env'>('presets');
     const runnable = session ? canRun(session.status) : false;
 
     const configLabel = session?.kernelType === 'python' ? 'PYTHONHOME' : session?.kernelType === 'stata' ? 'STATA_HOME' : 'R_HOME';
@@ -26,6 +31,7 @@ export function InspectorPanel({ session, onRunPreset }: Props) {
         <aside className="inspector-panel">
             <div className="tabs-header">
                 <button className={'tab-btn' + (tab === 'presets' ? ' active' : '')} onClick={() => setTab('presets')}>Quick Presets</button>
+                <button className={'tab-btn' + (tab === 'packages' ? ' active' : '')} id="tabPackages" onClick={() => setTab('packages')}>Packages</button>
                 <button className={'tab-btn' + (tab === 'env' ? ' active' : '')} onClick={() => setTab('env')}>Kernel Runtime</button>
             </div>
 
@@ -47,6 +53,10 @@ export function InspectorPanel({ session, onRunPreset }: Props) {
                             ))}
                         </div>
                     </div>
+                </div>
+            ) : tab === 'packages' ? (
+                <div className="inspector-content">
+                    <PackagesCard session={session} log={packageLog} onLog={onPackageLog} onClearLog={onClearPackageLog} />
                 </div>
             ) : (
                 <div className="inspector-content">

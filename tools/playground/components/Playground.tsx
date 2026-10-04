@@ -20,6 +20,11 @@ export function Playground() {
     const [defaults, setDefaults] = useState<Defaults | null>(null);
     const [modalOpen, setModalOpen] = useState(false);
     const [draft, setDraft] = useState('');
+    // Each session's install log (the Packages tab), kept while the page lives.
+    const [packageLogs, setPackageLogs] = useState<Record<string, string[]>>({});
+    const logPackage = useCallback((id: string, line: string) => {
+        setPackageLogs((logs) => ({ ...logs, [id]: [...(logs[id] ?? []), line].slice(-200) }));
+    }, []);
 
     const sources = useRef(new Map<string, EventSource>());
     // Kernel messages wait here and are applied once per frame (frame-batcher.ts).
@@ -72,6 +77,11 @@ export function Playground() {
         switch (payload.event) {
             case 'exit':
                 dispatch({ type: 'patch', id, patch: { status: 'crashed', running: false } });
+                // The session is known as ended from here on: code sent to it is refused at once, until a restart.
+                dispatch({ type: 'notice', id, cls: 'error', text: `The kernel has ended${payload.reason ? ` (${payload.reason})` : ''}. Restart starts a new one.` });
+                break;
+            case 'packages':
+                logPackage(id, payload.line);
                 break;
             case 'stopped':
                 dispatch({ type: 'patch', id, patch: { status: 'stopped', running: false } });
@@ -88,7 +98,7 @@ export function Playground() {
             default:
                 break;
         }
-    }, [loadKernelVersion]);
+    }, [loadKernelVersion, logPackage]);
 
     // One EventSource per known session, opened when it appears and closed
     // when it goes away.
@@ -362,6 +372,9 @@ export function Playground() {
 
                 <InspectorPanel
                     session={active}
+                    packageLog={active ? packageLogs[active.id] ?? [] : []}
+                    onPackageLog={(line) => active && logPackage(active.id, line)}
+                    onClearPackageLog={() => active && setPackageLogs((logs) => ({ ...logs, [active.id]: [] }))}
                     onRunPreset={(code, timeout) => {
                         if (!active) return;
                         setDraft('');

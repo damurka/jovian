@@ -87,6 +87,8 @@ Messages below are quoted from the code. **First habit:** a kernel that fails to
 | `session.status().heartbeat` shows `misses > 0` (the playground's HEARTBEAT readout says "no reply") | The kernel process is still there but is not answering pings — it is stuck (deadlocked, or inside a native call that never returns), not merely busy: a busy kernel keeps answering from its heartbeat thread. If it does not recover, the heartbeat gives up after about a minute and you get the `'exit'` event above; restart it earlier if you can't wait. |
 | `'exit'` with `kernel process exited unexpectedly` while the heartbeat looked healthy a moment before | The process died between pings; process exit is detected by the OS process handle within milliseconds and does not wait for the heartbeat. `heartbeat` is a liveness hint, the exit event is authoritative. |
 | `'exit'` with `WebSocket connection to the supervisor closed unexpectedly` | The supervisor process is gone; create a new `SessionManager`. |
+| `The session's kernel has ended (<reason>); restart() starts a new one` | Code was sent to a session whose kernel died (the reason is the one its `'exit'` event gave). `await session.restart()`, or create a new session. |
+| An install says `Waiting for N sessions using <package> to end before replacing it` and stays there | Those sessions have the package loaded (or are running code, which counts). End or restart them, or call with `whenInUse: 'defer'` to get a `PACKAGES_IN_USE` error naming them instead of waiting. |
 | `Cannot restart session <id>: it was already stopped` | `stop()` is final. Create a new session. |
 | Orphaned `elara`/`carpo` processes after a hard kill of Node | Kernels normally die with the supervisor (a Windows job object kills them when it exits); a supervisor that itself survived (killed test runner) keeps them. End the `themisto` process. |
 
@@ -105,3 +107,5 @@ Messages below are quoted from the code. **First habit:** a kernel that fails to
 | Sessions fail with the supervisor executable missing | Run `npm run build` first; or set `JOVIAN_NATIVE_DIR`. |
 | R/Python not pre-filled | Set `R_HOME` / `PYTHONHOME`, or enter the paths in the *New Kernel Session* dialog. |
 | Port in use | `PLAYGROUND_PORT=4200 npm run playground`. |
+| Packages tab: "This session uses R's own library…" | The installer tells which sessions use a library by their first library path. Create the sessions with the same *library path* to see an update wait for, or defer to, a session that has the package loaded. |
+| Packages tab: "This Python session has no virtual environment" | Packages go into a virtual environment, never into the base Python. Create the session with a *virtual environment* path. |
