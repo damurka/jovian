@@ -341,3 +341,22 @@ jobs:
           mkdir -p smoke
           cp tarballs/damurka-jovian-[0-9]*.tgz tarballs/*-${{ matrix.target }}-*.tgz smoke/
           node scripts/release-smoke.mjs --dir smoke --python
+
+  # ---- The check main's protection requires ------------------------------------
+
+  # A pull request merges into main only once this passes: every build and test above passed (R-devel's
+  # integration tests may fail -- they only warn -- and the smoke test runs only for a release). One name to
+  # require, however the matrix grows.
+  ci-passed:
+    name: CI passed
+    if: always()
+    needs: [library, native, integration, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' > /dev/null
