@@ -73,7 +73,7 @@ Playground tests are separate: `npm --prefix tools/playground test`.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every push to `main`, on pull requests, and manually, on the five platforms the packages are published for (`fail-fast: false`): Windows x64, Linux x64 and arm64 (`ubuntu-24.04`, `ubuntu-24.04-arm`), macOS x64 and arm64 (`macos-15-intel`, `macos-latest`).
+`.github/workflows/ci.yml` runs on pull requests and manually (not again on the merge into `main`: a pull request merges only up to date and green, so the merged commit is the one tested), on the five platforms the packages are published for (`fail-fast: false`): Windows x64, Linux x64 and arm64 (`ubuntu-24.04`, `ubuntu-24.04-arm`), macOS x64 and arm64 (`macos-15-intel`, `macos-latest`).
 
 1. Checkout, Node 24, R (`release`, without Rtools on Windows), Python (`3.x`).
 2. `r-lib/actions/setup-r-dependencies` with `later` and `IRdisplay`, which some tests use (the kernel itself needs no R package).

@@ -12,10 +12,11 @@ name: CI
 # R and Python at run time, so a version they were not built with is what
 # breaks. When release.yml calls this workflow with `package: true`, the
 # npm packages are packed from the same builds. Nothing is built twice.
+#
+# Not on a push to main: main takes only pull requests that are up to date with it and passed this workflow
+# (the "CI result" check), so what is merged is what was just tested -- running it again there only repeated it.
 
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -28,6 +29,12 @@ on:
         description: 'Version of the packages, as a tag: v0.1.3'
         type: string
         default: ''
+
+# A new push to a pull request replaces the run on the push before it; a release's run (release.yml calls this
+# workflow) and a run by hand are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # ---- Build -------------------------------------------------------------------
