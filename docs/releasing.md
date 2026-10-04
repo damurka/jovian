@@ -36,6 +36,8 @@ The main package goes last so nothing depends on a version that is not there yet
 
 ## Cutting a release
 
+`main` is protected: nothing is pushed to it directly. Every change comes in through a pull request, which can be merged only once the **CI passed** check (`ci.yml`'s last job: every build and test passed) is green -- and is merged by hand then, not by itself. Releasing is separate, as in DataSuite: a tag you push.
+
 1. Make sure `main` is green on CI.
 2. Decide the version (semver). Nothing in the repository holds it: it comes from the tag.
 3. Tag and push:
@@ -55,6 +57,10 @@ The main package goes last so nothing depends on a version that is not there yet
    If npm refuses with a message about staged publishing or 2FA, the package's settings on npmjs.com require it: in each package's **Settings** > **Publishing access**, allow publishing from its trusted publisher without approval.
 
 A version with a hyphen (`v0.2.0-rc.1`) is published under the `next` dist-tag, so it does not become what `npm install` picks by default.
+
+### The protection of `main`
+
+Set once, in the repository's settings (**Rules** > **Rulesets**, a ruleset on the default branch): changes only through a pull request, the **CI passed** status check required (and the branch up to date with `main`), no force pushes or deletions. Auto-merge is off (**General** > **Allow auto-merge**): a pull request that passed is merged by hand. Tags are not covered: pushing `vX.Y.Z` still releases.
 
 ### Dry run
 
