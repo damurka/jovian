@@ -71,7 +71,7 @@ namespace elara
         // on this same thread, so the caller can do its own setup (e.g. a
         // registration handshake) between "ports are live" and "kernel is
         // now consuming its own thread until shutdown".
-        void start(const adrastea::KernelConfiguration& config, std::function<void()> on_ready = nullptr);
+        void start(const adrastea::KernelConfiguration& config, std::function<void(const adrastea::KernelConfiguration&)> on_ready = nullptr);
 
     private:
         void setupEnvironment();

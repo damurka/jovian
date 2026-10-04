@@ -143,15 +143,15 @@ int main(int argc, char* argv[])
     {
         if (standaloneJupyterMode)
         {
-            server.start(kernelConfig, [&]() {
+            server.start(kernelConfig, [&](const adrastea::KernelConfiguration& bound) {
                 std::cerr << "[carpo] ready (Jupyter connection-file mode), shell="
-                          << kernelConfig.m_shellPort << " control=" << kernelConfig.m_controlPort
-                          << " iopub=" << kernelConfig.m_iopubPort << std::endl;
+                          << bound.m_shellPort << " control=" << bound.m_controlPort
+                          << " iopub=" << bound.m_iopubPort << std::endl;
             });
         }
         else
         {
-            server.start(kernelConfig, [&]() {
+            server.start(kernelConfig, [&](const adrastea::KernelConfiguration& bound) {
                 auto handshakeContext = adrastea::makeZmqContext();
                 auto& zmqContext = handshakeContext->getWrappedContext<zmq::context_t>();
 
@@ -164,7 +164,7 @@ int main(int argc, char* argv[])
 
                 auto auth = adrastea::makeAuthentication("hmac-sha256", opts.key);
 
-                adrastea::sendConnectionInfo(zmqContext, regConfig, kernelConfig, *auth, adrastea::json::error_handler_t::strict);
+                adrastea::sendConnectionInfo(zmqContext, regConfig, bound, *auth, adrastea::json::error_handler_t::strict);
                 std::cerr << "[carpo] registered with supervisor at "
                           << opts.registrationIp << ":" << opts.registrationPort << std::endl;
             });

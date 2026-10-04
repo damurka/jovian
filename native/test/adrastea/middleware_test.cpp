@@ -77,18 +77,23 @@ TEST(MiddlewareTest, InitSocketFallsBackToAFreshPortWhenThePreSelectedOneIsTaken
     EXPECT_NE(getSocketPort(contender), stalePort);
 }
 
-TEST(MiddlewareTest, FindFreePortReturnsDistinctPortsAcrossCalls)
+TEST(MiddlewareTest, FindFreePortDoesNotKeepReturningTheSamePort)
 {
-    // Not a strict guarantee (it's a random search over a large range), but
-    // a regression check: if findFreePort() ever started always returning
+    // A regression check: if findFreePort() ever started always returning
     // the same port (e.g. a broken RNG seed), every session/kernel spawned
     // in the same process would collide -- exactly the bug findFreePort()
     // exists to prevent (see its call sites' comments in
     // elara.cpp/engine.cpp).
+    //
+    // Not "five calls, five ports": the ports are drawn at random from about
+    // 16,000, so two of five are the same about once in 1,600 runs -- which
+    // failed a release's build (a collision is harmless: initSocket() binds
+    // another port, and the kernel announces the one it bound). Twenty calls
+    // all but never share more than a few; a stuck generator shares all.
     std::set<std::string> ports;
-    for (int i = 0; i < 5; ++i)
+    for (int i = 0; i < 20; ++i)
     {
         ports.insert(findFreePort());
     }
-    EXPECT_EQ(ports.size(), 5u);
+    EXPECT_GE(ports.size(), 15u);
 }
