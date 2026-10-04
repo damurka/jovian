@@ -207,11 +207,12 @@
   if (!is.null(linux) && linux$id == "ubuntu" && nzchar(linux$codename)) {
     r_minor <- paste(R.version$major, sub("[.].*$", "", R.version$minor), sep = ".")
     arch <- if (R.version$arch %in% c("aarch64", "arm64")) "aarch64" else "x86_64"
-    app_repos <- unlist(lapply(app_repos, function(repo) {
+    # as.character: no app repos stays character(0), not unlist()'s NULL (which startsWith() refuses)
+    app_repos <- as.character(unlist(lapply(app_repos, function(repo) {
       if (!grepl("[.]r-universe[.]dev$", repo)) return(repo)
       bin <- paste0(repo, "/bin/linux/", linux$codename, "-", arch, "/", r_minor)
       if (.jv.pkg.found(bin)) c(bin, repo) else repo
-    }))
+    })))
   }
   list(app = app_repos, cran = cran)
 }

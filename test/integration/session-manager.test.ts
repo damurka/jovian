@@ -1266,7 +1266,7 @@ comm$send(list(second = 2))
             session.on('stdout', (text: string) => { streamed += text; });
             session.on('stderr', (text: string) => { streamed += text; });
             const installed = await session.installPackages(['praise'], { lib });
-            assert.deepStrictEqual(installed.failed, []);
+            assert.deepStrictEqual(installed.failed, [], installed.warnings.join(' | '));
             assert.match(installed.installed[0].version ?? '', /^\d+\./);
             assert.ok(existsSync(join(lib, 'praise')));
             assert.ok(streamed.length > 0, 'the install\'s progress arrives as the session\'s stdout events');
