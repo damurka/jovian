@@ -581,6 +581,48 @@ test('SessionManager Integration (supervisor + standalone kernel exe)', async (t
         }
     });
 
+    await t.test('R: loadedRPackages() says what is loaded, and never interrupts a cell it has to wait behind', async () => {
+        const manager = new SessionManager();
+        const session = await manager.createSession({ rHome: discoverRHome() });
+        try {
+            session.on('error', () => { });
+            const loaded = await session.loadedRPackages();
+            assert.ok(loaded?.includes('stats') && !loaded.includes('tools:jovian'), JSON.stringify(loaded));
+
+            // a cell left running past its timeout: this client's queue no longer has it, the kernel does
+            let printed = '';
+            session.on('stdout', (text: string) => { printed += text; });
+            await session.execute('Sys.sleep(4); cat("the long cell finished\\n")', { timeout: 500, interruptOnTimeout: false }).catch(() => undefined);
+            const started = Date.now();
+            assert.strictEqual(await session.loadedRPackages(), undefined, 'not known while the kernel runs code');
+            assert.ok(Date.now() - started < 2000, 'and said at once, not after waiting behind the cell');
+            await new Promise((resolve) => setTimeout(resolve, 5000));
+            assert.match(printed, /the long cell finished/, 'the cell was not interrupted');
+        } finally {
+            await manager.stopAll();
+        }
+    });
+
+    await t.test('R: a kernel that ended is known as ended: the session is stopped, and a cell is refused at once', async () => {
+        const manager = new SessionManager();
+        const session = await manager.createSession({ rHome: discoverRHome() });
+        try {
+            session.on('error', () => { });
+            await session.execute('1');
+            assert.strictEqual(session.isStopped, false);
+            const exited = new Promise((resolve) => session.once('exit', resolve));
+            const pid = (await manager.listSessions()).find((s) => s.sessionId === session.info.sessionId)!.pid;
+            process.kill(pid!);
+            await exited;
+            assert.strictEqual(session.isStopped, true);
+            const started = Date.now();
+            await assert.rejects(session.execute('1'), /kernel has ended/);
+            assert.ok(Date.now() - started < 2000, 'refused at once, not after the execution\'s timeout');
+        } finally {
+            await manager.stopAll();
+        }
+    });
+
     await t.test('R: executionState tracks the kernel\'s busy/idle status', async () => {
         const manager = new SessionManager();
         const session = await manager.createSession({ rHome: discoverRHome() });

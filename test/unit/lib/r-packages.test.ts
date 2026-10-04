@@ -117,6 +117,55 @@ test('lockLibrary', async (t) => {
         }
     });
 
+    await t.test('a holder that goes on for longer than staleMs keeps its lock: it refreshes it while it holds it', async () => {
+        const library = await scratch('jovian-lock-');
+        try {
+            const release = await lockLibrary(library, 400, () => { });
+            let second = false;
+            const next = lockLibrary(library, 400, () => { }).then((releaseNext) => { second = true; return releaseNext; });
+            // three times staleMs, and the waiter has looked again meanwhile
+            await new Promise((resolve) => setTimeout(resolve, 2600));
+            assert.strictEqual(second, false, 'a live install is not taken for a crashed one');
+            await release();
+            await (await next)();
+            assert.strictEqual(second, true);
+        } finally {
+            await fs.promises.rm(library, { recursive: true, force: true });
+        }
+    });
+
+    await t.test('a lock not refreshed for staleMs is taken over, though its pid is a running process (it went to another)', async () => {
+        const library = await scratch('jovian-lock-');
+        try {
+            const lockFile = join(library, LIBRARY_LOCK_FILE);
+            await fs.promises.writeFile(lockFile, JSON.stringify({ pid: process.pid, token: 'someone-else', at: Date.now() - 600_000 }));
+            const longAgo = new Date(Date.now() - 600_000);
+            await fs.promises.utimes(lockFile, longAgo, longAgo);
+            let waited = false;
+            const release = await lockLibrary(library, 60_000, () => { waited = true; });
+            assert.strictEqual(waited, false);
+            await release();
+            assert.ok(!fs.existsSync(lockFile));
+            assert.deepStrictEqual((await fs.promises.readdir(library)), [], 'nothing left beside it');
+        } finally {
+            await fs.promises.rm(library, { recursive: true, force: true });
+        }
+    });
+
+    await t.test('giving the library back leaves a lock that is no longer this owner\'s', async () => {
+        const library = await scratch('jovian-lock-');
+        try {
+            const lockFile = join(library, LIBRARY_LOCK_FILE);
+            const release = await lockLibrary(library, 60_000, () => { });
+            // as if this process had looked dead and another had taken the library over
+            await fs.promises.writeFile(lockFile, JSON.stringify({ pid: process.pid, token: 'the-new-holder', at: Date.now() }));
+            await release();
+            assert.ok(fs.existsSync(lockFile), 'the new holder\'s lock is not removed');
+        } finally {
+            await fs.promises.rm(library, { recursive: true, force: true });
+        }
+    });
+
     await t.test('takes over the lock of a process that is gone', async () => {
         const library = await scratch('jovian-lock-');
         try {
@@ -155,18 +204,21 @@ test('ensureRPackageIn', async (t) => {
             }
         };
     }
+    /** A host whose steps go into the session's own log (session.calls), in the order they happen. */
     function fakeHost(session: ReturnType<typeof fakeSession>, using: string[][]) {
-        const holds: string[] = [];
+        const log = session.calls;
         const asked: string[][] = [];
         return {
-            holds,
             asked,
-            async packagesSession() { return session; },
+            async packagesSession() { log.push('lease'); return session; },
+            released() { log.push('released'); },
             async sessionsUsing(_library: string, packages: readonly string[]) {
+                log.push('ask');
                 asked.push([...packages]);
                 return using.length > 1 ? using.shift()! : using[0] ?? [];
             },
-            hold(library: string, until: Promise<unknown>) { holds.push(library); void until; }
+            hold() { log.push('hold'); return () => { log.push('release'); }; },
+            async stopHelpers() { log.push('stopHelpers'); }
         };
     }
     const library = await scratch('jovian-ensure-');
@@ -176,7 +228,8 @@ test('ensureRPackageIn', async (t) => {
         const session = fakeSession(['JOVIAN_PKG_RESULT: 1.8.1 1.8.1 - online'], []);
         const result = await ensureRPackageIn(fakeHost(session, [['app']]), { name: 'glue' }, { rHome: 'R', libraries: [library] });
         assert.deepStrictEqual(result, { previousVersion: '1.8.1', version: '1.8.1', installed: [], offline: false });
-        assert.deepStrictEqual(session.calls, ['plan']);
+        // the packages session is given back when the install is over, however it ends
+        assert.deepStrictEqual(session.calls, ['lease', 'plan', 'released']);
     });
 
     await t.test('an update replacing packages waits for the sessions on the library, then holds new ones back', async () => {
@@ -185,10 +238,11 @@ test('ensureRPackageIn', async (t) => {
         const phases: string[] = [];
         const result = await ensureRPackageIn(host, { name: 'glue', update: true }, { rHome: 'R', libraries: [library], onProgress: (p) => phases.push(p.phase) });
         assert.deepStrictEqual(result.installed, ['glue', 'cli']);
-        assert.deepStrictEqual(session.calls, ['plan', 'install']);
+        // New sessions are held off the library before who uses it is asked (a session starting in between is seen,
+        // or waits); let in again while it waits for the app; held, with the host's helpers stopped, for the install.
+        assert.deepStrictEqual(session.calls, ['lease', 'plan', 'hold', 'ask', 'release', 'hold', 'ask', 'stopHelpers', 'install', 'release', 'released']);
         assert.strictEqual(phases[0], 'waiting');
         assert.ok(phases.includes('installing'));
-        assert.deepStrictEqual(host.holds, [library]);
         // the sessions are asked about what would be replaced, not the whole install
         assert.deepStrictEqual(host.asked[0], ['glue']);
     });
@@ -198,11 +252,11 @@ test('ensureRPackageIn', async (t) => {
         const deferred = fakeSession(plan, ['JOVIAN_PKG_RESULT: 1.7.0 1.8.1 glue,cli online']);
         await assert.rejects(ensureRPackageIn(fakeHost(deferred, [['app']]), { name: 'glue', update: true }, { rHome: 'R', libraries: [library], whenInUse: 'defer' }),
             (e: Error & { sessions?: string[] }) => e.name === PACKAGES_IN_USE && e.sessions?.[0] === 'app' && /glue can't be replaced while 1 session uses it/.test(e.message));
-        assert.deepStrictEqual(deferred.calls, ['plan']);
+        assert.deepStrictEqual(deferred.calls, ['lease', 'plan', 'hold', 'ask', 'release', 'released']);
         const proceeding = fakeSession(plan, ['JOVIAN_PKG_RESULT: 1.7.0 1.8.1 glue,cli online']);
         const host = fakeHost(proceeding, [['app']]);
         await ensureRPackageIn(host, { name: 'glue', update: true }, { rHome: 'R', libraries: [library], whenInUse: 'proceed' });
-        assert.deepStrictEqual(proceeding.calls, ['install']);
+        assert.deepStrictEqual(proceeding.calls, ['lease', 'install', 'released']);
         assert.deepStrictEqual(host.asked, []);
     });
 
@@ -212,7 +266,9 @@ test('ensureRPackageIn', async (t) => {
         const phases: string[] = [];
         await ensureRPackageIn(host, { name: 'glue' }, { rHome: 'R', libraries: [library], onProgress: (p) => phases.push(p.phase) });
         assert.ok(!phases.includes('waiting'));
-        assert.deepStrictEqual(host.holds, []);
+        // nothing is replaced: no one is asked, nothing is held
+        assert.deepStrictEqual(session.calls, ['lease', 'plan', 'install', 'released']);
+        assert.deepStrictEqual(host.asked, []);
     });
 
     await t.test('offline and failures reject as before', async () => {

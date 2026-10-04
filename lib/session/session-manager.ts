@@ -197,11 +197,14 @@ export class Session extends EventEmitter {
 
     /** Whether the session was stopped, or its kernel ended for good. */
     get isStopped(): boolean {
-        return this.stopped;
+        return this.stopped || this.dead !== undefined;
     }
 
     private readyPromise: Promise<void>;
     private stopped = false;
+    // Why the kernel is gone, when it ended without stop(): its process exited, or the connection to the supervisor
+    // was lost. Nothing sent to the session is answered from then on, until restart() starts a new kernel.
+    private dead: string | undefined;
     private readonly comms = new Map<string, Comm>();
     private readonly busyRequests = new Set<string>();
     private readonly pendingRequests = new Map<string, PendingRequest>();
@@ -366,6 +369,7 @@ export class Session extends EventEmitter {
                     return;
                 }
                 this.logger.error(`Session ${this.info.sessionId} connection closed unexpectedly`);
+                this.dead = 'the connection to the supervisor was lost';
                 this.emit('exit', { reason: 'WebSocket connection to the supervisor closed unexpectedly' });
                 this.queue.clear();
                 this.closeAllComms('connection lost');
@@ -407,6 +411,7 @@ export class Session extends EventEmitter {
         // while the restart is still in flight waits for the new connection
         // instead of racing the old (already-dead-or-dying) one.
         this.rejectPendingRequests(new Error('Session is restarting'));
+        this.dead = undefined;
         const shutdownReply = this.watchFor('shutdown_reply');
         this.readyPromise = (async () => {
             try {
@@ -537,6 +542,7 @@ export class Session extends EventEmitter {
                     // with what the kernel printed as it went down (e.g. "[elara] FATAL: bad allocation"), not only its exit code
                     const reason = this.supervisor.describeKernelExit(typeof frame.reason === 'string' ? frame.reason : 'unknown reason');
                     this.logger.error(`R session process for ${this.info.sessionId} exited unexpectedly: ${reason}`);
+                    this.dead = reason;
                     this.emit('exit', { reason });
                     this.queue.clear();
                     this.closeAllComms('kernel exited');
@@ -573,6 +579,10 @@ export class Session extends EventEmitter {
 
     async execute(code: string, options: ExecutionOptions = {}): Promise<ExecutionResult> {
         await this.readyPromise;
+        // a kernel that has ended answers nothing: said at once, not after the execution's timeout
+        if (this.dead !== undefined) {
+            throw new Error(`The session's kernel has ended (${this.dead}); restart() starts a new one`);
+        }
         const helper = this.busyHelper();
         if (!helper) {
             return this.queue.execute(code, options);
@@ -624,15 +634,18 @@ export class Session extends EventEmitter {
     /**
      * The R packages this session has loaded (loadedNamespaces(): their DLLs are in use), asked of it now; undefined
      * when that can't be known -- code is running (it may load anything), or the kernel doesn't say (not Elara).
+     * Asking never interrupts: the kernel may be running a cell this client did not send (one left running after its
+     * timeout, or started before this client attached), and a question that waits behind it only gives up.
      */
     async loadedRPackages(): Promise<string[] | undefined> {
-        if ((this.currentOptions.kernelType ?? 'r') !== 'r' || this.queue.busy || this.isStopped) return undefined;
+        if ((this.currentOptions.kernelType ?? 'r') !== 'r' || this.queue.busy || this.isStopped || this.executionState === 'busy') return undefined;
         try {
             const result = await this.queue.execute('', {
                 silent: true,
                 storeHistory: false,
                 userExpressions: { [R_STATE_KEY]: R_STATE_EXPRESSION },
-                timeout: 10_000
+                timeout: 10_000,
+                interruptOnTimeout: false
             });
             return parseRState(result.userExpressions?.[R_STATE_KEY])?.loaded;
         } catch {
@@ -1341,9 +1354,13 @@ export class SessionManager {
     private readonly supervisor: SupervisorClient;
     private readonly sessions = new Set<Session>();
     // ensureRPackage()'s packages sessions, by R and libraries: kept warm between installs, stopped when idle
-    private readonly packagesSessions = new Map<string, { session: Promise<Session>; idle?: ReturnType<typeof setTimeout> }>();
+    // (inUse: the installs that have it now -- it is idle, and its timer runs, only at none)
+    private readonly packagesSessions = new Map<string, { session: Promise<Session>; inUse: number; idle?: ReturnType<typeof setTimeout> }>();
+    // The R libraries and Python environments of the sessions being started: they use them from the moment they are
+    // asked for, not only once the supervisor has started them
+    private readonly starting = new Map<symbol, string>();
     // R libraries and Python environments an install is replacing packages in: a new session on one waits for it
-    private readonly installHolds = new Map<string, Promise<unknown>>();
+    private readonly installHolds = new Map<string, Promise<void>>();
     private exitHandlerRegistered = false;
     private readonly busyHelperEnabled: boolean;
     // One helper R process per R installation (see r-helper.ts).
@@ -1438,15 +1455,24 @@ export class SessionManager {
         const options = await withDiscoveredRuntime(withAbsolutePaths(requested));
         // an R session doesn't start on a library, nor a Python session on an environment, while an install replaces its packages
         const library = firstLibrary(options) ?? sessionVenv(options);
-        const hold = library && this.installHolds.get(library);
-        if (hold) {
+        // (looked at again after each wait: another install may have taken the library meanwhile)
+        for (let hold = library && this.installHolds.get(library); hold; hold = this.installHolds.get(library!)) {
             this.logger.info(`Waiting for the install into ${library} to finish before starting the session`);
-            await hold.catch(() => undefined);
+            await hold;
         }
-        const info = await this.supervisor.createSession(options);
-        const session = new Session(info, options, this.supervisor, { level: this.logLevel, logger: this.customLogger },
-            (current) => this.rHelperFor(current), (request, options) => this.ensureRPackage(request, options));
-        this.sessions.add(session);
+        // Using the library from here on, with nothing awaited since the hold was looked at: an install that looks at
+        // who uses a library after holding it sees this session, though the supervisor has yet to start it.
+        const starting = Symbol('starting');
+        if (library) this.starting.set(starting, library);
+        let session: Session;
+        try {
+            const info = await this.supervisor.createSession(options);
+            session = new Session(info, options, this.supervisor, { level: this.logLevel, logger: this.customLogger },
+                (current) => this.rHelperFor(current), (request, options) => this.ensureRPackage(request, options));
+            this.sessions.add(session);
+        } finally {
+            this.starting.delete(starting);
+        }
         this.registerExitHandler();
 
         try {
@@ -1493,22 +1519,32 @@ export class SessionManager {
         return {
             sessionsUsing: async (venv) => {
                 const key = libraryKey(venv);
-                return [...this.sessions]
-                    .filter((session) => !session.isStopped && sessionVenv(session.options) === key)
-                    .map((session) => session.info.sessionId);
+                return [
+                    ...[...this.sessions]
+                        .filter((session) => !session.isStopped && sessionVenv(session.options) === key)
+                        .map((session) => session.info.sessionId),
+                    ...this.startingOn(key)
+                ];
             },
-            hold: (venv, until) => this.holdInstall(venv, until)
+            hold: (venv) => this.holdInstall(venv)
         };
     }
 
-    // New sessions on the library or environment wait until `until` settles
-    private holdInstall(path: string, until: Promise<unknown>): void {
+    // New sessions on the library or environment wait from now until the function returned is called
+    private holdInstall(path: string): () => void {
         const key = libraryKey(path);
-        const settled = until.then(() => undefined, () => undefined);
-        this.installHolds.set(key, settled);
-        void settled.then(() => {
-            if (this.installHolds.get(key) === settled) this.installHolds.delete(key);
-        });
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => { release = resolve; });
+        this.installHolds.set(key, held);
+        return () => {
+            if (this.installHolds.get(key) === held) this.installHolds.delete(key);
+            release();
+        };
+    }
+
+    // The sessions being started on a library or environment (see createSession()), as sessionsUsing() names them
+    private startingOn(key: string): string[] {
+        return [...this.starting.values()].filter((library) => library === key).map(() => 'a session that is starting');
     }
 
     private packagesHost(): RPackagesHost {
@@ -1523,7 +1559,7 @@ export class SessionManager {
                             created.on('error', (error: unknown) => this.logger.debug('packages session error', error));
                             return created;
                         });
-                    entry = { session };
+                    entry = { session, inUse: 0 };
                     this.packagesSessions.set(key, entry);
                     session.catch(() => this.packagesSessions.delete(key));
                 }
@@ -1534,14 +1570,25 @@ export class SessionManager {
                     this.packagesSessions.delete(key);
                     return this.packagesHost().packagesSession(rHome, libraries);
                 }
-                // stopped after five idle minutes (the timer restarts with each install)
+                // in use from here until released(): it is not idle, however long the install takes
+                if (current.idle) clearTimeout(current.idle);
+                current.idle = undefined;
+                current.inUse++;
+                return session;
+            },
+            released: (rHome, libraries) => {
+                const key = JSON.stringify([rHome, ...libraries]);
+                const current = this.packagesSessions.get(key);
+                if (!current || --current.inUse > 0) return;
+                current.inUse = 0;
+                // stopped after five minutes with no install using it
                 if (current.idle) clearTimeout(current.idle);
                 current.idle = setTimeout(() => {
+                    if (current.inUse > 0) return;
                     if (this.packagesSessions.get(key) === current) this.packagesSessions.delete(key);
-                    void session.stop().then(() => this.sessions.delete(session), () => undefined);
+                    void current.session.then((session) => session.stop().then(() => this.sessions.delete(session))).catch(() => undefined);
                 }, PACKAGES_SESSION_IDLE_MS);
                 current.idle.unref?.();
-                return session;
             },
             sessionsUsing: async (library, packages) => {
                 const key = libraryKey(library);
@@ -1549,11 +1596,25 @@ export class SessionManager {
                     .filter((session) => !session.isStopped && !this.packagesSessionIds.has(session.info.sessionId) && firstLibrary(session.options) === key);
                 // asked now, of each: what a session loaded is what can't be replaced under it (not knowing counts as yes)
                 const loaded = await Promise.all(onLibrary.map((session) => session.loadedRPackages()));
-                return onLibrary
-                    .filter((_session, i) => !loaded[i] || loaded[i]!.some((name) => packages.includes(name)))
-                    .map((session) => session.info.sessionId);
+                return [
+                    ...onLibrary
+                        .filter((_session, i) => !loaded[i] || loaded[i]!.some((name) => packages.includes(name)))
+                        .map((session) => session.info.sessionId),
+                    // one that is starting may load anything
+                    ...this.startingOn(key)
+                ];
             },
-            hold: (library, until) => this.holdInstall(library, until)
+            hold: (library) => this.holdInstall(library),
+            stopHelpers: async (library) => {
+                // The helper R processes of the sessions on this library have their packages attached, and are not
+                // sessions: stopped here (the library is held, so none starts before the install is over), they
+                // start again when a busy session is next asked something.
+                const key = libraryKey(library);
+                const helpers = [...this.rHelpers.entries()]
+                    .filter(([options]) => firstLibrary({ kernelType: 'r', rLibs: (JSON.parse(options) as string[])[2] }) === key)
+                    .map(([, helper]) => helper);
+                await Promise.all(helpers.map((helper) => helper.stop().catch(() => undefined)));
+            }
         };
     }
 
@@ -1594,6 +1655,11 @@ export class SessionManager {
                     rLibs: options.rLibs,
                     pandocPath: options.pandocPath
                 };
+                // not while an install replaces the packages of its library: it attaches them
+                const library = firstLibrary(helperOptions);
+                for (let hold = library && this.installHolds.get(library); hold; hold = this.installHolds.get(library!)) {
+                    await hold;
+                }
                 this.logger.debug('Starting a helper R process to answer while R sessions are busy');
                 const info = await this.supervisor.createSession(helperOptions);
                 const session = new Session(info, helperOptions, this.supervisor, { level: this.logLevel, logger: this.customLogger });

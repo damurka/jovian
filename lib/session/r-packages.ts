@@ -9,6 +9,7 @@ import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { randomUUID } from 'node:crypto';
 
 /** What to install: SessionManager.ensureRPackage()'s request. */
 export interface EnsureRPackageRequest {
@@ -164,37 +165,69 @@ function isRunning(pid: number): boolean {
     }
 }
 
+/** How often a lock's holder says it is still there (the lock file's modification time). */
+const LOCK_HEARTBEAT_MS = 15_000;
+/** A lock whose holder has not said so for this long is a crashed install's (or its pid went to another process). */
+export const LOCK_STALE_MS = 2 * 60_000;
+
 /**
  * Takes the library for one install, across processes. Within one, installs should run one at a time; but two
  * applications can run at once (one elevated, one not, can't see each other) and both install into the same library
  * -- and R locks the whole library while it unpacks a Windows package, so the second failed half way ("failed to lock
- * directory ... 00LOCK"). The lock file holds its owner's pid; one whose process is gone, or older than `staleMs`, is
- * a crashed install's and is taken over. Resolves with the function that gives the library back.
+ * directory ... 00LOCK"). Resolves with the function that gives the library back.
+ *
+ * The lock file holds its owner's pid and a token of its own, and the owner refreshes it while it holds it -- however
+ * long that is: a long install, or one waiting for sessions to end, is alive, not stale. A lock is a crashed
+ * install's, and taken over, when its process is gone or it has not been refreshed for `staleMs`. Taking over is one
+ * rename, so of several waiters one does it, and none removes the lock another has just taken; and giving the library
+ * back removes the lock only while it is still this owner's.
  */
 export async function lockLibrary(library: string, staleMs: number, onWait: () => void): Promise<() => Promise<void>> {
     await fs.promises.mkdir(library, { recursive: true });
     const lockFile = join(library, LIBRARY_LOCK_FILE);
+    const token = `${process.pid}-${randomUUID()}`;
+    const read = (file: string) => fs.promises.readFile(file, 'utf8').catch(() => undefined);
     let waited = false;
     for (; ;) {
         try {
-            await fs.promises.writeFile(lockFile, JSON.stringify({ pid: process.pid, at: Date.now() }), { flag: 'wx' });
-            return () => fs.promises.rm(lockFile, { force: true });
+            await fs.promises.writeFile(lockFile, JSON.stringify({ pid: process.pid, token, at: Date.now() }), { flag: 'wx' });
+            const beat = setInterval(() => {
+                const now = new Date();
+                fs.promises.utimes(lockFile, now, now).catch(() => undefined);
+            }, Math.min(LOCK_HEARTBEAT_MS, Math.max(50, staleMs / 4)));
+            beat.unref?.();
+            return async () => {
+                clearInterval(beat);
+                // only its own: had this process looked dead for staleMs, the lock there now is another's
+                if ((await read(lockFile))?.includes(token)) {
+                    await fs.promises.rm(lockFile, { force: true });
+                }
+            };
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
                 throw error;
             }
         }
-        let holder: { pid?: unknown; at?: unknown } | undefined;
+        const text = await read(lockFile);
+        let holder: { pid?: unknown } | undefined;
         try {
-            holder = JSON.parse(await fs.promises.readFile(lockFile, 'utf8'));
+            holder = JSON.parse(text ?? '');
         } catch {
             // just created and not written yet, or gone since: look again
         }
         const stat = await fs.promises.stat(lockFile).catch(() => undefined);
-        const age = Date.now() - (typeof holder?.at === 'number' ? holder.at : stat?.mtimeMs ?? Date.now());
         const gone = typeof holder?.pid === 'number' && !isRunning(holder.pid);
-        if (stat && (gone || age > staleMs)) {
-            await fs.promises.rm(lockFile, { force: true });
+        const silent = stat !== undefined && Date.now() - stat.mtimeMs > staleMs;
+        if (stat && (gone || silent)) {
+            // Moved aside, then looked at: when it is no longer the lock just read (another waiter took the stale one
+            // over a moment ago, and this is its fresh lock), it goes back.
+            const aside = `${lockFile}.${token}`;
+            if (await fs.promises.rename(lockFile, aside).then(() => true, () => false)) {
+                if ((await read(aside)) !== text) {
+                    await fs.promises.link(aside, lockFile).catch(() => undefined);
+                }
+                await fs.promises.rm(aside, { force: true });
+            }
             continue;
         }
         if (!waited) {
@@ -225,15 +258,25 @@ export interface RPackagesSession {
 
 /** What ensureRPackageIn() needs of the session manager. */
 export interface RPackagesHost {
-    /** The packages session for this R and these libraries, started if need be. */
+    /**
+     * The packages session for this R and these libraries, started if need be. It is in use until {@link released} is
+     * called for it: it is not stopped for being idle while an install has it, however long the install takes.
+     */
     packagesSession(rHome: string, libraries: readonly string[]): Promise<RPackagesSession>;
+    /** The install that took the packages session is over. */
+    released(rHome: string, libraries: readonly string[]): void;
     /**
      * The other sessions (not packages sessions) on `library` that have any of `packages` loaded, or may have (one
      * running code): their ids, for the progress and the log.
      */
     sessionsUsing(library: string, packages: readonly string[]): Promise<string[]>;
-    /** New R sessions on `library` wait until `until` settles. */
-    hold(library: string, until: Promise<unknown>): void;
+    /** New R sessions on `library` wait from now until the function returned is called. */
+    hold(library: string): () => void;
+    /**
+     * Stops the host's own background R processes on `library` (the helper that answers while a session is busy: it
+     * has the sessions' packages loaded, and starts again when next asked). Called with the library held.
+     */
+    stopHelpers(library: string): Promise<void>;
 }
 
 /** A string as an R literal (JSON's escapes are a subset of R's). */
@@ -314,17 +357,21 @@ export async function ensureRPackageIn(host: RPackagesHost, request: EnsureRPack
     const library = libraries[0];
     const timeoutMs = options.timeoutMs ?? 30 * 60 * 1000;
     const unlock = library
-        ? await lockLibrary(library, timeoutMs + 5 * 60 * 1000, () => {
+        ? await lockLibrary(library, LOCK_STALE_MS, () => {
             options.onOutput?.('Waiting for another process to finish installing R packages into the library');
             options.onProgress?.({ phase: 'waiting' });
         })
         : undefined;
     let downloads: string | undefined;
+    let leased = false;
+    // gives the library back to new sessions, once they are held off it
+    let release: (() => void) | undefined;
     try {
         if (library) {
             await removeStaleRLocks(library);
         }
         const session = await host.packagesSession(options.rHome, libraries);
+        leased = true;
         downloads = await fs.promises.mkdtemp(join(tmpdir(), 'jovian-r-downloads-'));
         const call = (planOnly: boolean) => 'base::as.environment("tools:jovian")$.jv.pkg.ensure(' + [
             literal(request.name),
@@ -358,8 +405,13 @@ export async function ensureRPackageIn(host: RPackagesHost, request: EnsureRPack
             }
             replacing = plan.plan?.replace ?? [];
             for (let waited = false; replacing.length > 0; waited = true) {
+                // New sessions are held off the library first, and who uses the packages is looked at after: a
+                // session that starts in between is seen, or waits -- never missed.
+                release = host.hold(library);
                 const using = await host.sessionsUsing(library, replacing);
                 if (using.length === 0) break;
+                release();
+                release = undefined;
                 if (options.whenInUse === 'defer') {
                     throw packagesInUse(replacing, using);
                 }
@@ -383,13 +435,20 @@ export async function ensureRPackageIn(host: RPackagesHost, request: EnsureRPack
                 options.onProgress?.({ ...status!, bytes });
             }
         }, 1000);
-        const install = runEnsure(session, call(false), timeoutMs, onLine).finally(() => clearInterval(watch));
-        if (library && replacing.length > 0) {
-            // no session starts on the library half way through replacing its packages
-            host.hold(library, install);
+        if (library && release) {
+            // nothing of the host's own keeps a package to replace loaded either (the library is held: none starts again)
+            await host.stopHelpers(library);
         }
-        return outcomeOf(await install, request);
+        try {
+            return outcomeOf(await runEnsure(session, call(false), timeoutMs, onLine), request);
+        } finally {
+            clearInterval(watch);
+        }
     } finally {
+        release?.();
+        if (leased) {
+            host.released(options.rHome, libraries);
+        }
         if (downloads) {
             await fs.promises.rm(downloads, { recursive: true, force: true }).catch(() => undefined);
         }
