@@ -117,7 +117,7 @@ Stops every session (as `DELETE` would) and then Themisto itself. **200** `{"sta
 
 ### Kernel registration (JEP 66)
 
-A kernel Themisto starts reports its ports on the registration socket. Two forms are accepted: Adrastea's own (a signature frame and a JSON object of ports as strings, answered with a signed `ACK`), and the standard Jupyter handshake of [JEP 66](https://github.com/jupyter/enhancement-proposals/pull/66) that other kernels, such as Posit's Ark, use: a complete signed `handshake_request` message from a REQ socket, answered with a signed `handshake_reply` `{"status":"ok"}`. For those Themisto writes a registration file (`transport`, `signature_scheme`, `ip`, `key`, `registration_port`) and passes it as `--connection_file`.
+A kernel Themisto starts binds its own ports and reports them on the registration socket (the ports it is bound to, never ones chosen beforehand). Two forms are accepted: Adrastea's own (a signature frame and a JSON object of ports as strings, answered with a signed `ACK`), and the standard Jupyter handshake of [JEP 66](https://github.com/jupyter/enhancement-proposals/pull/66) that other kernels, such as Posit's Ark, use: a complete signed `handshake_request` message from a REQ socket, answered with a signed `handshake_reply` `{"status":"ok"}`. For those Themisto writes a registration file (`transport`, `signature_scheme`, `ip`, `key`, `registration_port`) and passes it as `--connection_file`.
 
 ## 3. Themisto's WebSocket API
 
