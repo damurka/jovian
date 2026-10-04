@@ -67,12 +67,12 @@ test('ensurePythonPackagesIn', async (t) => {
         };
         return { calls, run };
     }
-    function fakeHost(using: string[][]) {
-        const holds: string[] = [];
+    /** A host whose steps go into `log` (a runner's own calls, to have them in the order they happen). */
+    function fakeHost(using: string[][], log: string[] = []) {
         return {
-            holds,
-            async sessionsUsing() { return using.length > 1 ? using.shift()! : using[0] ?? []; },
-            hold(venv: string, until: Promise<unknown>) { holds.push(venv); void until; }
+            log,
+            async sessionsUsing() { log.push('ask'); return using.length > 1 ? using.shift()! : using[0] ?? []; },
+            hold() { log.push('hold'); return () => { log.push('release'); }; }
         };
     }
     const done: PythonPackageResult = { previousVersion: '1.16.0', version: '1.17.0', changed: true, offline: false };
@@ -81,38 +81,39 @@ test('ensurePythonPackagesIn', async (t) => {
 
     await t.test('nothing to install: one run, the plan says so', async () => {
         const runner = fakeRunner({ result: { version: '1.17.0', previousVersion: '1.17.0', changed: false, offline: false } }, {});
-        const result = await ensurePythonPackagesIn(fakeHost([['notebook']]), venv, { name: 'six' }, {}, runner.run);
+        const result = await ensurePythonPackagesIn(fakeHost([['notebook']], runner.calls), venv, { name: 'six' }, {}, runner.run);
         assert.strictEqual(result.changed, false);
-        assert.deepStrictEqual(runner.calls, ['plan']);
+        assert.deepStrictEqual(runner.calls, ['hold', 'ask', 'release', 'plan']);
         assert.ok(!fs.existsSync(join(venv, LIBRARY_LOCK_FILE)), 'the environment is given back');
     });
 
     await t.test('replacing packages waits for the sessions on the environment, then holds new ones back', async () => {
         const runner = fakeRunner({ plan: { install: ['six'], replace: ['six'] } }, { result: done });
-        const host = fakeHost([['notebook'], ['notebook'], []]);
+        const host = fakeHost([['notebook'], ['notebook'], []], runner.calls);
         const lines: string[] = [];
         const result = await ensurePythonPackagesIn(host, venv, { name: 'six', update: true }, { onOutput: (line) => lines.push(line) }, runner.run);
         assert.deepStrictEqual(result, done);
-        assert.deepStrictEqual(runner.calls, ['plan', 'install']);
+        // New sessions are held off the environment before who uses it is asked, each time; let in again while it
+        // plans and waits for the notebook; held for the install.
+        assert.deepStrictEqual(runner.calls, ['hold', 'ask', 'release', 'plan', 'hold', 'ask', 'release', 'hold', 'ask', 'install', 'release']);
         assert.ok(lines.some((line) => /^Waiting for 1 session using the environment to end before replacing six$/.test(line)), JSON.stringify(lines));
-        assert.deepStrictEqual(host.holds, [venv]);
     });
 
     await t.test('installing only what is missing does not wait for anyone', async () => {
         const runner = fakeRunner({ plan: { install: ['plotly'], replace: [] } }, { result: done });
-        const host = fakeHost([['notebook']]);
+        const host = fakeHost([['notebook']], runner.calls);
         const lines: string[] = [];
         await ensurePythonPackagesIn(host, venv, { requirements: ['plotly'] }, { onOutput: (line) => lines.push(line) }, runner.run);
         assert.ok(!lines.some((line) => line.startsWith('Waiting')));
-        assert.deepStrictEqual(host.holds, []);
+        // nothing is replaced: not held for the install
+        assert.deepStrictEqual(runner.calls, ['hold', 'ask', 'release', 'plan', 'install']);
     });
 
     await t.test('no session on the environment: no plan (no one to wait for), new sessions held for the whole install', async () => {
         const runner = fakeRunner({}, { result: done });
-        const host = fakeHost([[]]);
+        const host = fakeHost([[]], runner.calls);
         await ensurePythonPackagesIn(host, venv, { requirements: ['plotly'] }, {}, runner.run);
-        assert.deepStrictEqual(runner.calls, ['install']);
-        assert.deepStrictEqual(host.holds, [venv]);
+        assert.deepStrictEqual(runner.calls, ['hold', 'ask', 'install', 'release']);
     });
 
     await t.test('whenInUse proceed: no plan, straight to the install', async () => {
@@ -123,9 +124,10 @@ test('ensurePythonPackagesIn', async (t) => {
 
     await t.test('whenInUse defer: replacing what a session uses installs nothing and says which sessions', async () => {
         const runner = fakeRunner({ plan: { install: ['six'], replace: ['six'] } }, { result: done });
-        await assert.rejects(ensurePythonPackagesIn(fakeHost([['notebook']]), venv, { name: 'six', update: true }, { whenInUse: 'defer' }, runner.run),
+        await assert.rejects(ensurePythonPackagesIn(fakeHost([['notebook']], runner.calls), venv, { name: 'six', update: true }, { whenInUse: 'defer' }, runner.run),
             (e: Error & { sessions?: string[] }) => e.name === PACKAGES_IN_USE && e.sessions?.[0] === 'notebook');
-        assert.deepStrictEqual(runner.calls, ['plan']);
+        // nothing installed, and nothing left held
+        assert.deepStrictEqual(runner.calls, ['hold', 'ask', 'release', 'plan', 'hold', 'ask', 'release']);
     });
 
     await t.test('offline and failures reject as before', async () => {
@@ -148,7 +150,7 @@ test('ensurePythonEnvironmentIn', async (t) => {
             await fs.promises.mkdir(dirname(venvPython(venv)), { recursive: true });
             await fs.promises.writeFile(venvPython(venv), '');
             const holds: string[] = [];
-            await ensurePythonEnvironmentIn({ sessionsUsing: async () => ['notebook'], hold: (dir) => { holds.push(dir); } }, python, venv);
+            await ensurePythonEnvironmentIn({ sessionsUsing: async () => ['notebook'], hold: (dir) => { holds.push(dir); return () => { }; } }, python, venv);
             assert.deepStrictEqual(holds, []);
         } finally {
             await fs.promises.rm(venv, { recursive: true, force: true });

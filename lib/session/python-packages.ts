@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { lockLibrary, packagesInUse, type WhenInUse } from './r-packages.js';
+import { LOCK_STALE_MS, lockLibrary, packagesInUse, type WhenInUse } from './r-packages.js';
 
 /** What to install: {@link ensurePythonPackages}' request. */
 export interface PythonPackageRequest {
@@ -245,19 +245,26 @@ export async function ensurePythonEnvironmentIn(host: PythonPackagesHost, python
     if (state === 'ready') {
         return;
     }
-    if (state === 'other') {
-        for (let waited = false; ; waited = true) {
-            const using = await host.sessionsUsing(venvDir);
-            if (using.length === 0) break;
-            if (!waited) {
-                onOutput?.(`Waiting for ${using.length} session${using.length === 1 ? '' : 's'} using ${venvDir} to end before re-creating it for ${pythonExecutable}`);
+    // New sessions are held off the environment first, and who uses it is looked at after: a session that starts in
+    // between is seen, or waits -- never missed.
+    let release = host.hold(venvDir);
+    try {
+        if (state === 'other') {
+            for (let waited = false; ; waited = true) {
+                const using = await host.sessionsUsing(venvDir);
+                if (using.length === 0) break;
+                release();
+                if (!waited) {
+                    onOutput?.(`Waiting for ${using.length} session${using.length === 1 ? '' : 's'} using ${venvDir} to end before re-creating it for ${pythonExecutable}`);
+                }
+                await sleep(2000);
+                release = host.hold(venvDir);
             }
-            await sleep(2000);
         }
+        await makeEnvironment(pythonExecutable, venvDir, state === 'other', onOutput);
+    } finally {
+        release();
     }
-    const making = makeEnvironment(pythonExecutable, venvDir, state === 'other', onOutput);
-    host.hold(venvDir, making);
-    await making;
 }
 
 /** Whether the environment at `venvDir` is there for this Python (`ready`), missing, or made from another Python. */
@@ -401,8 +408,8 @@ export async function ensurePythonPackages(venvPythonExecutable: string, request
 export interface PythonPackagesHost {
     /** The sessions using the virtual environment `venvDir` (their venvPath): their ids. */
     sessionsUsing(venvDir: string): Promise<string[]>;
-    /** New Python sessions on `venvDir` wait until `until` settles. */
-    hold(venvDir: string, until: Promise<unknown>): void;
+    /** New Python sessions on `venvDir` wait from now until the function returned is called. */
+    hold(venvDir: string): () => void;
 }
 
 /**
@@ -416,45 +423,51 @@ export async function ensurePythonPackagesIn(host: PythonPackagesHost, venvDir: 
     options: PythonPackageOptions = {}, run: PythonInstallRunner = runPythonInstallScript): Promise<PythonPackageResult> {
     const timeoutMs = options.timeoutMs ?? 30 * 60 * 1000;
     const onOutput = (line: string) => options.onOutput?.(line);
-    const unlock = await lockLibrary(venvDir, timeoutMs + 5 * 60 * 1000,
+    const unlock = await lockLibrary(venvDir, LOCK_STALE_MS,
         () => onOutput('Waiting for another process to finish installing Python packages into the environment'));
+    // gives the environment back to new sessions, once they are held off it
+    let release: (() => void) | undefined;
     try {
         const args = buildInstallArgs(request, findAppRequirementFiles(request.appDir));
         const python = venvPython(venvDir);
 
-        // What it would replace: an install replacing packages that sessions on the environment may have loaded waits for them
-        let replacing: string[] = [];
-        const coordinate = options.whenInUse !== 'proceed';
-        // No session uses the environment: pip's plan (seconds, on the network) would find no one to wait for. New
-        // sessions are kept back for the whole install instead, whatever it replaces.
-        const holdAll = coordinate && (await host.sessionsUsing(venvDir)).length === 0;
-        if (coordinate && !holdAll) {
-            const plan = await run(python, JSON.stringify({ ...args, planOnly: true }), timeoutMs, onOutput);
-            if (plan.result || plan.failure || plan.offline || plan.timedOut || !plan.plan) {
-                // nothing to install (plan.result), or why it can't be: the same outcome as the install itself
-                return outcomeOf(plan, timeoutMs);
-            }
-            replacing = plan.plan.replace;
-            for (let waited = false; replacing.length > 0; waited = true) {
-                const using = await host.sessionsUsing(venvDir);
-                if (using.length === 0) break;
-                if (options.whenInUse === 'defer') {
-                    throw packagesInUse(replacing, using);
+        // What it would replace: an install replacing packages that sessions on the environment may have loaded waits
+        // for them. New sessions are held off the environment first, and who uses it is looked at after: a session
+        // that starts in between is seen, or waits -- never missed.
+        if (options.whenInUse !== 'proceed') {
+            release = host.hold(venvDir);
+            if ((await host.sessionsUsing(venvDir)).length > 0) {
+                release();
+                release = undefined;
+                const plan = await run(python, JSON.stringify({ ...args, planOnly: true }), timeoutMs, onOutput);
+                if (plan.result || plan.failure || plan.offline || plan.timedOut || !plan.plan) {
+                    // nothing to install (plan.result), or why it can't be: the same outcome as the install itself
+                    return outcomeOf(plan, timeoutMs);
                 }
-                if (!waited) {
-                    onOutput(`Waiting for ${using.length} session${using.length === 1 ? '' : 's'} using the environment to end before replacing ${replacing.join(', ')}`);
+                const replacing = plan.plan.replace;
+                for (let waited = false; replacing.length > 0; waited = true) {
+                    release = host.hold(venvDir);
+                    const using = await host.sessionsUsing(venvDir);
+                    if (using.length === 0) break;
+                    release();
+                    release = undefined;
+                    if (options.whenInUse === 'defer') {
+                        throw packagesInUse(replacing, using);
+                    }
+                    if (!waited) {
+                        onOutput(`Waiting for ${using.length} session${using.length === 1 ? '' : 's'} using the environment to end before replacing ${replacing.join(', ')}`);
+                    }
+                    await sleep(2000);
                 }
-                await sleep(2000);
             }
+            // else no session uses the environment: pip's plan (seconds, on the network) would find no one to wait
+            // for, and new sessions stay held for the whole install, whatever it replaces
         }
 
-        const install = run(python, JSON.stringify(args), timeoutMs, onOutput);
-        if (replacing.length > 0 || holdAll) {
-            // no session starts on the environment half way through replacing its packages
-            host.hold(venvDir, install);
-        }
-        return outcomeOf(await install, timeoutMs);
+        // (held: no session starts on the environment half way through replacing its packages)
+        return outcomeOf(await run(python, JSON.stringify(args), timeoutMs, onOutput), timeoutMs);
     } finally {
+        release?.();
         await unlock();
     }
 }
