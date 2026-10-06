@@ -1554,6 +1554,26 @@ comm$send(list(second = 2))
             const formatted = await session.stataData({ start: 3, count: 1, variables: ['price', 'rep78', 'foreign'], formatted: true });
             assert.deepStrictEqual(formatted.rows, [['3,799', '.', 'Domestic']]);
             await assert.rejects(session.stataData({ variables: ['nosuchvar'] }), /no variable nosuchvar/);
+
+            // a wider dataset than a row is put together from at once (32 columns), with what JSON has to escape
+            await session.execute('preserve');
+            await session.execute('clear');
+            await session.execute('set obs 3');
+            await session.execute('forvalues i = 1/70 {\n    generate v`i\' = `i\' * _n\n}');
+            await session.execute('replace v70 = .a in 2');
+            await session.execute('generate str8 s = "a\\b" + char(34) + char(9) + "c"');
+            const wide = await session.stataDataset();
+            assert.strictEqual(wide.variables.length, 71);
+            assert.deepStrictEqual(wide.variables.map((v) => v.name).slice(31, 34), ['v32', 'v33', 'v34']);
+            const wideRaw = (await session.stataData()).rows;
+            assert.deepStrictEqual(wideRaw.map((row) => row.length), [71, 71, 71]);
+            assert.deepStrictEqual([wideRaw[0]![0], wideRaw[2]![32], wideRaw[1]![69], wideRaw[2]![69], wideRaw[0]![70]], [1, 99, '.a', 210, 'a\\b"\tc']);
+            const wideFormatted = (await session.stataData({ formatted: true })).rows;
+            assert.deepStrictEqual([wideFormatted[0]![0], wideFormatted[2]![32], wideFormatted[1]![69], wideFormatted[2]![69], wideFormatted[0]![70]],
+                ['1', '99', '.a', '210', 'a\\b"\tc']);
+            await session.execute('restore');
+            assert.strictEqual((await session.stataDataset()).observations, 74);
+
             assert.strictEqual((await session.isComplete('forvalues i = 1/3 {')).status, 'incomplete');
 
             stdout.length = 0;

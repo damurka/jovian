@@ -121,7 +121,7 @@ A kernel Themisto starts binds its own ports and reports them on the registratio
 
 ## 3. Themisto's WebSocket API
 
-Connect to `ws://127.0.0.1:<wsPort>/sessions/<sessionId>/messages?token=<token>` (see [Access](#access)). An unknown session id closes the socket with code **1008** (`unknown session`). At most one connection per session is relayed to at a time: the most recent one owns the kernel's output stream. All frames are JSON text.
+Connect to `ws://127.0.0.1:<wsPort>/sessions/<sessionId>/messages?token=<token>` (see [Access](#access)). An unknown session id closes the socket with code **1008** (`unknown session`). At most one connection per session is relayed to at a time: the most recent one owns the kernel's output stream. All frames are JSON text, sent uncompressed (the server does not accept `permessage-deflate`: the client is on the same machine, and compressing a large message cost several times what sending it does).
 
 **One WebSocket message may carry several frames**, separated by `
 ` (each frame is a single line of JSON; JSON text never contains a raw newline): split every message on `

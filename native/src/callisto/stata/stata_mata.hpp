@@ -47,18 +47,37 @@ string scalar callisto_jnum(real scalar x)
     return(s)
 }
 
-string scalar callisto_jstrs(string vector v)
+// JSON strings of a column of strings, at once: the backslash and the quote. Control characters are escaped once, in
+// the whole answer (callisto_write()): looking for them in every cell was most of the time a large answer took.
+// (The column is changed in place: pass a copy of one that is still needed.)
+string colvector callisto_jstrv(string colvector s)
 {
-    real scalar i
-    string scalar out
-    out = ""
-    for (i = 1; i <= length(v); i++) out = out + (i > 1 ? "," : "") + callisto_jstr(v[i])
-    return("[" + out + "]")
+    s = subinstr(s, "\", "\\", .)
+    s = subinstr(s, char(34), "\" + char(34), .)
+    return(char(34) :+ s :+ char(34))
 }
 
+// Joined at once: adding to one string a piece at a time copies it each time (2,000 names took 100 times 200's time)
+string scalar callisto_jstrs(string vector v)
+{
+    string colvector s
+    if (length(v) == 0) return("[]")
+    s = vec(v)
+    return("[" + invtokens(callisto_jstrv(s)', ",") + "]")
+}
+
+// The answer, with the control characters of its strings escaped (the JSON around them has none)
 void callisto_write(string scalar path, string scalar text)
 {
-    real scalar fh
+    real scalar fh, i
+    text = subinstr(text, char(10), "\n", .)
+    text = subinstr(text, char(13), "\r", .)
+    text = subinstr(text, char(9), "\t", .)
+    if (ustrregexm(text, "[\x01-\x1f]")) {
+        for (i = 1; i <= 31; i++) {
+            if (strpos(text, char(i))) text = subinstr(text, char(i), "\u00" + (i < 16 ? "0" : "") + inbase(16, i), .)
+        }
+    }
     if (fileexists(path)) unlink(path)
     fh = fopen(path, "w")
     fwrite(fh, text)
@@ -91,8 +110,8 @@ void callisto_names(string scalar kind, string scalar path)
 void callisto_dataset(string scalar path, real scalar maxlabels)
 {
     real scalar i, k, n
-    real colvector values
-    string colvector text, labelnames
+    real colvector values, m
+    string colvector text, labelnames, names, types, formats, labels, vls, items
     string scalar out, vl, q
 
     q = char(34)
@@ -103,16 +122,33 @@ void callisto_dataset(string scalar path, real scalar maxlabels)
     out = out + "," + q + "changed" + q + ":" + (c("changed") ? "true" : "false")
     out = out + "," + q + "variables" + q + ":["
     labelnames = J(0, 1, "")
-    for (i = 1; i <= k; i++) {
-        vl = st_varvaluelabel(i)
-        out = out + (i > 1 ? "," : "") + "{" + q + "name" + q + ":" + callisto_jstr(st_varname(i))
-        out = out + "," + q + "type" + q + ":" + callisto_jstr(st_vartype(i))
-        out = out + "," + q + "format" + q + ":" + callisto_jstr(st_varformat(i))
-        out = out + "," + q + "label" + q + ":" + callisto_jstr(st_varlabel(i))
-        out = out + "," + q + "valueLabel" + q + ":" + (vl == "" ? "null" : callisto_jstr(vl)) + "}"
-        if (vl != "") {
-            if (st_vlexists(vl) & !anyof(labelnames, vl)) labelnames = labelnames \ vl
+    if (k > 0) {
+        // a column of each property, made into JSON and joined at once (not added to `out` a variable at a time)
+        names = J(k, 1, "")
+        types = J(k, 1, "")
+        formats = J(k, 1, "")
+        labels = J(k, 1, "")
+        vls = J(k, 1, "")
+        for (i = 1; i <= k; i++) {
+            vl = st_varvaluelabel(i)
+            names[i] = st_varname(i)
+            types[i] = st_vartype(i)
+            formats[i] = st_varformat(i)
+            labels[i] = st_varlabel(i)
+            vls[i] = vl
+            if (vl != "") {
+                if (st_vlexists(vl) & !anyof(labelnames, vl)) labelnames = labelnames \ vl
+            }
         }
+        m = selectindex(vls :== "")
+        vls = callisto_jstrv(vls)
+        if (rows(m)) vls[m] = J(rows(m), 1, "null")
+        items = "{" :+ q :+ "name" :+ q :+ ":" :+ callisto_jstrv(names)
+        items = items :+ "," :+ q :+ "type" :+ q :+ ":" :+ callisto_jstrv(types)
+        items = items :+ "," :+ q :+ "format" :+ q :+ ":" :+ callisto_jstrv(formats)
+        items = items :+ "," :+ q :+ "label" :+ q :+ ":" :+ callisto_jstrv(labels)
+        items = items :+ "," :+ q :+ "valueLabel" :+ q :+ ":" :+ vls :+ "}"
+        out = out + invtokens(items', ",")
     }
     out = out + "]," + q + "valueLabels" + q + ":{"
     for (i = 1; i <= rows(labelnames); i++) {
@@ -125,33 +161,22 @@ void callisto_dataset(string scalar path, real scalar maxlabels)
     callisto_write(path, out + "}}")
 }
 
-// JSON strings of a column of strings (callisto_jstr() for each, at once)
-string colvector callisto_jstrv(string colvector s)
-{
-    real scalar i
-    s = subinstr(s, "\", "\\", .)
-    s = subinstr(s, char(34), "\" + char(34), .)
-    s = subinstr(s, char(10), "\n", .)
-    s = subinstr(s, char(13), "\r", .)
-    s = subinstr(s, char(9), "\t", .)
-    if (any(ustrregexm(s, "[\x01-\x1f]"))) {
-        for (i = 1; i <= 31; i++) s = subinstr(s, char(i), "\u00" + (i < 16 ? "0" : "") + inbase(16, i), .)
-    }
-    return(char(34) :+ s :+ char(34))
-}
-
 // JSON numbers of a column of numbers (callisto_jnum() for each, at once)
 string colvector callisto_jnumv(real colvector x)
 {
     string colvector s
     real colvector m
-    real scalar i
     s = strtrim(strofreal(x, "%21.0g"))
-    s = ustrregexra(s, "^\.(?=[0-9])", "0.")
-    s = ustrregexra(s, "^-\.(?=[0-9])", "-0.")
+    // .5 is 0.5 and -.5 is -0.5 in JSON (the missing values, which start with a period too, are written below)
+    m = selectindex(substr(s, 1, 1) :== ".")
+    if (rows(m)) s[m] = "0" :+ s[m]
+    m = selectindex(substr(s, 1, 2) :== "-.")
+    if (rows(m)) s[m] = "-0" :+ substr(s[m], 2, .)
     // missing() of a vector counts them; every missing value is >= .
     m = selectindex(x :>= .)
-    for (i = 1; i <= rows(m); i++) s[m[i]] = (x[m[i]] == . ? "null" : char(34) + s[m[i]] + char(34))
+    if (rows(m)) s[m] = char(34) :+ strofreal(x[m]) :+ char(34)
+    m = selectindex(x :== .)
+    if (rows(m)) s[m] = J(rows(m), 1, "null")
     return(s)
 }
 
@@ -162,12 +187,17 @@ void callisto_rows(string scalar path, string scalar vars, real scalar from, rea
 {
     real rowvector idx
     real colvector x, m
-    real scalar j
+    real scalar i, j, n, p, per
     string colvector rows, cell, labeled
+    string matrix parts
     string scalar vl
 
     idx = st_varindex(tokens(vars))
-    rows = J(to - from + 1, 1, "")
+    n = to - from + 1
+    // A row is put together 32 columns at a time, and those pieces joined at the end: adding 2,000 columns to one
+    // string, one after the other, copies what is there 2,000 times.
+    per = 32
+    parts = J(n, max((1, ceil(cols(idx) / per))), "")
     for (j = 1; j <= cols(idx); j++) {
         if (st_isstrvar(idx[j])) {
             cell = callisto_jstrv(st_sdata((from, to), idx[j]))
@@ -186,7 +216,13 @@ void callisto_rows(string scalar path, string scalar vars, real scalar from, rea
             }
             else cell = callisto_jnumv(x)
         }
-        rows = rows :+ (j > 1 ? "," : "") :+ cell
+        p = ceil(j / per)
+        parts[., p] = parts[., p] :+ (mod(j - 1, per) ? "," : "") :+ cell
+    }
+    if (cols(parts) == 1) rows = parts
+    else {
+        rows = J(n, 1, "")
+        for (i = 1; i <= n; i++) rows[i] = invtokens(parts[i, .], ",")
     }
     callisto_write(path, "[" + invtokens(("[" :+ rows :+ "]")', ",") + "]")
 }
