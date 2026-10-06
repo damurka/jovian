@@ -136,10 +136,6 @@ test('Session', async (t) => {
             assert.ok(stata.stata, 'a Stata session has session.stata');
             assert.strictEqual(stata.r, undefined);
 
-            // the old names stay, and say for which kernel they are
-            await assert.rejects(python.listPackages(), /pkg_list: only for R sessions \(Elara\)/);
-            await assert.rejects(r.stataDataset(), /callisto_dataset: only for Stata sessions \(Callisto\)/);
-            await assert.rejects(stata.createShiny({ appDir: 'x' }), /createShiny: only for R sessions/);
         });
     });
 

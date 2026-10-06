@@ -64,7 +64,7 @@ Each is a real Jupyter request answered by the kernel; each rejects on an `error
 
 ## What only one kernel can do: `session.r`, `session.stata`
 
-An R session (Elara) has `session.r`, an `RSession` with its packages, R's help and Shiny; a Stata session (Callisto) has `session.stata`, a `StataSession` with the dataset in its memory. For any other kernel they are `undefined`, so the type says what the session can do. The methods used to be the session's own (`session.listPackages()`, `session.stataDataset()`, ...): those names remain for now, deprecated, and reject with `…: only for R sessions (Elara)` or `…: only for Stata sessions (Callisto)` for another kernel.
+An R session (Elara) has `session.r`, an `RSession` with its packages, R's help and Shiny; a Stata session (Callisto) has `session.stata`, a `StataSession` with the dataset in its memory. For any other kernel they are `undefined`, so the type says what the session can do. (Before 0.2.11 these were the session's own methods, `session.listPackages()`, `session.stataDataset()` and so on.)
 
 ## R packages (`session.r`)
 

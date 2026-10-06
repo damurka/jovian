@@ -17,22 +17,12 @@ import type {
     LogLevel,
     LoggerFunction,
     LogThreshold,
-    RPackageCheck,
-    RPackageInfo,
-    RPackageInstallResult,
-    RPackageOptions,
-    RPackageSearchResult,
-    RPackageUpdate,
     DapResponse,
     SessionManagerOptions,
     UiRequest,
     SessionStatusInfo,
     ShinyAppHandle,
     SessionVariable,
-    ShinyAppOptions,
-    StataDataOptions,
-    StataDataPage,
-    StataDataset,
     TablePage
 } from '../types/index.js';
 import type { ExecutionState, JupyterMessage } from '../types/messages.js';
@@ -1027,41 +1017,6 @@ export class Session extends EventEmitter {
         if (this.currentOptions.kernelType !== 'stata') return undefined;
         return (this.stataFeatures ??= new StataSession(this));
     }
-
-    private requireR(method: string): RSession {
-        const r = this.r;
-        if (!r) throw new Error(`${method}: only for R sessions (Elara)`);
-        return r;
-    }
-
-    private requireStata(method: string): StataSession {
-        const stata = this.stata;
-        if (!stata) throw new Error(`${method}: only for Stata sessions (Callisto)`);
-        return stata;
-    }
-
-    /** @deprecated `session.r.listPackages()` */
-    async listPackages(options: Pick<RPackageOptions, 'timeout'> = {}): Promise<RPackageInfo[]> { return this.requireR('pkg_list').listPackages(options); }
-    /** @deprecated `session.r.packagesInstalled()` */
-    async packagesInstalled(packages: string[], minVersions: Record<string, string> = {}): Promise<RPackageCheck[]> { return this.requireR('is_installed').packagesInstalled(packages, minVersions); }
-    /** @deprecated `session.r.outdatedPackages()` */
-    async outdatedPackages(options: RPackageOptions = {}): Promise<RPackageUpdate[]> { return this.requireR('pkg_outdated').outdatedPackages(options); }
-    /** @deprecated `session.r.searchPackages()` */
-    async searchPackages(query: string, options: RPackageOptions & { limit?: number } = {}): Promise<RPackageSearchResult[]> { return this.requireR('pkg_search').searchPackages(query, options); }
-    /** @deprecated `session.r.installPackages()` */
-    async installPackages(packages: string[], options: RPackageOptions = {}): Promise<RPackageInstallResult> { return this.requireR('installPackages').installPackages(packages, options); }
-    /** @deprecated `session.r.removePackages()` */
-    async removePackages(packages: string[], options: Pick<RPackageOptions, 'lib' | 'timeout'> = {}): Promise<string[]> { return this.requireR('remove_packages').removePackages(packages, options); }
-    /** @deprecated `session.r.helpServer()` */
-    async helpServer(): Promise<{ port: number; url: string }> { return this.requireR('help_server').helpServer(); }
-    /** @deprecated `session.r.helpUrl()` */
-    async helpUrl(topic: string, pkg?: string): Promise<string | null> { return this.requireR('help_url').helpUrl(topic, pkg); }
-    /** @deprecated `session.r.createShiny()` */
-    async createShiny(options: ShinyAppOptions): Promise<ShinyAppHandle> { return this.requireR('createShiny').createShiny(options); }
-    /** @deprecated `session.stata.dataset()` */
-    async stataDataset(options: { timeout?: number | undefined } = {}): Promise<StataDataset> { return this.requireStata('callisto_dataset').dataset(options); }
-    /** @deprecated `session.stata.data()` */
-    async stataData(options: StataDataOptions = {}): Promise<StataDataPage> { return this.requireStata('callisto_data').data(options); }
 
     // The installer and the log, for session.r (SessionManager gives the installer; attachSession()'s have it too)
     /** @internal */
