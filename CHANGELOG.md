@@ -5,6 +5,10 @@ Versions come from tags (`docs/releasing.md`); the newest is first.
 
 ## Unreleased
 
+Nothing yet.
+
+## 0.2.11 (6 October 2026)
+
 - **`session.r` and `session.stata`** carry what only that kernel can do: `r.listPackages()`, `r.installPackages()`, `r.helpServer()`, `r.createShiny()` and the rest for an R session, `stata.dataset()` and `stata.data()` for a Stata session; `undefined` for any other kernel, so the type says what a session can do. The old names on `Session` (`session.listPackages()`, `session.stataDataset()`, `session.createShiny()`, ...) are gone: DataSuite, which pins its Jovian, moves to the new ones when it takes this version.
 - **A kernel's registration is verified and matched to its launch.** The supervisor takes a registration only when its signature checks and it is the launch's own (`--registration-id`); any other is refused and that kernel ends. Nothing on the machine can name a session's ports but its kernel.
 - **Large replies arrive 2 to 8 times sooner:** the supervisor no longer compresses WebSocket messages for a client on the same machine (a 4 MB page took 740 ms, now 190), and Stata's dataset answers are assembled at once (describing 2,000 variables: 185 ms, now 22).
