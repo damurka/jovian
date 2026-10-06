@@ -1304,11 +1304,11 @@ comm$send(list(second = 2))
         try {
             session.on('error', () => { /* an install's failure comes back in its result */ });
 
-            const packages = await session.listPackages();
+            const packages = await session.r!.listPackages();
             const stats = packages.find((p) => p.name === 'stats');
             assert.ok(stats && stats.priority === 'base' && stats.attached, JSON.stringify(stats));
 
-            const checks = await session.packagesInstalled(['stats', 'no.such.pkg'], { stats: '1.0' });
+            const checks = await session.r!.packagesInstalled(['stats', 'no.such.pkg'], { stats: '1.0' });
             assert.deepStrictEqual(checks.map((c) => [c.name, c.installed]), [['stats', true], ['no.such.pkg', false]]);
             assert.strictEqual(checks[1].version, null);
 
@@ -1320,13 +1320,13 @@ comm$send(list(second = 2))
             let streamed = '';
             session.on('stdout', (text: string) => { streamed += text; });
             session.on('stderr', (text: string) => { streamed += text; });
-            const installed = await session.installPackages(['praise'], { lib });
+            const installed = await session.r!.installPackages(['praise'], { lib });
             assert.deepStrictEqual(installed.failed, [], installed.warnings.join(' | '));
             assert.match(installed.installed[0].version ?? '', /^\d+\./);
             assert.ok(existsSync(join(lib, 'praise')));
             assert.ok(streamed.length > 0, 'the install\'s progress arrives as the session\'s stdout events');
 
-            assert.deepStrictEqual(await session.removePackages(['praise'], { lib }), ['praise']);
+            assert.deepStrictEqual(await session.r!.removePackages(['praise'], { lib }), ['praise']);
             assert.ok(!existsSync(join(lib, 'praise')));
 
             const missing = await session.installPackages(['no.such.pkg.jovian'], { lib });
@@ -1342,9 +1342,9 @@ comm$send(list(second = 2))
         const manager = new SessionManager();
         const session = await manager.createSession({ rHome: discoverRHome() });
         try {
-            const server = await session.helpServer();
+            const server = await session.r!.helpServer();
             assert.ok(server.port > 0, JSON.stringify(server));
-            const url = await session.helpUrl('mean', 'base');
+            const url = await session.r!.helpUrl('mean', 'base');
             assert.strictEqual(url, `${server.url}/library/base/html/mean.html`);
             assert.strictEqual(await session.helpUrl('no_such_topic_jovian'), null);
             const page = await fetch(url!, { signal: AbortSignal.timeout(15000) });
@@ -1544,14 +1544,14 @@ comm$send(list(second = 2))
             assert.ok((await session.complete('display r(me')).matches.includes('mean'), 'r() results of summarize');
 
             // the dataset, read through Callisto's Mata library and plugin
-            const dataset = await session.stataDataset();
+            const dataset = await session.stata!.dataset();
             assert.strictEqual(dataset.observations, 74);
             assert.deepStrictEqual(dataset.variables.find((v) => v.name === 'foreign'),
                 { name: 'foreign', type: 'byte', format: '%8.0g', label: 'Car origin', valueLabel: 'origin' });
             assert.deepStrictEqual(dataset.valueLabels['origin'], { values: [0, 1], labels: ['Domestic', 'Foreign'] });
-            const raw = await session.stataData({ start: 2, count: 2, variables: ['make', 'price', 'rep78', 'foreign'] });
+            const raw = await session.stata!.data({ start: 2, count: 2, variables: ['make', 'price', 'rep78', 'foreign'] });
             assert.deepStrictEqual(raw.rows, [['AMC Pacer', 4749, 3, 0], ['AMC Spirit', 3799, null, 0]]);
-            const formatted = await session.stataData({ start: 3, count: 1, variables: ['price', 'rep78', 'foreign'], formatted: true });
+            const formatted = await session.stata!.data({ start: 3, count: 1, variables: ['price', 'rep78', 'foreign'], formatted: true });
             assert.deepStrictEqual(formatted.rows, [['3,799', '.', 'Domestic']]);
             await assert.rejects(session.stataData({ variables: ['nosuchvar'] }), /no variable nosuchvar/);
 

@@ -46,7 +46,6 @@ import { StreamHandler } from '../handlers/stream-handler.js';
 import { ResultHandler } from '../handlers/result-handler.js';
 import { ErrorHandler } from '../handlers/error-handler.js';
 import { DisplayHandler } from '../handlers/display-handler.js';
-import { findFreePort, waitForPort } from '../utils/network.js';
 import { SupervisorClient, sessionSocketUrl, supervisorHeaders, type SessionConnectionInfo, type SupervisorSessionInfo } from './supervisor-client.js';
 import { homedir, tmpdir } from 'os';
 import { delimiter, join as joinPath, resolve as resolvePath } from 'path';
@@ -56,6 +55,8 @@ import { RHelper, R_STATE_EXPRESSION, R_STATE_KEY, mergeCompletions, parseRState
 import { ensureRPackageIn, type EnsureRPackageOptions, type EnsureRPackageRequest, type RPackageResult, type RPackagesHost } from './r-packages.js';
 import { ensurePythonEnvironmentIn, ensurePythonPackagesIn, type PythonPackageOptions, type PythonPackageRequest, type PythonPackageResult, type PythonPackagesHost } from './python-packages.js';
 import { Comm } from './comm.js';
+import { RSession } from './r-session.js';
+import { StataSession } from './stata-session.js';
 
 /** How long ensureRPackage()'s packages session waits for the next install before it stops. */
 const PACKAGES_SESSION_IDLE_MS = 5 * 60 * 1000;
@@ -1011,85 +1012,63 @@ export class Session extends EventEmitter {
     }
 
     /** comm_info_request: the comms currently open in the kernel, optionally only those for one target. */
-    // ---- R packages (the R kernel's hera: .jv.rpc.* in packages/hera/R/packages.R) ----------------------------
+    // ---- what only one kernel can do: session.r (Elara), session.stata (Callisto) ------------------------------
 
-    /** The packages installed in an R session's libraries. */
-    async listPackages(options: Pick<RPackageOptions, 'timeout'> = {}): Promise<RPackageInfo[]> {
-        return this.callRpc<RPackageInfo[]>('pkg_list', {}, options.timeout ?? 60_000);
+    private rFeatures: RSession | undefined;
+    private stataFeatures: StataSession | undefined;
+
+    /** What only an R session can do -- its packages, R's help, a Shiny app -- or undefined for another kernel. */
+    get r(): RSession | undefined {
+        if ((this.currentOptions.kernelType ?? 'r') !== 'r') return undefined;
+        return (this.rFeatures ??= new RSession(this));
     }
 
-    /** Whether the packages are installed, at least at the versions given (`{ dplyr: '1.1.4' }`). */
-    async packagesInstalled(packages: string[], minVersions: Record<string, string> = {}): Promise<RPackageCheck[]> {
-        const rows = await this.callRpc<Array<Partial<RPackageCheck>>>('is_installed', { packages, min_versions: minVersions }, 60_000);
-        return rows.map((row) => ({ name: row.name ?? '', version: row.version ?? null, installed: row.installed === true }));
+    /** What only a Stata session can do -- the dataset in its memory -- or undefined for another kernel. */
+    get stata(): StataSession | undefined {
+        if (this.currentOptions.kernelType !== 'stata') return undefined;
+        return (this.stataFeatures ??= new StataSession(this));
     }
 
-    /** Installed packages with a newer version in the repositories. */
-    async outdatedPackages(options: RPackageOptions = {}): Promise<RPackageUpdate[]> {
-        return this.callRpc<RPackageUpdate[]>('pkg_outdated', { repos: options.repos ?? [] }, options.timeout ?? 120_000);
+    private requireR(method: string): RSession {
+        const r = this.r;
+        if (!r) throw new Error(`${method}: only for R sessions (Elara)`);
+        return r;
     }
 
-    /** Packages in the repositories whose name matches `query` (an exact match first). */
-    async searchPackages(query: string, options: RPackageOptions & { limit?: number } = {}): Promise<RPackageSearchResult[]> {
-        return this.callRpc<RPackageSearchResult[]>('pkg_search', { query, repos: options.repos ?? [], limit: options.limit ?? 100 }, options.timeout ?? 120_000);
+    private requireStata(method: string): StataSession {
+        const stata = this.stata;
+        if (!stata) throw new Error(`${method}: only for Stata sessions (Callisto)`);
+        return stata;
     }
 
-    /**
-     * Installs packages, and what they need, from the repositories (`options.repos` before CRAN), or updates them to
-     * the newest there, into `options.lib` (the session's first library by default). The session manager's installer
-     * does it (SessionManager.ensureRPackage()), in a packages session of its own, not in this one: its progress
-     * arrives as this session's 'stdout' events. A package this session has loaded can't be replaced on Windows.
-     */
-    async installPackages(packages: string[], options: RPackageOptions = {}): Promise<RPackageInstallResult> {
-        const rHome = this.currentOptions.rHome;
-        if (!this.ensureR || !rHome) {
-            throw new Error('installPackages() needs an R session created by a SessionManager');
-        }
-        const libraries = [options.lib, ...(this.currentOptions.rLibs ?? '').split(delimiter)]
-            .filter((library): library is string => !!library);
-        const result: RPackageInstallResult = { installed: [], failed: [], warnings: [] };
-        for (const name of packages) {
-            try {
-                const done = await this.ensureR({ name, repos: options.repos ?? [], update: true, optional: false }, {
-                    rHome,
-                    libraries,
-                    timeoutMs: options.timeout ?? 30 * 60_000,
-                    // this session may have the packages loaded itself: waiting would be waiting for itself
-                    whenInUse: 'proceed',
-                    onOutput: (line) => this.emit('stdout', `${line}\n`)
-                });
-                result.installed.push({ name, version: done.version ?? null });
-            } catch (error) {
-                result.installed.push({ name, version: null });
-                result.failed.push(name);
-                result.warnings.push(error instanceof Error ? error.message : String(error));
-            }
-        }
-        return result;
-    }
+    /** @deprecated `session.r.listPackages()` */
+    async listPackages(options: Pick<RPackageOptions, 'timeout'> = {}): Promise<RPackageInfo[]> { return this.requireR('pkg_list').listPackages(options); }
+    /** @deprecated `session.r.packagesInstalled()` */
+    async packagesInstalled(packages: string[], minVersions: Record<string, string> = {}): Promise<RPackageCheck[]> { return this.requireR('is_installed').packagesInstalled(packages, minVersions); }
+    /** @deprecated `session.r.outdatedPackages()` */
+    async outdatedPackages(options: RPackageOptions = {}): Promise<RPackageUpdate[]> { return this.requireR('pkg_outdated').outdatedPackages(options); }
+    /** @deprecated `session.r.searchPackages()` */
+    async searchPackages(query: string, options: RPackageOptions & { limit?: number } = {}): Promise<RPackageSearchResult[]> { return this.requireR('pkg_search').searchPackages(query, options); }
+    /** @deprecated `session.r.installPackages()` */
+    async installPackages(packages: string[], options: RPackageOptions = {}): Promise<RPackageInstallResult> { return this.requireR('installPackages').installPackages(packages, options); }
+    /** @deprecated `session.r.removePackages()` */
+    async removePackages(packages: string[], options: Pick<RPackageOptions, 'lib' | 'timeout'> = {}): Promise<string[]> { return this.requireR('remove_packages').removePackages(packages, options); }
+    /** @deprecated `session.r.helpServer()` */
+    async helpServer(): Promise<{ port: number; url: string }> { return this.requireR('help_server').helpServer(); }
+    /** @deprecated `session.r.helpUrl()` */
+    async helpUrl(topic: string, pkg?: string): Promise<string | null> { return this.requireR('help_url').helpUrl(topic, pkg); }
+    /** @deprecated `session.r.createShiny()` */
+    async createShiny(options: ShinyAppOptions): Promise<ShinyAppHandle> { return this.requireR('createShiny').createShiny(options); }
+    /** @deprecated `session.stata.dataset()` */
+    async stataDataset(options: { timeout?: number | undefined } = {}): Promise<StataDataset> { return this.requireStata('callisto_dataset').dataset(options); }
+    /** @deprecated `session.stata.data()` */
+    async stataData(options: StataDataOptions = {}): Promise<StataDataPage> { return this.requireStata('callisto_data').data(options); }
 
-    /** Removes packages from the library they are installed in. */
-    async removePackages(packages: string[], options: Pick<RPackageOptions, 'lib' | 'timeout'> = {}): Promise<string[]> {
-        const args: Record<string, unknown> = { packages };
-        if (options.lib) args.lib = options.lib;
-        const result = await this.callRpc<{ removed: string[] }>('remove_packages', args, options.timeout ?? 120_000);
-        return result.removed ?? [];
-    }
-
-    /**
-     * R's own help server in the session (tools::startDynamicHelp()), started if need be: its port and base
-     * address. It answers while the session is idle.
-     */
-    async helpServer(): Promise<{ port: number; url: string }> {
-        return this.callRpc<{ port: number; url: string }>('help_server', {}, 30_000);
-    }
-
-    /** The help server's address for a help topic (in `pkg`, else wherever it is found), or null. */
-    async helpUrl(topic: string, pkg?: string): Promise<string | null> {
-        const args: Record<string, unknown> = { topic };
-        if (pkg) args.package = pkg;
-        return this.callRpc<string | null>('help_url', args, 30_000);
-    }
+    // The installer and the log, for session.r (SessionManager gives the installer; attachSession()'s have it too)
+    /** @internal */
+    get installer(): EnsureR | undefined { return this.ensureR; }
+    /** @internal */
+    get log(): Logger { return this.logger; }
 
     /**
      * The Jupyter debug protocol (JEP 47): a Debug Adapter Protocol request (`command`, `args`), sent as a
@@ -1114,7 +1093,7 @@ export class Session extends EventEmitter {
         if (this.currentOptions.kernelType === 'python') {
             return this.callCarpo<SessionVariable[]>('.jovian_variables', '', timeout);
         }
-        return this.callRpc<SessionVariable[]>('var_list', {}, timeout);
+        return this.rpc<SessionVariable[]>('var_list', {}, timeout);
     }
 
     /**
@@ -1128,7 +1107,7 @@ export class Session extends EventEmitter {
         if (this.currentOptions.kernelType === 'python') {
             return this.callCarpo<TablePage>('.jovian_table', JSON.stringify(request), timeout);
         }
-        return this.callRpc<TablePage>('var_table', request, timeout);
+        return this.rpc<TablePage>('var_table', request, timeout);
     }
 
     // A request Carpo answers itself, as a user expression of a silent execution: no output, no execution count.
@@ -1141,30 +1120,9 @@ export class Session extends EventEmitter {
         return JSON.parse(String(reply.data?.['text/plain'] ?? 'null')) as T;
     }
 
-    // ---- the Stata dataset (Callisto's Mata library and plugin, native/src/callisto) ------------------------------
-
-    /** The dataset in a Stata session's memory: its frame, size, file, variables and value labels. */
-    async stataDataset(options: { timeout?: number | undefined } = {}): Promise<StataDataset> {
-        return this.callCallisto<StataDataset>('.callisto_dataset', '', options.timeout ?? 60_000);
-    }
-
-    /**
-     * Observations of the dataset in a Stata session's memory: `count` (default 100, at most 100 000) from `start`
-     * (1, the first), of `variables` (default all). Raw values -- numbers, `null` for the missing value `.`, `".a"` to
-     * `".z"` for the extended ones, strings -- or, `formatted`, strings as Stata's Data Editor shows them (value labels,
-     * display formats such as `%td` dates).
-     */
-    async stataData(options: StataDataOptions = {}): Promise<StataDataPage> {
-        const request: Record<string, unknown> = {};
-        if (options.start !== undefined) request.start = options.start;
-        if (options.count !== undefined) request.count = options.count;
-        if (options.variables !== undefined) request.variables = options.variables;
-        if (options.formatted !== undefined) request.formatted = options.formatted;
-        return this.callCallisto<StataDataPage>('.callisto_data', JSON.stringify(request), options.timeout ?? 120_000);
-    }
-
     // A request Callisto answers itself, as a user expression of a silent execution: no output, no execution count.
-    private async callCallisto<T>(key: string, expression: string, timeout: number): Promise<T> {
+    /** @internal */
+    async stataCall<T>(key: string, expression: string, timeout: number): Promise<T> {
         if (this.currentOptions.kernelType !== 'stata') {
             throw new Error(`${key.slice(1)}: only for Stata sessions (Callisto)`);
         }
@@ -1177,7 +1135,8 @@ export class Session extends EventEmitter {
     }
 
     // A hera RPC, answered as a user expression of a silent execution: no output, no execution count.
-    private async callRpc<T>(method: string, args: Record<string, unknown>, timeout: number): Promise<T> {
+    /** @internal */
+    async rpc<T>(method: string, args: Record<string, unknown>, timeout: number): Promise<T> {
         if ((this.currentOptions.kernelType ?? 'r') !== 'r') {
             throw new Error(`${method}: only for R sessions (Elara)`);
         }
@@ -1242,52 +1201,6 @@ export class Session extends EventEmitter {
     /** Closes a comm. */
     commClose(commId: string, data: Record<string, unknown> = {}): Promise<string> {
         return this.sendComm('comm_close', { comm_id: commId, data });
-    }
-
-    /**
-     * Launches a Shiny app in this session's R process and resolves once
-     * it's actually accepting connections. shiny::runApp() blocks the R
-     * session for as long as the app runs, so -- unlike execute() --
-     * resolving here does not mean the app is done; that's what the
-     * returned `done` promise is for.
-     */
-    async createShiny(options: ShinyAppOptions): Promise<ShinyAppHandle> {
-        await this.readyPromise;
-
-        const host = options.host ?? '127.0.0.1';
-        const port = options.port ?? await findFreePort(host);
-        const launchBrowser = options.launchBrowser ?? false;
-        const readyTimeout = options.readyTimeout ?? 10000;
-
-        const appDir = rStringLiteral(options.appDir.replace(/\\/g, '/'));
-        const setEnvPrefix = buildSetEnvCode(options.env);
-        const code = `${setEnvPrefix}shiny::runApp(${appDir}, port = ${port}, host = '${host}', launch.browser = ${launchBrowser ? 'TRUE' : 'FALSE'})`;
-
-        this.logger.info('Starting Shiny app', { appDir: options.appDir, host, port, readyTimeout });
-
-        // timeout: 0 -- this call is expected to block indefinitely.
-        const done = this.execute(code, { timeout: 0 });
-        done.then(
-            (result) => this.logger.info(`Shiny app at ${host}:${port} exited`, { success: result.success }),
-            (error) => this.logger.error(`Shiny app at ${host}:${port} execution failed`, error)
-        );
-
-        const earlyExit = done.then((result) => {
-            throw new Error(
-                `Shiny app exited before it started listening (status: ${result.success ? 'ok' : 'error'})`
-            );
-        });
-        earlyExit.catch(() => { });
-
-        try {
-            await Promise.race([waitForPort(host, port, readyTimeout), earlyExit]);
-        } catch (error) {
-            this.logger.error(`Shiny app at ${host}:${port} failed to start`, error);
-            throw error;
-        }
-
-        this.logger.info(`Shiny app listening at http://${host}:${port}`);
-        return { host, port, url: `http://${host}:${port}`, done };
     }
 
     /** Stops the R session and waits for its process to exit. */
@@ -1709,18 +1622,3 @@ export class SessionManager {
     }
 }
 
-function rStringLiteral(value: string): string {
-    return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
-}
-
-function buildSetEnvCode(env: Record<string, string> | undefined): string {
-    if (!env || Object.keys(env).length === 0) {
-        return '';
-    }
-
-    const args = Object.entries(env)
-        .map(([key, value]) => `${rStringLiteral(key)} = ${rStringLiteral(value)}`)
-        .join(', ');
-
-    return `Sys.setenv(${args}); `;
-}

@@ -63,7 +63,7 @@ R's console runs the [`later`](https://r-lib.github.io/later/) event loop whenev
 
 ### Shiny
 
-`session.createShiny({ appDir })` runs `shiny::runApp()` in the session. It blocks the kernel for as long as the app runs (so nothing else can execute in that session), and the supervisor's stop path force-kills it because the interpreter never returns to process `shutdown_request`. Use `interrupt()` to stop the app without killing the session.
+`session.r.createShiny({ appDir })` runs `shiny::runApp()` in the session. It blocks the kernel for as long as the app runs (so nothing else can execute in that session), and the supervisor's stop path force-kills it because the interpreter never returns to process `shutdown_request`. Use `interrupt()` to stop the app without killing the session.
 
 ## Carpo (Python)
 
