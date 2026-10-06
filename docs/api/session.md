@@ -40,7 +40,7 @@ Sends `interrupt_request` on the control channel. Resolves `true` if the kernel 
 
 Answers a pending `'input_request'`. Fire-and-forget; what comes back is the running execution finishing.
 
-### `createShiny(options: ShinyAppOptions): Promise<ShinyAppHandle>`
+### `r.createShiny(options: ShinyAppOptions): Promise<ShinyAppHandle>`
 
 R only. Runs `shiny::runApp()` in the session (with `timeout: 0`) and resolves once the port accepts connections; the returned `done` promise resolves when the app stops. The session is busy for as long as the app runs.
 
@@ -62,19 +62,23 @@ Each is a real Jupyter request answered by the kernel; each rejects on an `error
 
 `request()` is the generic form behind the methods above; it always sends the request to the session's own kernel (no helper). It accepts the request types in the [whitelist](../protocol.md#client--themisto); the reply type is derived by replacing `_request` with `_reply`. It is not for `execute_request`, `input_reply` or `shutdown_request`.
 
-## R packages
+## What only one kernel can do: `session.r`, `session.stata`
+
+An R session (Elara) has `session.r`, an `RSession` with its packages, R's help and Shiny; a Stata session (Callisto) has `session.stata`, a `StataSession` with the dataset in its memory. For any other kernel they are `undefined`, so the type says what the session can do. The methods used to be the session's own (`session.listPackages()`, `session.stataDataset()`, ...): those names remain for now, deprecated, and reject with `…: only for R sessions (Elara)` or `…: only for Stata sessions (Callisto)` for another kernel.
+
+## R packages (`session.r`)
 
 R sessions (Elara) only: answered by the kernel's own R code (`.jv.rpc.*` in `packages/hera/R/packages.R`, called through `rpc.R`, as Ark's `.ps.rpc.pkg_*`) -- except `installPackages()`, which goes through the session manager's installer (`manager.ensureRPackage()`, see [Installing R packages](../guides/environments.md)). A session loads no package of its own besides R's, so any package can be installed, updated or removed — unless the user's code has loaded it (on Windows a loaded package's DLL cannot be replaced). Repositories: `options.repos` first, then the session's own (`getOption("repos")`, CRAN's cloud mirror when unset); for `installPackages()`, then CRAN.
 
 | Method | Description |
 |---|---|
-| `listPackages()` | `RPackageInfo[]`: every installed package — `name`, `version`, `library`, `priority` (`base`/`recommended`/`''`), `loaded`, `attached`. |
-| `packagesInstalled(packages, minVersions?)` | `RPackageCheck[]`: `{ name, version (null if absent), installed }`, `installed` meaning at least `minVersions[name]`. |
-| `outdatedPackages(options?)` | `RPackageUpdate[]`: installed packages with a strictly newer version in the repositories (`installed`, `available`, `library`, `repository`). |
-| `searchPackages(query, options?)` | `RPackageSearchResult[]`: packages whose name matches `query`, an exact match first (`limit`, default 100). |
-| `installPackages(packages, options?)` | `RPackageInstallResult`: `{ installed: [{ name, version }], failed, warnings }` (`warnings`: why each failed). Each package is installed, or updated to the newest in the repositories, with what it needs, by `manager.ensureRPackage()` in a packages session of the manager's, not in this session; its progress arrives as the session's `stdout` events. `options.lib` chooses the library (default: the session's first). Default timeout 30 minutes. |
-| `removePackages(packages, options?)` | The packages removed. |
-| `loadedRPackages()` | `string[] \| undefined`: the packages the session has loaded now (`loadedNamespaces()`; their DLLs are in use). `undefined` when that can't be known: the kernel is running code (it may load anything), or the kernel is not Elara. Answers at once and never interrupts a running cell. The installer asks this before replacing packages. |
+| `r.listPackages()` | `RPackageInfo[]`: every installed package — `name`, `version`, `library`, `priority` (`base`/`recommended`/`''`), `loaded`, `attached`. |
+| `r.packagesInstalled(packages, minVersions?)` | `RPackageCheck[]`: `{ name, version (null if absent), installed }`, `installed` meaning at least `minVersions[name]`. |
+| `r.outdatedPackages(options?)` | `RPackageUpdate[]`: installed packages with a strictly newer version in the repositories (`installed`, `available`, `library`, `repository`). |
+| `r.searchPackages(query, options?)` | `RPackageSearchResult[]`: packages whose name matches `query`, an exact match first (`limit`, default 100). |
+| `r.installPackages(packages, options?)` | `RPackageInstallResult`: `{ installed: [{ name, version }], failed, warnings }` (`warnings`: why each failed). Each package is installed, or updated to the newest in the repositories, with what it needs, by `manager.ensureRPackage()` in a packages session of the manager's, not in this session; its progress arrives as the session's `stdout` events. `options.lib` chooses the library (default: the session's first). Default timeout 30 minutes. |
+| `r.removePackages(packages, options?)` | The packages removed. |
+| `loadedRPackages()` (also `r.loadedPackages()`) | `string[] \| undefined`: the packages the session has loaded now (`loadedNamespaces()`; their DLLs are in use). `undefined` when that can't be known: the kernel is running code (it may load anything), or the kernel is not Elara. Answers at once and never interrupts a running cell. The installer asks this before replacing packages. |
 
 The quick ones are answered as a user expression of a silent execution (no output, no execution count).
 
@@ -92,18 +96,18 @@ const variables = await session.listVariables();
 const page = await session.readTable('cars', { start: 1, count: 50 });
 ```
 
-## The Stata dataset
+## The Stata dataset (`session.stata`)
 
 Stata sessions (Callisto) only: the dataset in memory, read by the kernel itself (its Mata library and its plugin, see [Kernels](../kernels.md#the-dataset)) -- what a variables pane or a data viewer shows. Each is a user expression of a silent execution, so it waits for a running cell.
 
 | Method | Description |
 |---|---|
-| `stataDataset()` | `StataDataset`: `{ frame, observations, filename, changed, variables: [{ name, type, format, label, valueLabel }], valueLabels: { name: { values, labels } } }` (value labels' first 1000 values). |
-| `stataData(options?)` | `StataDataPage`: `{ start, count, observations, variables, formatted, rows }` -- `count` observations (default 100, at most 100 000) from `start` (default 1) of `variables` (default all), `rows[i][j]` being variable `variables[j]` of observation `start + i`. Raw values are numbers, strings, `null` for the missing value `.` and, in a numeric variable, `".a"` to `".z"` for the extended ones; with `formatted: true` they are strings as Stata's Data Editor shows them (value labels, display formats: `4,099`, `02jan2020`, `Domestic`). A variable that does not exist is an error. |
+| `stata.dataset()` | `StataDataset`: `{ frame, observations, filename, changed, variables: [{ name, type, format, label, valueLabel }], valueLabels: { name: { values, labels } } }` (value labels' first 1000 values). |
+| `stata.data(options?)` | `StataDataPage`: `{ start, count, observations, variables, formatted, rows }` -- `count` observations (default 100, at most 100 000) from `start` (default 1) of `variables` (default all), `rows[i][j]` being variable `variables[j]` of observation `start + i`. Raw values are numbers, strings, `null` for the missing value `.` and, in a numeric variable, `".a"` to `".z"` for the extended ones; with `formatted: true` they are strings as Stata's Data Editor shows them (value labels, display formats: `4,099`, `02jan2020`, `Domestic`). A variable that does not exist is an error. |
 
 ```ts
-const data = await session.stataDataset();
-const page = await session.stataData({ start: 1, count: 50, variables: ['make', 'price'], formatted: true });
+const data = await session.stata.dataset();
+const page = await session.stata.data({ start: 1, count: 50, variables: ['make', 'price'], formatted: true });
 ```
 
 ## The host's UI (`'ui'` event)
@@ -117,12 +121,12 @@ A question reaches the host as an `input_request` carrying `jovian_ui`, whether 
 
 R code can make its own requests to the application with **`.elara.host_notify(method, params)`** (a notification) and **`.elara.host_ask(method, params, default = NULL)`** (a question, returning the answer read from JSON): the same `'ui'` events, with the application's own method names -- DataSuite's apps use `datasuite.print`, `datasuite.openChat` and `datasuite.installPackages` (datasuite.ui's `ds_host_request()`). `JOVIAN_HOST_VERSION` / `JOVIAN_HOST_MODE` set what `rstudioapi::getVersion()` / `getMode()` report (default `2025.1.0`, `desktop`).
 
-## R help
+## R help (`session.r`)
 
 | Method | Description |
 |---|---|
-| `helpServer()` | `{ port, url }` of R's own help server in the session (`tools::startDynamicHelp()`), started if need be. Its pages link to each other. |
-| `helpUrl(topic, pkg?)` | The help server's address for a topic (`…/library/base/html/mean.html`), or `null`. |
+| `r.helpServer()` | `{ port, url }` of R's own help server in the session (`tools::startDynamicHelp()`), started if need be. Its pages link to each other. |
+| `r.helpUrl(topic, pkg?)` | The help server's address for a topic (`…/library/base/html/mean.html`), or `null`. |
 
 The server answers while the session is idle: Elara services R's events then (`R_ProcessEvents()`, and on Unix R's input handlers), as R's own console does while it waits for input.
 

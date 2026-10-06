@@ -121,6 +121,28 @@ test('Session', async (t) => {
         });
     });
 
+    await t.test('what only one kernel can do is there for that kernel: session.r for R, session.stata for Stata', async () => {
+        await withFakeWebSocket(async () => {
+            const r = new Session(connectionInfo(), { kernelType: 'r' }, fakeSupervisor);
+            assert.ok(r.r, 'an R session has session.r');
+            assert.strictEqual(r.stata, undefined, 'and no session.stata');
+            assert.strictEqual(r.r, r.r, 'the same object each time');
+
+            const python = new Session(connectionInfo(), { kernelType: 'python' }, fakeSupervisor);
+            assert.strictEqual(python.r, undefined);
+            assert.strictEqual(python.stata, undefined);
+
+            const stata = new Session(connectionInfo(), { kernelType: 'stata' }, fakeSupervisor);
+            assert.ok(stata.stata, 'a Stata session has session.stata');
+            assert.strictEqual(stata.r, undefined);
+
+            // the old names stay, and say for which kernel they are
+            await assert.rejects(python.listPackages(), /pkg_list: only for R sessions \(Elara\)/);
+            await assert.rejects(r.stataDataset(), /callisto_dataset: only for Stata sessions \(Callisto\)/);
+            await assert.rejects(stata.createShiny({ appDir: 'x' }), /createShiny: only for R sessions/);
+        });
+    });
+
     await t.test('execute() sends an execute frame and resolves once execute_reply arrives', async () => {
         await withFakeWebSocket(async () => {
             const session = new Session(connectionInfo(), {}, fakeSupervisor);

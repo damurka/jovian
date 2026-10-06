@@ -5,6 +5,8 @@ The `@damurka/jovian` package (ES modules) exports:
 ```typescript
 import {
     SessionManager, Session, Comm,          // classes
+    RSession, StataSession,                 // session.r and session.stata: what only that kernel can do
+    RSession, StataSession,                 // session.r and session.stata: what only that kernel can do
     type EngineOptions, type ExecutionOptions, type ExecutionResult, type JupyterMessage,
     // …every type in ./types (see types.md), plus the middleware classes
 } from '@damurka/jovian';
