@@ -1,5 +1,6 @@
 #include <chrono>
 #include <functional>
+#include <iostream>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -8,6 +9,7 @@
 #include "zmq_addon.hpp"
 
 #include "adrastea/json.hpp"
+#include "adrastea/message.hpp"
 
 #include "client_handshake_zmq.hpp"
 
@@ -49,9 +51,15 @@ namespace adrastea
 
         std::string getRegistrationPort() const;
 
-        KernelConfiguration waitForConfiguration(const std::function<bool()>& shouldAbort);
+        KernelConfiguration waitForConfiguration(const std::function<bool()>& shouldAbort, const std::string& expectedKernelId);
 
     private:
+
+        // One message, or none within the overall timeout (an exception) or once shouldAbort() says so.
+        zmq::multipart_t receive(const std::function<bool()>& shouldAbort);
+
+        // The short form's answer, signed: "ACK", or "REJECTED <why>".
+        void answerShortForm(const Message::guid_list& routing_ids, const std::string& text);
 
         // The configuration from a JEP 66 handshake_request (answered here
         // with a signed handshake_reply), or nullopt when `wire_msg` is not
@@ -158,7 +166,7 @@ namespace adrastea
         return config;
     }
 
-    KernelConfiguration ClientHandshakeZmqImpl::waitForConfiguration(const std::function<bool()>& shouldAbort)
+    zmq::multipart_t ClientHandshakeZmqImpl::receive(const std::function<bool()>& shouldAbort)
     {
         zmq::multipart_t wire_msg;
         auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kRegistrationTimeoutMs);
@@ -187,43 +195,86 @@ namespace adrastea
                     "stderr output for what it's doing.");
             }
         }
-        // Two forms. A kernel following JEP 66 (the Jupyter handshake, e.g.
-        // Posit's Ark) sends a complete signed Jupyter message --
-        // handshake_request, ports as numbers -- from a REQ socket and waits
-        // for a signed handshake_reply. Adrastea's own kernels send the
-        // shorter form below: a signature and the ports as strings.
-        if (auto jep66 = readJep66Handshake(wire_msg))
-        {
-            return *jep66;
-        }
+        return wire_msg;
+    }
 
-        auto routing_ids = ZmqSerializer::deserializeZmqId(wire_msg);
-        // TODO: check signature
-        wire_msg.pop(); // signature
-        zmq::message_t content = wire_msg.pop();
-        const char* buf = content.data<const char>();
-        json j = json::parse(buf, buf + content.size());
-
-        KernelConfiguration config;
-        config.m_key = m_key;
-        // TODO: should we read and return kernel_id ?
-        config.m_controlPort = j["control_port"].get<std::string>();
-        config.m_shellPort = j["shell_port"].get<std::string>();
-        config.m_stdinPort = j["stdin_port"].get<std::string>();
-        config.m_iopubPort = j["iopub_port"].get<std::string>();
-        config.m_hbPort = j["hb_port"].get<std::string>();
-
+    void ClientHandshakeZmqImpl::answerShortForm(const Message::guid_list& routing_ids, const std::string& text)
+    {
         zmq::multipart_t wire_rep;
-        std::string rep_buffer = "ACK";
-        zmq::message_t rep_content(rep_buffer.c_str(), rep_buffer.size());
-        auto auth = makeAuthentication("hmac-sha256", m_key);
-        std::string sig = auth->sign(ZmqSerializer::makeRawBuffer(rep_content));
+        zmq::message_t rep_content(text.c_str(), text.size());
+        std::string sig = p_auth->sign(ZmqSerializer::makeRawBuffer(rep_content));
         zmq::message_t signature(sig.begin(), sig.end());
         ZmqSerializer::serializeZmqId(routing_ids, wire_rep);
         wire_rep.add(std::move(signature));
         wire_rep.add(std::move(rep_content));
         wire_rep.send(m_handshake);
-        return config;
+    }
+
+    KernelConfiguration ClientHandshakeZmqImpl::waitForConfiguration(const std::function<bool()>& shouldAbort, const std::string& expectedKernelId)
+    {
+        for (;;)
+        {
+            zmq::multipart_t wire_msg = receive(shouldAbort);
+
+            // Two forms. A kernel following JEP 66 (the Jupyter handshake, e.g. Posit's Ark) sends a complete
+            // signed Jupyter message -- handshake_request, ports as numbers -- from a REQ socket and waits for a
+            // signed handshake_reply; its signature is checked there. Adrastea's own kernels send the shorter form
+            // below: the routing frames, a signature of the content, and the content (the kernel's id and its five
+            // ports, as strings).
+            if (auto jep66 = readJep66Handshake(wire_msg))
+            {
+                return *jep66;
+            }
+
+            auto routing_ids = ZmqSerializer::deserializeZmqId(wire_msg);
+            if (wire_msg.size() < 2)
+            {
+                std::cerr << "Refused a kernel registration: not a registration message" << std::endl;
+                continue;
+            }
+            zmq::message_t signature = wire_msg.pop();
+            zmq::message_t content = wire_msg.pop();
+
+            // Refused when it is not signed with this listener's key (nothing else on this machine may name a
+            // session's ports), or when it is another kernel's than the one awaited (a stale kernel registering
+            // late, say): the sender is told, so that it ends, and the wait goes on.
+            std::string refused;
+            json j;
+            if (!p_auth->verify(ZmqSerializer::makeRawBuffer(signature), ZmqSerializer::makeRawBuffer(content)))
+            {
+                refused = "not signed with this supervisor's key";
+            }
+            else
+            {
+                const char* buf = content.data<const char>();
+                j = json::parse(buf, buf + content.size(), nullptr, false);
+                if (j.is_discarded() || !j.is_object())
+                {
+                    refused = "not a JSON object";
+                }
+                else if (!expectedKernelId.empty() && j.value("kernel_id", "") != expectedKernelId)
+                {
+                    refused = "another kernel's (" + j.value("kernel_id", "") + ", not " + expectedKernelId + ")";
+                }
+            }
+            if (!refused.empty())
+            {
+                std::cerr << "Refused a kernel registration: " << refused << std::endl;
+                answerShortForm(routing_ids, "REJECTED " + refused);
+                continue;
+            }
+
+            KernelConfiguration config;
+            config.m_key = m_key;
+            config.m_kernelId = j.value("kernel_id", "");
+            config.m_controlPort = j["control_port"].get<std::string>();
+            config.m_shellPort = j["shell_port"].get<std::string>();
+            config.m_stdinPort = j["stdin_port"].get<std::string>();
+            config.m_iopubPort = j["iopub_port"].get<std::string>();
+            config.m_hbPort = j["hb_port"].get<std::string>();
+            answerShortForm(routing_ids, "ACK");
+            return config;
+        }
     }
 
     /*************************
@@ -246,8 +297,8 @@ namespace adrastea
         return p_clientImpl->getRegistrationPort();
     }
 
-    KernelConfiguration ClientHandshakeZmq::waitForConfiguration(const std::function<bool()>& shouldAbort)
+    KernelConfiguration ClientHandshakeZmq::waitForConfiguration(const std::function<bool()>& shouldAbort, const std::string& expectedKernelId)
     {
-        return p_clientImpl->waitForConfiguration(shouldAbort);
+        return p_clientImpl->waitForConfiguration(shouldAbort, expectedKernelId);
     }
 }

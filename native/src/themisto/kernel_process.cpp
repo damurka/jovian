@@ -81,6 +81,7 @@ namespace themisto
                 { "--stata-edition", options.stataEdition },
                 { "--registration-ip", options.registrationIp },
                 { "--registration-port", options.registrationPort },
+                { "--registration-id", options.registrationId },
                 { "--key", options.key },
             };
         }

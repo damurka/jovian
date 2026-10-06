@@ -65,15 +65,29 @@ namespace adrastea
         wire_msg.send(socket);
 
         zmq::multipart_t rep;
-        rep.recv(socket);
+        if (!rep.recv(socket))
+        {
+            throw std::runtime_error("The supervisor did not answer this kernel's registration within 5 s");
+        }
 
         ZmqSerializer::deserializeZmqId(rep);
+        if (rep.size() < 2)
+        {
+            throw std::runtime_error("The supervisor's answer to this kernel's registration is not one");
+        }
         zmq::message_t rep_sig = rep.pop();
         zmq::message_t rep_content = rep.pop();
         if (!auth.verify(ZmqSerializer::makeRawBuffer(rep_sig),
             ZmqSerializer::makeRawBuffer(rep_content)))
         {
-            throw std::runtime_error("ERROR: Signatures don't match");
+            throw std::runtime_error("The supervisor's answer to this kernel's registration is not signed with its key");
+        }
+        // "ACK", or "REJECTED <why>" (client_handshake_zmq.cpp): a refused kernel has no supervisor and ends
+        std::string answer(rep_content.data<const char>(), rep_content.size());
+        if (answer != "ACK")
+        {
+            throw std::runtime_error("The supervisor refused this kernel's registration: " +
+                (answer.rfind("REJECTED ", 0) == 0 ? answer.substr(9) : answer));
         }
     }
 }

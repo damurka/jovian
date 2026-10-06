@@ -46,6 +46,8 @@ namespace themisto
         bool interruptBySignal = false;
         std::string registrationIp;
         std::string registrationPort;
+        // What the kernel registers as (--registration-id); the registration listener accepts only that
+        std::string registrationId;
         std::string key;
     };
 

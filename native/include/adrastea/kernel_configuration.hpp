@@ -18,6 +18,9 @@ namespace adrastea
 
     struct ADRASTEA_API KernelConfiguration : CommonConfiguration
     {
+        // What the kernel registered as: the id its supervisor gave it (--registration-id), which the supervisor
+        // checks. Empty from a connection file, and from a JEP 66 handshake, which carries none.
+        std::string m_kernelId;
         std::string m_controlPort;
         std::string m_shellPort;
         std::string m_stdinPort;

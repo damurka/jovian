@@ -85,7 +85,7 @@ export function mainManifest(version) {
             './package.json': './package.json'
         },
         engines: { node: '>=22.13.0' },
-        files: ['lib', 'docs', 'README.md', 'CHANGELOG.md', 'LICENSE'],
+        files: ['lib', 'docs', 'README.md', 'CHANGELOG.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md'],
         optionalDependencies
     };
 }
@@ -98,7 +98,7 @@ export function platformManifest(version, target) {
         description: `Prebuilt Jovian kernels (themisto, elara, carpo, callisto) for ${os} ${cpu}. Install ${PACKAGE}, not this.`,
         os: [os],
         cpu: [cpu],
-        files: ['bin', 'README.md', 'LICENSE']
+        files: ['bin', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md']
     };
 }
 
@@ -132,6 +132,7 @@ export function stageMain(version, out = OUT) {
     cpSync(join(ROOT, 'README.md'), join(dir, 'README.md'));
     cpSync(join(ROOT, 'CHANGELOG.md'), join(dir, 'CHANGELOG.md'));
     cpSync(join(ROOT, 'LICENSE'), join(dir, 'LICENSE'));
+    cpSync(join(ROOT, 'THIRD_PARTY_NOTICES.md'), join(dir, 'THIRD_PARTY_NOTICES.md'));
     writeJson(join(dir, 'package.json'), mainManifest(version));
     return dir;
 }
@@ -169,6 +170,7 @@ export function stagePlatform(version, target, from, out = OUT) {
         `# ${PACKAGE}-${target}\n\nPrebuilt kernels (${KERNELS.filter((k) => shipped.includes(exe(k))).join(', ')}) for ${target}.\n` +
         `This is an implementation detail of [${PACKAGE}](https://www.npmjs.com/package/${PACKAGE}): install that package, not this one.\n`);
     cpSync(join(ROOT, 'LICENSE'), join(dir, 'LICENSE'));
+    cpSync(join(ROOT, 'THIRD_PARTY_NOTICES.md'), join(dir, 'THIRD_PARTY_NOTICES.md'));
     writeJson(join(dir, 'package.json'), platformManifest(version, target));
     return { dir, shipped };
 }
