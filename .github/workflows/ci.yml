@@ -214,7 +214,7 @@ jobs:
         run: |
           {
             echo "### Not covered on ${{ matrix.target }}"
-            echo "**Stata (Callisto):** CI has no licensed Stata, so callisto_test's Stata cases were skipped here and the Stata integration test does not run. Before a release, run them on a machine with Stata: \`STATA_HOME=... ctest --test-dir dist/native -C Release -R CallistoStataTextTest\` and \`STATA_HOME=... npm run test:integration\` (docs/releasing.md)."
+            echo "**Stata (Callisto):** CI has no licensed Stata, so callisto_test's Stata cases were skipped here and the Stata integration test does not run. Before a release, run them on a machine with Stata: \`STATA_HOME=... ctest --test-dir dist/native -C Release -R CallistoTest\` and \`STATA_HOME=... npm run test:integration\` (docs/releasing.md)."
           } >> "$GITHUB_STEP_SUMMARY"
 
       # tar keeps the kernels' executable bit, which an artifact on its own loses (relative paths: Windows' GNU tar
