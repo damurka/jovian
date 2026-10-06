@@ -61,6 +61,9 @@ namespace themisto
         // elara.cpp/engine.cpp).
         int port = std::stoi(adrastea::findFreePort());
         m_server = std::make_unique<ix::WebSocketServer>(port, "127.0.0.1");
+        // No compression: the client is on this machine, so there is no network to spare, and deflating a large
+        // message cost far more than sending it (a 4 MB page of numbers: 650 ms of the 740 ms the request took).
+        m_server->disablePerMessageDeflate();
 
         m_server->setOnConnectionCallback(
             [this](std::weak_ptr<ix::WebSocket> weakWebSocket, std::shared_ptr<ix::ConnectionState>) {

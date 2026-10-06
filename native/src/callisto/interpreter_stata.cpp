@@ -418,7 +418,9 @@ namespace callisto
                 variables.push_back(name.get<std::string>());
             }
         }
-        if (variables.empty()) variables = mataNames("variables");
+        // Named by the caller: they are checked below. All of them: they are the dataset's own, as Stata just gave them.
+        const bool named = !variables.empty();
+        if (!named) variables = mataNames("variables");
         const bool formatted = params.value("formatted", false);
 
         int rc = 0;
@@ -430,10 +432,21 @@ namespace callisto
         adrastea::json rows = adrastea::json::array();
         if (!variables.empty() && last >= start)
         {
-            for (const auto& name : variables)
+            if (named)
             {
-                runCaptured("confirm variable " + name + ", exact", &rc);
-                if (rc != 0) throw std::runtime_error("no variable " + name);
+                // One command for all of them (a command for each took most of a wide request's time); when one is
+                // not a variable, each is asked about, to say which.
+                std::string all;
+                for (const auto& name : variables) all += " " + name;
+                runCaptured("confirm variable" + all + ", exact", &rc);
+                if (rc != 0)
+                {
+                    for (const auto& name : variables)
+                    {
+                        runCaptured("confirm variable " + name + ", exact", &rc);
+                        if (rc != 0) throw std::runtime_error("no variable " + name);
+                    }
+                }
             }
             std::optional<adrastea::json> read;
             if (!formatted) read = pluginRows(variables, start, last);
