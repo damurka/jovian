@@ -97,12 +97,12 @@ namespace themisto
         }
     }
 
-    void Session::emitMessage(const std::string& jsonText)
+    void Session::emitMessage(std::string jsonText)
     {
         std::lock_guard<std::mutex> lock(callbackMutex);
         if (onMessage)
         {
-            onMessage(jsonText);
+            onMessage(std::move(jsonText));
         }
     }
 
@@ -489,17 +489,38 @@ namespace themisto
         // MessageParser.parse() (lib/messaging/message-parser.ts), which
         // expects exactly these keys -- reusing it outright instead of
         // writing a second parser.
-        auto relay = [session](const char* channel, const adrastea::Message& msg) {
-            if (msg.header().value("msg_type", "") == "shutdown_reply") session->answeredShutdown = true;
+        // The frame a client gets for one of the kernel's messages. A large message's content is the text the
+        // kernel sent, put in as it is (MessageBase::contentText()): parsing 10 MB to write the same 10 MB again
+        // was two thirds of what a large output or reply cost here.
+        auto frameFor = [](const char* channel, const std::string& topic, const adrastea::MessageBase& msg) {
             json envelope = {
                 { "type", "message" },
                 { "channel", channel },
-                { "topic", msg.header().value("msg_type", "") },
+                { "topic", topic },
                 { "msg_type", msg.header().value("msg_type", "") },
-                { "parent_msg_id", msg.parentHeader().value("msg_id", "") },
-                { "content", msg.content() }
+                { "parent_msg_id", msg.parentHeader().value("msg_id", "") }
             };
-            session->emitMessage(envelope.dump());
+            const std::string* contentText = msg.contentText();
+            if (contentText == nullptr)
+            {
+                envelope["content"] = msg.content();
+                return envelope.dump();
+            }
+            std::string head = envelope.dump();
+            head.pop_back(); // the closing brace: the content goes before it
+            std::string frame;
+            frame.reserve(head.size() + contentText->size() + 16);
+            frame += head;
+            frame += ",\"content\":";
+            frame += *contentText;
+            frame += '}';
+            return frame;
+        };
+
+        auto relay = [session, frameFor](const char* channel, const adrastea::Message& msg) {
+            std::string msgType = msg.header().value("msg_type", "");
+            if (msgType == "shutdown_reply") session->answeredShutdown = true;
+            session->emitMessage(frameFor(channel, msgType, msg));
         };
 
         auto drainIopub = [&]() {
@@ -508,15 +529,7 @@ namespace themisto
                 if (auto pubOpt = client->popIopubMessage())
                 {
                     auto& msg = pubOpt.value();
-                    json envelope = {
-                        { "type", "message" },
-                        { "channel", "iopub" },
-                        { "topic", msg.topic() },
-                        { "msg_type", msg.header().value("msg_type", "") },
-                        { "parent_msg_id", msg.parentHeader().value("msg_id", "") },
-                        { "content", msg.content() }
-                    };
-                    session->emitMessage(envelope.dump());
+                    session->emitMessage(frameFor("iopub", msg.topic(), msg));
                 }
             }
         };

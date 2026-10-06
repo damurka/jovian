@@ -112,7 +112,11 @@ namespace themisto
                             m_activity.connectionOpened();
                             state->outbox = Outbox::start(
                                 [weakWebSocket](const std::string& frame) {
-                                    if (auto ws = weakWebSocket.lock()) ws->send(frame);
+                                    // sendUtf8Text(), which does not check the text again: every frame pushed is
+                                    // JSON this process wrote (valid UTF-8, or dump() would have thrown) around
+                                    // content the serializer has checked. send() reads all of it once more, and
+                                    // closes the connection if it finds fault.
+                                    if (auto ws = weakWebSocket.lock()) ws->sendUtf8Text(frame);
                                 },
                                 [weakWebSocket]() -> std::size_t {
                                     auto ws = weakWebSocket.lock();
@@ -138,8 +142,8 @@ namespace themisto
                                 // Called on the session's poll thread with
                                 // callbackMutex held: only a push, never a send.
                                 std::weak_ptr<Outbox> outbox = state->outbox;
-                                state->session->onMessage = [outbox](const std::string& text) {
-                                    if (auto o = outbox.lock()) o->push(text);
+                                state->session->onMessage = [outbox](std::string text) {
+                                    if (auto o = outbox.lock()) o->push(std::move(text));
                                 };
                                 state->session->onKernelExit = [outbox](const std::string& reason) {
                                     if (auto o = outbox.lock()) o->push(json{ { "type", "kernelExit" }, { "reason", reason } }.dump());

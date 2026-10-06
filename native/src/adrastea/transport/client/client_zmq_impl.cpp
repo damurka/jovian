@@ -293,12 +293,13 @@ namespace adrastea
 
     Message ClientZmqImpl::deserialize(zmq::multipart_t& wire_msg) const
     {
-        return ZmqSerializer::deserialize(wire_msg, *p_auth);
+        // a kernel's large messages are passed on, not read: their content stays text (Message::contentText())
+        return ZmqSerializer::deserialize(wire_msg, *p_auth, true);
     }
 
     PubMessage ClientZmqImpl::deserializeIopub(zmq::multipart_t& wire_msg) const
     {
-        return ZmqSerializer::deserializeIopub(wire_msg, *p_auth);
+        return ZmqSerializer::deserializeIopub(wire_msg, *p_auth, true);
     }
 
 }
