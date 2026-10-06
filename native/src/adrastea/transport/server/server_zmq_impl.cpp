@@ -15,7 +15,7 @@ namespace adrastea
         : m_shell(context, zmq::socket_type::router)
         , m_controller(context, zmq::socket_type::router)
         , m_stdin(context, zmq::socket_type::router)
-        , m_publisherPub(context, zmq::socket_type::pub)
+        , m_publisherPub(context, zmq::socket_type::push) // to the publisher thread's PULL (publisher.cpp): never drops
         , m_publisherController(context, zmq::socket_type::req)
         , m_heartbeatController(context, zmq::socket_type::req)
         , p_auth(makeAuthentication(kernel_config.m_signatureScheme, kernel_config.m_key))
@@ -365,7 +365,10 @@ namespace adrastea
     {
         zmq::multipart_t wire_msg = ZmqSerializer::serializeIopub(std::move(message), *p_auth, m_errorHandler);
         std::lock_guard<std::mutex> lock(m_publishMutex);
-        wire_msg.send(m_publisherPub);
+        // Without waiting: the queue to the publisher thread is unbounded, so this can only be refused once that
+        // thread's end is gone (the kernel is shutting down), and a message with nobody to take it is dropped
+        // rather than blocking the thread that published it, for good.
+        wire_msg.send(m_publisherPub, static_cast<int>(zmq::send_flags::dontwait));
     }
 
     void ServerZmqImpl::abortQueue(const listener& l, long polling_interval)

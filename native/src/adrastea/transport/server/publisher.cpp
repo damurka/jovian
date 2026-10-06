@@ -11,7 +11,11 @@ namespace adrastea
         const std::string& ip,
         const std::string& port)
         : m_publisher(context, zmq::socket_type::xpub)
-        , m_listener(context, zmq::socket_type::sub)
+        // PULL, not SUB: what the kernel's threads publish reaches this thread through an inproc hop, and a PUB
+        // drops everything until the SUB's subscription has reached it, which happens asynchronously -- the first
+        // messages of a request handled within a millisecond of the kernel registering (status: busy,
+        // execute_input) were lost that way. A PUSH queues until the PULL reads: nothing is dropped, ever.
+        , m_listener(context, zmq::socket_type::pull)
         , m_controller(context, zmq::socket_type::rep)
         , m_serializeIopubMsgCb(std::move(serialize_iopub_msg_cb))
     {
@@ -25,7 +29,6 @@ namespace adrastea
         initSocket(m_publisher, transport, ip, port);
         // Set xpub_verbose option to 1 to pass all subscription messages (not only unique ones).
         m_publisher.set(zmq::sockopt::xpub_verbose, 1);
-        m_listener.set(zmq::sockopt::subscribe, "");
         m_listener.bind(getPublisherEndPoint());
         m_controller.set(zmq::sockopt::linger, getSocketLinger());
         m_controller.bind(getControllerEndPoint("publisher"));
