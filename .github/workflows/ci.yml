@@ -206,7 +206,10 @@ jobs:
         run: cmake --build dist/native --config Release
 
       - name: Run native tests (ctest)
-        run: ctest --test-dir dist/native -C Release --output-on-failure --timeout 180
+        env:
+          ELARA_LOG_LEVEL: debug
+          GTEST_REPEAT: 3
+        run: ctest --test-dir dist/native -C Release --output-on-failure --timeout 600
 
       # Said where it is read, not only in docs/releasing.md: a green run does not cover Stata.
       - name: Note what this run could not test

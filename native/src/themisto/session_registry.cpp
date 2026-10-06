@@ -422,9 +422,11 @@ namespace themisto
         // hang). The output channel is joined for certain once the kernel has answered the subscription with
         // its iopub_welcome: waited for, so that the first cell's output is never published before this client
         // hears it. A kernel that sends no welcome (not every Jupyter kernel does) is given half a second.
-        if (!session->client->waitForIopubWelcome(std::chrono::milliseconds(options.kernelType == "jupyter" ? 500 : 5000)))
         {
-            std::cerr << "[themisto] session " << id << ": no iopub_welcome from the kernel; its first output may be missed" << std::endl;
+            auto t0 = std::chrono::steady_clock::now();
+            bool welcomed = session->client->waitForIopubWelcome(std::chrono::milliseconds(options.kernelType == "jupyter" ? 500 : 5000));
+            std::cerr << "[themisto DIAG] session " << id << ": iopub_welcome " << (welcomed ? "arrived" : "NOT arrived") << " after "
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count() << " ms" << std::endl;
         }
 
         std::weak_ptr<Session> weakSession = session;
@@ -508,6 +510,7 @@ namespace themisto
                 if (auto pubOpt = client->popIopubMessage())
                 {
                     auto& msg = pubOpt.value();
+                    std::cerr << "[themisto DIAG] session " << session->id << ": iopub " << msg.header().value("msg_type", "") << " parent " << msg.parentHeader().value("msg_id", "") << std::endl;
                     json envelope = {
                         { "type", "message" },
                         { "channel", "iopub" },
@@ -693,6 +696,7 @@ namespace themisto
     bool SessionRegistry::sendRequest(const std::string& sessionId, const std::string& channel, const std::string& msgType,
                                       const std::string& msgId, const json& content, std::string& error)
     {
+        std::cerr << "[themisto DIAG] session " << sessionId << ": sendRequest " << msgType << " on " << channel << " id " << msgId << std::endl;
         static const std::set<std::string> kShellRequests = {
             "complete_request", "inspect_request", "is_complete_request", "kernel_info_request",
             "history_request", "comm_info_request", "comm_open", "comm_msg", "comm_close"

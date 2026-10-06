@@ -1,3 +1,4 @@
+#include <iostream>
 #include "adrastea/json.hpp"
 #include "adrastea/comm.hpp"
 #include "adrastea/core/kernel/kernel_core.hpp"
@@ -222,6 +223,7 @@ namespace adrastea
         const json& content = request.content();
         std::string target_name = content["target_name"];
         auto position = m_targets.find(target_name);
+        std::cerr << "[kernel DIAG] comm_open for target '" << target_name << "' (" << (position == m_targets.end() ? "unknown: comm_close" : "known") << ")" << std::endl;
 
         if (position == m_targets.end())
         {
