@@ -1329,7 +1329,7 @@ comm$send(list(second = 2))
             assert.deepStrictEqual(await session.r!.removePackages(['praise'], { lib }), ['praise']);
             assert.ok(!existsSync(join(lib, 'praise')));
 
-            const missing = await session.installPackages(['no.such.pkg.jovian'], { lib });
+            const missing = await session.r!.installPackages(['no.such.pkg.jovian'], { lib });
             assert.deepStrictEqual(missing.failed, ['no.such.pkg.jovian']);
             assert.ok(missing.warnings.some((w) => /was not found in/.test(w)), JSON.stringify(missing.warnings));
         } finally {
@@ -1346,7 +1346,7 @@ comm$send(list(second = 2))
             assert.ok(server.port > 0, JSON.stringify(server));
             const url = await session.r!.helpUrl('mean', 'base');
             assert.strictEqual(url, `${server.url}/library/base/html/mean.html`);
-            assert.strictEqual(await session.helpUrl('no_such_topic_jovian'), null);
+            assert.strictEqual(await session.r!.helpUrl('no_such_topic_jovian'), null);
             const page = await fetch(url!, { signal: AbortSignal.timeout(15000) });
             assert.strictEqual(page.status, 200);
             assert.match(await page.text(), /<title>R: Arithmetic Mean<\/title>/);
@@ -1553,7 +1553,7 @@ comm$send(list(second = 2))
             assert.deepStrictEqual(raw.rows, [['AMC Pacer', 4749, 3, 0], ['AMC Spirit', 3799, null, 0]]);
             const formatted = await session.stata!.data({ start: 3, count: 1, variables: ['price', 'rep78', 'foreign'], formatted: true });
             assert.deepStrictEqual(formatted.rows, [['3,799', '.', 'Domestic']]);
-            await assert.rejects(session.stataData({ variables: ['nosuchvar'] }), /no variable nosuchvar/);
+            await assert.rejects(session.stata!.data({ variables: ['nosuchvar'] }), /no variable nosuchvar/);
 
             // a wider dataset than a row is put together from at once (32 columns), with what JSON has to escape
             await session.execute('preserve');
@@ -1562,17 +1562,17 @@ comm$send(list(second = 2))
             await session.execute('forvalues i = 1/70 {\n    generate v`i\' = `i\' * _n\n}');
             await session.execute('replace v70 = .a in 2');
             await session.execute('generate str8 s = "a\\b" + char(34) + char(9) + "c"');
-            const wide = await session.stataDataset();
+            const wide = await session.stata!.dataset();
             assert.strictEqual(wide.variables.length, 71);
             assert.deepStrictEqual(wide.variables.map((v) => v.name).slice(31, 34), ['v32', 'v33', 'v34']);
-            const wideRaw = (await session.stataData()).rows;
+            const wideRaw = (await session.stata!.data()).rows;
             assert.deepStrictEqual(wideRaw.map((row) => row.length), [71, 71, 71]);
             assert.deepStrictEqual([wideRaw[0]![0], wideRaw[2]![32], wideRaw[1]![69], wideRaw[2]![69], wideRaw[0]![70]], [1, 99, '.a', 210, 'a\\b"\tc']);
-            const wideFormatted = (await session.stataData({ formatted: true })).rows;
+            const wideFormatted = (await session.stata!.data({ formatted: true })).rows;
             assert.deepStrictEqual([wideFormatted[0]![0], wideFormatted[2]![32], wideFormatted[1]![69], wideFormatted[2]![69], wideFormatted[0]![70]],
                 ['1', '99', '.a', '210', 'a\\b"\tc']);
             await session.execute('restore');
-            assert.strictEqual((await session.stataDataset()).observations, 74);
+            assert.strictEqual((await session.stata!.dataset()).observations, 74);
 
             assert.strictEqual((await session.isComplete('forvalues i = 1/3 {')).status, 'incomplete');
 

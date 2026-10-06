@@ -5,7 +5,15 @@ Versions come from tags (`docs/releasing.md`); the newest is first.
 
 ## Unreleased
 
-Nothing yet.
+- **`session.r` and `session.stata`** carry what only that kernel can do: `r.listPackages()`, `r.installPackages()`, `r.helpServer()`, `r.createShiny()` and the rest for an R session, `stata.dataset()` and `stata.data()` for a Stata session; `undefined` for any other kernel, so the type says what a session can do. The old names on `Session` (`session.listPackages()`, `session.stataDataset()`, `session.createShiny()`, ...) are gone: DataSuite, which pins its Jovian, moves to the new ones when it takes this version.
+- **A kernel's registration is verified and matched to its launch.** The supervisor takes a registration only when its signature checks and it is the launch's own (`--registration-id`); any other is refused and that kernel ends. Nothing on the machine can name a session's ports but its kernel.
+- **Large replies arrive 2 to 8 times sooner:** the supervisor no longer compresses WebSocket messages for a client on the same machine (a 4 MB page took 740 ms, now 190), and Stata's dataset answers are assembled at once (describing 2,000 variables: 185 ms, now 22).
+- **A session is ready when its output is heard:** the supervisor waits for the kernel's `iopub_welcome` instead of 50 ms, so the first cell's output cannot be published before it listens.
+- **Stopping and ending:** a kernel's last output is relayed, not dropped; a child process the kernel left behind (R's `system()`) no longer holds up its end; a kernel that answered `shutdown_request` and is ending on its own is given up to 12 s (2 s, as before, for one that is stuck).
+- **The next cell waits for the interrupt** of a timed-out one, so the interrupt cannot land on it. `createShiny()` tries another port when its own choice was taken. `detach()` stops the manager's own packages and helper sessions. Two processes starting a persistent supervisor at once share one.
+- The R debugger no longer writes to freed memory when a request timed out while R was stopped at a breakpoint.
+- hera has tests of its own (`npm run test:hera`), run in CI on every platform and R version.
+- The npm packages carry `THIRD_PARTY_NOTICES.md` (Adrastea began as a fork of QuantStack's xeus and xeus-zmq) and this changelog; the workspace declares Node >= 22.13; CI builds its native dependencies once.
 
 ## 0.2.10 (4 October 2026)
 
