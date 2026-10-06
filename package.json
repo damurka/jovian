@@ -1,9 +1,12 @@
 {
   "name": "jovian",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.0.0-development",
   "type": "module",
-  "description": "Development workspace for @damurka/jovian (published from dist/release by scripts/release.mjs)",
+  "description": "Development workspace for @damurka/jovian (published from dist/release by scripts/release.mjs; a release's version comes from its tag)",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "main": "dist/lib/index.js",
   "types": "dist/lib/index.d.ts",
   "exports": {

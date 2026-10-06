@@ -153,11 +153,16 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y uuid-dev
 
+      # At the manifest's builtin-baseline, not at whatever vcpkg's main is today: the ports' versions come from
+      # the baseline either way, but vcpkg's scripts and triplets come from the checkout, and they are part of a
+      # port's ABI hash -- a newer checkout made OpenSSL and ZeroMQ rebuild from source on every run.
       - name: Clone and bootstrap vcpkg
         shell: bash
         run: |
+          baseline=$(node -p "require('./vcpkg.json')['builtin-baseline']")
           git clone https://github.com/microsoft/vcpkg.git "$RUNNER_TEMP/vcpkg"
           cd "$RUNNER_TEMP/vcpkg"
+          git checkout --quiet "$baseline"
           if [ "$RUNNER_OS" = "Windows" ]; then
             ./bootstrap-vcpkg.bat
           else
@@ -165,9 +170,10 @@ jobs:
           fi
           echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
 
-      # vcpkg's own binary cache holds built port archives keyed by vcpkg.json's
-      # pinned builtin-baseline -- this is what actually saves time on repeat
-      # runs (rebuilding zeromq/openssl/etc. from source is the slow part).
+      # vcpkg's own binary cache holds built port archives: this is what saves time on repeat runs (building
+      # ZeroMQ and OpenSSL from source is the slow part). The key ends in the run's id, so every run saves what it
+      # built on top of what it restored: a cache is written only on a miss, and a key that never changed was hit
+      # every run and never saved again, so whatever a run had to build was built again by the next.
       - name: Cache vcpkg archives
         uses: actions/cache@v6
         with:
@@ -175,8 +181,9 @@ jobs:
             ~/.cache/vcpkg/archives
             ~/Library/Caches/vcpkg/archives
             ~\AppData\Local\vcpkg\archives
-          key: vcpkg-archives-${{ matrix.target }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg-overlays/**') }}
+          key: vcpkg-archives-${{ matrix.target }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg-overlays/**') }}-${{ github.run_id }}
           restore-keys: |
+            vcpkg-archives-${{ matrix.target }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg-overlays/**') }}-
             vcpkg-archives-${{ matrix.target }}-
 
       # This CMakeLists.txt assumes MSVC on Windows throughout once CMake
@@ -200,6 +207,15 @@ jobs:
 
       - name: Run native tests (ctest)
         run: ctest --test-dir dist/native -C Release --output-on-failure --timeout 180
+
+      # Said where it is read, not only in docs/releasing.md: a green run does not cover Stata.
+      - name: Note what this run could not test
+        shell: bash
+        run: |
+          {
+            echo "### Not covered on ${{ matrix.target }}"
+            echo "**Stata (Callisto):** CI has no licensed Stata, so callisto_test's Stata cases were skipped here and the Stata integration test does not run. Before a release, run them on a machine with Stata: \`STATA_HOME=... ctest --test-dir dist/native -C Release -R CallistoStataTextTest\` and \`STATA_HOME=... npm run test:integration\` (docs/releasing.md)."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # tar keeps the kernels' executable bit, which an artifact on its own loses (relative paths: Windows' GNU tar
       # reads "D:\..." as a remote host)
