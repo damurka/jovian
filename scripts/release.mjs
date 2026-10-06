@@ -85,7 +85,7 @@ export function mainManifest(version) {
             './package.json': './package.json'
         },
         engines: { node: '>=22.13.0' },
-        files: ['lib', 'docs', 'README.md', 'LICENSE'],
+        files: ['lib', 'docs', 'README.md', 'CHANGELOG.md', 'LICENSE'],
         optionalDependencies
     };
 }
@@ -130,6 +130,7 @@ export function stageMain(version, out = OUT) {
 
     cpSync(join(ROOT, 'docs'), join(dir, 'docs'), { recursive: true });
     cpSync(join(ROOT, 'README.md'), join(dir, 'README.md'));
+    cpSync(join(ROOT, 'CHANGELOG.md'), join(dir, 'CHANGELOG.md'));
     cpSync(join(ROOT, 'LICENSE'), join(dir, 'LICENSE'));
     writeJson(join(dir, 'package.json'), mainManifest(version));
     return dir;
