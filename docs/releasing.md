@@ -40,7 +40,7 @@ The main package goes last so nothing depends on a version that is not there yet
 
 1. Merge what is to be released (a pull request merges only once CI passed on it, up to date with `main`).
 2. Decide the version (semver). Nothing in the repository holds it: it comes from the tag (the workspace's `package.json` says `0.0.0-development` on purpose).
-3. Run what CI cannot: the Stata tests, on a machine with a licensed Stata (`STATA_HOME=... ctest --test-dir dist/native -C Release -R CallistoStataTextTest` and `STATA_HOME=... npm run test:integration`). CI's job summary says so on every run.
+3. Run what CI cannot: the Stata tests, on a machine with a licensed Stata (`STATA_HOME=... ctest --test-dir dist/native -C Release -R CallistoTest` and `STATA_HOME=... npm run test:integration`). CI's job summary says so on every run.
 4. Move `CHANGELOG.md`'s *Unreleased* entries under the new version with the date, in a pull request of their own or with the last change; the changelog ships in the npm package.
 5. Tag and push:
 
