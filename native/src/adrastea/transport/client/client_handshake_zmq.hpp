@@ -1,5 +1,5 @@
-#ifndef XHANDSHAKE_CLIENT_ZMQ_HPP
-#define XHANDSHAKE_CLIENT_ZMQ_HPP
+#ifndef ADRASTEA_CLIENT_HANDSHAKE_ZMQ_HPP
+#define ADRASTEA_CLIENT_HANDSHAKE_ZMQ_HPP
 
 #include <functional>
 #include <string>
@@ -32,7 +32,13 @@ namespace adrastea
         // Still bounded by an overall timeout regardless (covers a process
         // that's alive but never registers for some other reason, or a
         // caller that passes no predicate at all).
-        KernelConfiguration waitForConfiguration(const std::function<bool()>& shouldAbort = nullptr);
+        //
+        // A registration is accepted only when it is signed with this listener's key and, given
+        // `expectedKernelId`, when it is that kernel's (the id the supervisor passed it as --registration-id):
+        // the registration socket is one for every kernel, and a stale or foreign registration must not be
+        // taken for the one awaited. A refused one is answered so (its sender ends) and the wait goes on.
+        KernelConfiguration waitForConfiguration(const std::function<bool()>& shouldAbort = nullptr,
+            const std::string& expectedKernelId = std::string());
 
     private:
 

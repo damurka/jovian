@@ -115,7 +115,8 @@ namespace adrastea
                 buffers.emplace_back(buf, buf + msg.size());
             }
 
-            // TODO: should we verify with buffers
+            // The signature covers the header, parent header, metadata and content, and not the buffers: that is
+            // the Jupyter wire protocol's definition of it, and what every frontend and kernel computes.
             if (!auth.verify(makeRawBuffer(signature),
                 makeRawBuffer(header),
                 makeRawBuffer(parent_header),

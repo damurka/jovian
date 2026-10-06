@@ -122,6 +122,10 @@ See [`tools/playground/README.md`](tools/playground/README.md).
 
 Runnable examples are in [`examples/`](examples): [`basic/simple-execute.js`](examples/basic/simple-execute.js) (one session) and [`advanced/two-sessions.js`](examples/advanced/two-sessions.js) (two concurrent sessions, one blocking), and [`interactive/ask-for-input.ts`](examples/interactive/ask-for-input.ts) (R's `readline()` and Python's `input()` answered at the terminal; see [the input guide](docs/guides/interactive-input.md)).
 
+## Licence
+
+MIT (`LICENSE`). Adrastea, the transport and kernel core, began as a fork of QuantStack's xeus and xeus-zmq, under the BSD 3-Clause licence: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) has their notice and those of the libraries the binaries link.
+
 ## Contributing
 
 Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) has the rules, and the [issue forms](https://github.com/damurka/jovian/issues/new/choose) ask for what is needed to reproduce a bug.

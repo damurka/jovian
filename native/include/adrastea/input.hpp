@@ -1,5 +1,5 @@
-#ifndef XINPUT_HPP
-#define XINPUT_HPP
+#ifndef ADRASTEA_INPUT_HPP
+#define ADRASTEA_INPUT_HPP
 
 #include <string>
 #include "json.hpp"

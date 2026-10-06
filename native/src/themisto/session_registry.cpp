@@ -352,6 +352,9 @@ namespace themisto
                 // will hand back as the resulting KernelConfiguration's key
                 // (see the comment in startRegistrationListener()).
                 procOptions.key = m_registrationKey;
+                // This launch's id: the registration taken is the one that names it (a kernel of an earlier,
+                // timed-out launch registering late is refused). Ark's JEP 66 handshake carries no id.
+                procOptions.registrationId = adrastea::newGuid().toString();
                 if (options.kernelType == "r" || options.kernelType == "ark")
                 {
                     ensureRBinOnPath(options.rHome, options.rPath);
@@ -400,7 +403,8 @@ namespace themisto
                 // loaded, but this used to still take the full 60s to surface).
                 KernelProcess* spawnedProcess = session->process.get();
                 kernelConfig = m_registrationListener->waitForConfiguration(
-                    [spawnedProcess]() { return !spawnedProcess->isAlive(); });
+                    [spawnedProcess]() { return !spawnedProcess->isAlive(); },
+                    options.kernelType == "ark" ? std::string() : procOptions.registrationId);
             }
         }
         catch (const std::exception& e)

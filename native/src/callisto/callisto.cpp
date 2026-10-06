@@ -28,6 +28,8 @@ namespace
         std::string stataEdition;
         std::string registrationIp = "127.0.0.1";
         std::string registrationPort;
+        // What this kernel registers as: the supervisor checks it (empty: any)
+        std::string registrationId;
         std::string key;
         std::string connectionFile;
     };
@@ -64,6 +66,7 @@ namespace
             opts.registrationIp = ip;
         }
         opts.registrationPort = get("registration-port");
+        opts.registrationId = get("registration-id");
         opts.key = get("key");
         opts.connectionFile = get("connection-file");
         return opts;
@@ -163,6 +166,7 @@ int main(int argc, char* argv[])
                 regConfig.m_key = opts.key;
                 regConfig.m_registrationIp = opts.registrationIp;
                 regConfig.m_registrationPort = opts.registrationPort;
+                regConfig.m_kernelId = opts.registrationId;
 
                 auto auth = adrastea::makeAuthentication("hmac-sha256", opts.key);
 
