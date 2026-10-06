@@ -295,7 +295,7 @@ jobs:
       # agg_record() and, everywhere else, R's own png()
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          packages: any::later, any::IRdisplay${{ matrix.target == 'linux-x64' && matrix.r == 'release' && ', any::ragg' || '' }}
+          packages: any::testthat, any::later, any::IRdisplay${{ matrix.target == 'linux-x64' && matrix.r == 'release' && ', any::ragg' || '' }}
 
       - name: npm ci
         run: npm ci
@@ -312,6 +312,10 @@ jobs:
       - name: Unpack the kernels
         shell: bash
         run: mkdir -p dist/native && tar -xf native.tar -C dist/native
+
+      # hera's own tests: its R code loaded as Elara loads it, no kernel (packages/hera/tests)
+      - name: hera tests
+        run: npm run test:hera
 
       - name: Integration tests
         run: node --test --test-force-exit test/integration/*.test.ts

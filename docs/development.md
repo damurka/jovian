@@ -51,6 +51,7 @@ Platform notes baked into the build: Windows links the MSVC dynamic runtime, giv
 | Layer | Command | What it needs | What it covers |
 |---|---|---|---|
 | **Native (GoogleTest / CTest)** | `npm test` (first stage), or by hand: configure `dist/native-test` with `-DJOVIAN_BUILD_TESTS=ON`, build, `ctest --test-dir dist/native-test -C Release --output-on-failure --timeout 180` | vcpkg deps; R + `hera` for `SessionRegistryTest`; Python for `CarpoTest` | 12 CTest entries, below |
+| **hera (testthat)** | `npm run test:hera` | R with testthat (IRdisplay optional) | hera's R code loaded as Elara loads it (`tools:jovian`, every file in order, locked), with no kernel: the installer's version and dependency reading, the variables pane's sizes, previews and pages, completion, inspection, the package and help RPCs, what a value is shown as. What needs Elara's routines (JSON, display, output) is the integration tests' part. |
 | **TypeScript unit** | `npm run test:unit` | built `dist/lib` | `Session` against a fake WebSocket, `ExecutionQueue`, router, middleware, option bodies. No processes. |
 | **Integration** | `npm run test:integration` | built native binaries + `dist/lib`, R + `hera`; Python + `carpo` for the Python tests; a licensed Stata + `callisto` for the Stata test | Real `SessionManager` → `themisto` → `elara`/`carpo`: execute, streaming, stdin (R and Python), history, complete/inspect/is_complete/kernel_info, user expressions, `stopOnError`, interrupt (R and Python), working directory, stderr, comms (client- and kernel-initiated), `shutdown_reply` on stop/restart. Skips itself if `themisto` is not built; the Python tests skip without Python or `carpo`. |
 
@@ -58,7 +59,7 @@ CTest entries: `MessageTest`, `MiddlewareTest`, `AuthenticationTest`, `ZmqSerial
 
 Playground tests are separate: `npm --prefix tools/playground test`.
 
-`hera` is built into `elara`: after changing `packages/hera/R/*`, rebuild (`npm run build:native`): a session always runs the hera built into its kernel. Nothing is installed into R. `examples/r-execute-cases.ts` records everything a session sends for a set of cells (output, errors, plots, inspection) as JSON: run it before and after a change to hera and compare.
+`hera` is built into `elara`: after changing `packages/hera/R/*`, run its tests (`npm run test:hera`, no build needed) and rebuild (`npm run build:native`): a session always runs the hera built into its kernel. Nothing is installed into R. `examples/r-execute-cases.ts` records everything a session sends for a set of cells (output, errors, plots, inspection) as JSON: run it before and after a change to hera and compare.
 
 `npm test` (`scripts/test.js`) runs the native stage (with OpenCppCoverage if installed on Windows, otherwise plain `ctest`), then the two Node stages (`--test-force-exit`) through a wrapper that force-kills `node --test` after **20 minutes** — a backstop against a hung run, far above the couple of minutes the integration suite takes, so `npm test` is a valid one-shot check. The stages can also be run on their own: `npm run test:unit` and `npm run test:integration`.
 
