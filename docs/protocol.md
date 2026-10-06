@@ -163,6 +163,8 @@ Example — `complete_request` round trip:
 ← {"type":"message","channel":"iopub","topic":"kernel_core.<kernel>.status","msg_type":"status","parent_msg_id":"7f3…","content":{"execution_state":"idle"}}
 ```
 
+`content` is the kernel's own. For a message whose content is 64 KB or more, the supervisor puts the JSON text the kernel sent into the frame as it is, without parsing it and writing it again (which was two thirds of what a large output or reply cost): the keys of such a frame come in a different order, and the content keeps the kernel's spelling of it (its escapes, its key order). The supervisor has checked the signature, and that the text is one line of valid UTF-8; text that is not (JSON over several lines, bytes that are not UTF-8) is parsed and written again, as every smaller message is. A client parses each line of a frame on its own and skips one that does not parse.
+
 ## 4. Ordering guarantees (and their absence)
 
 - Messages on **one** ZMQ channel arrive in order. Across channels there is **no** ordering guarantee: iopub output published before an `execute_reply` can be relayed *after* it. The TypeScript `ExecutionQueue` compensates with a short (50 ms) grace wait when an `ok` reply arrives with no output collected yet.
