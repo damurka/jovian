@@ -131,6 +131,10 @@ namespace themisto
                             }
 
                             {
+                                // Installed under the same lock the poll thread calls them under, and the close
+                                // handler clears them under: the poll thread may be mid-call on the previous
+                                // connection's callbacks right now.
+                                std::lock_guard<std::mutex> lock(state->session->callbackMutex);
                                 // Called on the session's poll thread with
                                 // callbackMutex held: only a push, never a send.
                                 std::weak_ptr<Outbox> outbox = state->outbox;

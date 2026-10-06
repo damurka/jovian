@@ -184,7 +184,7 @@ Session.stop()                                   Session.restart(options?)
 stopSession:
   1. expectingExit = true                             (an orderly exit is not a crash)
   2. control: shutdown_request {restart}              (if the process is alive)
-  3. poll thread keeps running ≤ 2 s and relays iopub "shutdown" + control shutdown_reply
+  3. poll thread keeps running ≤ 2 s (≤ 12 s once the kernel answered) and relays iopub "shutdown" + control shutdown_reply
   4. stop poll thread, tear down the ZMQ client, force-kill if the process is still alive
      (normal for a session blocked inside shiny::runApp())
   5. status = stopped; the session is removed from the registry

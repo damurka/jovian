@@ -1,4 +1,6 @@
 #include <cstdint>
+#include <chrono>
+#include <condition_variable>
 #include <iostream>
 #include <string>
 
@@ -72,11 +74,28 @@ namespace adrastea
         }
     }
 
+    void ClientIopub::waitUntilListening()
+    {
+        std::unique_lock<std::mutex> lock(m_stateMutex);
+        m_stateChanged.wait(lock, [this] { return m_listening; });
+    }
+
+    bool ClientIopub::waitForWelcome(std::chrono::milliseconds timeout)
+    {
+        std::unique_lock<std::mutex> lock(m_stateMutex);
+        return m_stateChanged.wait_for(lock, timeout, [this] { return m_welcomed; });
+    }
+
     void ClientIopub::run()
     {
         zmq::pollitem_t items[] = {
             { m_iopub, 0, ZMQ_POLLIN, 0 }, { m_controller, 0, ZMQ_POLLIN, 0 }
         };
+        {
+            std::lock_guard<std::mutex> lock(m_stateMutex);
+            m_listening = true;
+            m_stateChanged.notify_all();
+        }
 
         while (true)
         {
@@ -88,6 +107,12 @@ namespace adrastea
                     zmq::multipart_t wire_msg;
                     wire_msg.recv(m_iopub);
                     PubMessage msg = p_clientImpl->deserializeIopub(wire_msg);
+                    if (msg.header().value("msg_type", "") == "iopub_welcome")
+                    {
+                        std::lock_guard<std::mutex> lock(m_stateMutex);
+                        m_welcomed = true;
+                        m_stateChanged.notify_all();
+                    }
                     {
                         std::lock_guard<std::mutex> guard(m_queueMutex);
                         m_messageQueue.push(std::move(msg));

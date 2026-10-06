@@ -170,19 +170,23 @@ namespace elara
         {
             return work();
         }
-        std::promise<adrastea::json> done;
-        auto result = done.get_future();
+        auto done = std::make_shared<std::promise<adrastea::json>>();
+        auto result = done->get_future();
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             if (!m_stopped)
             {
                 return response(request, false, adrastea::json::object(), "R is running: only answered when it is stopped");
             }
-            m_jobs.emplace_back(work, &done);
+            m_jobs.emplace_back(work, done);
         }
         m_wake.notify_all();
         if (result.wait_for(std::chrono::seconds(60)) != std::future_status::ready)
         {
+            // not run after all, if R's thread has not taken it yet; if it has, its answer goes to a promise nobody
+            // waits on, which is fine
+            std::lock_guard<std::mutex> lock(m_mutex);
+            std::erase_if(m_jobs, [&](const Job& job) { return job.second == done; });
             return response(request, false, adrastea::json::object(), "R did not answer");
         }
         return result.get();
@@ -549,7 +553,7 @@ namespace elara
         std::string resume;
         for (;;)
         {
-            std::pair<std::function<adrastea::json()>, std::promise<adrastea::json>*> job;
+            Job job;
             bool haveJob = false;
             {
                 std::unique_lock<std::mutex> lock(m_mutex);

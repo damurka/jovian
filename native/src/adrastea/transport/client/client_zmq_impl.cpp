@@ -272,6 +272,13 @@ namespace adrastea
     {
         startIopubThread();
         startHeartbeatThread();
+        m_iopubClient.waitUntilListening();
+        m_heartbeatClient.waitUntilListening();
+    }
+
+    bool ClientZmqImpl::waitForIopubWelcome(std::chrono::milliseconds timeout)
+    {
+        return m_iopubClient.waitForWelcome(timeout);
     }
 
     void ClientZmqImpl::startIopubThread()

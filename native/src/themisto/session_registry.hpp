@@ -126,6 +126,8 @@ namespace themisto
         // spurious kernelExit and flip the status to Crashed for a perfectly
         // orderly, protocol-driven shutdown).
         std::atomic<bool> expectingExit{ false };
+        // Whether the kernel answered the shutdown_request: it is then given more time to end (stopSession())
+        std::atomic<bool> answeredShutdown{ false };
 
         // kernelType "jupyter": the connection file the kernel was started
         // with, removed when the session goes (empty for the others).

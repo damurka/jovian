@@ -228,6 +228,31 @@ test('ExecutionQueue', async (t) => {
         );
     });
 
+    await t.test('after a timeout, the next cell is sent only once the interrupt has been answered', async () => {
+        // The interrupt of a timed-out cell is a round trip of its own; the next cell sent before it is answered
+        // could be what the interrupt lands on (the timed-out cell having ended by itself in between).
+        const emitter = new EventEmitter();
+        const executed: string[] = [];
+        let nextMsgId = 0;
+        const addon = { execute: (code: string) => { executed.push(code); return `msg-${++nextMsgId}`; } };
+        let answerInterrupt: () => void = () => { };
+        const interrupted = new Promise<void>((resolve) => { answerInterrupt = resolve; });
+        const queue = new ExecutionQueue(addon, emitter, 100, undefined, () => interrupted);
+
+        const slow = queue.execute('slow', { timeout: 20 });
+        const next = queue.execute('next');
+        await assert.rejects(slow, /timed out .*interrupted/);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        assert.deepStrictEqual(executed, ['slow'], 'the next cell waits for the interrupt');
+
+        answerInterrupt();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        assert.deepStrictEqual(executed, ['slow', 'next']);
+        emitter.emit('message', message('execute_reply', 'msg-2', { status: 'ok' }));
+        emitter.emit('message', message('status', 'msg-2', { execution_state: 'idle' }));
+        await next;
+    });
+
     await t.test('should not time out while blocked on an input_request, even past the configured timeout', async () => {
         // Regression test for a real, reported problem: the playground's
         // execute timeout used to apply even while a kernel was genuinely,
