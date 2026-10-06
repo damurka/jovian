@@ -2,6 +2,8 @@
 #define THEMISTO_KERNEL_PROCESS_HPP
 
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -99,6 +101,7 @@ namespace themisto
 
     private:
         void startOutputPump(void* readHandle);
+        void endOutputPump();
 
 #ifndef _WIN32
         // Wraps waitpid(m_processId, ...), caching the result the first
@@ -115,7 +118,12 @@ namespace themisto
 
         KernelProcessOptions m_options;
         std::thread m_outputThread;
+        // Cleared by kill(): the pump then takes what is in the pipe and ends, instead of waiting for an end of
+        // file that a child of the kernel's (one that inherited the pipe) may never give.
         std::atomic<bool> m_running{ false };
+        std::mutex m_pumpMutex;
+        std::condition_variable m_pumpEnded;
+        bool m_pumpExited = false;
 
 #ifdef _WIN32
         void* m_processHandle = nullptr;

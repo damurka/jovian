@@ -45,7 +45,7 @@ export class ExecutionQueue {
     private maxSize: number;
     private pending: Map<string, PendingExecution> = new Map();
     private logger?: Logger;
-    private onTimeout?: (msgId: string) => void;
+    private onTimeout?: (msgId: string) => void | Promise<unknown>;
     private idleWaitMs: number;
 
     // `onTimeout` is called when an execution times out (unless that
@@ -53,7 +53,7 @@ export class ExecutionQueue {
     // interrupt the kernel -- otherwise the kernel keeps running code nobody
     // is waiting for, and everything queued behind it (and every complete/
     // inspect request) is stuck behind it.
-    constructor(addon: any, emitter: EventEmitter, maxSize: number = 100, logger?: Logger, onTimeout?: (msgId: string) => void, idleWaitMs: number = DEFAULT_IDLE_WAIT_MS) {
+    constructor(addon: any, emitter: EventEmitter, maxSize: number = 100, logger?: Logger, onTimeout?: (msgId: string) => void | Promise<unknown>, idleWaitMs: number = DEFAULT_IDLE_WAIT_MS) {
         this.addon = addon;
         this.onTimeout = onTimeout;
         this.idleWaitMs = idleWaitMs;
@@ -129,15 +129,20 @@ export class ExecutionQueue {
                 this.logger?.error(`Execution ${msgId} timed out after ${timeoutMs}ms`, { code: previewCode(item.code) });
                 this.pending.delete(msgId);
                 const interrupting = item.options.interruptOnTimeout !== false && this.onTimeout !== undefined;
+                // The next cell goes only once the interrupt has been answered: sent at once, it could be what
+                // the interrupt lands on, the timed-out cell having ended by itself in between.
+                let interrupted: Promise<unknown> = Promise.resolve();
                 if (interrupting) {
                     try {
-                        this.onTimeout!(msgId);
+                        interrupted = Promise.resolve(this.onTimeout!(msgId));
                     } catch (error) {
                         this.logger?.error('Interrupting after a timeout failed', { error });
                     }
                 }
                 item.reject(new Error(`Execution timed out after ${timeoutMs}ms` + (interrupting ? ' (the kernel was interrupted)' : '')));
-                this.processNext();
+                void interrupted
+                    .catch((error) => this.logger?.error('Interrupting after a timeout failed', { error }))
+                    .then(() => this.processNext());
             }, timeoutMs)
             : undefined;
 

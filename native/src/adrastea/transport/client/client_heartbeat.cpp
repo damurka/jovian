@@ -1,4 +1,6 @@
+#include <condition_variable>
 #include <iostream>
+#include <mutex>
 
 #include "client_heartbeat.hpp"
 #include "client_zmq_impl.hpp"
@@ -116,9 +118,20 @@ namespace adrastea
         m_kernelStatusListener(status);
     }
 
+    void ClientHeartbeat::waitUntilListening()
+    {
+        std::unique_lock<std::mutex> lock(m_stateMutex);
+        m_stateChanged.wait(lock, [this] { return m_listening; });
+    }
+
     void ClientHeartbeat::run()
     {
         std::size_t retry_count = 0;
+        {
+            std::lock_guard<std::mutex> lock(m_stateMutex);
+            m_listening = true;
+            m_stateChanged.notify_all();
+        }
 
         while (!m_requestStop)
         {

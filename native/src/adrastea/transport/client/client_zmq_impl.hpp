@@ -73,7 +73,9 @@ namespace adrastea
         void stopChannels();
 
         void waitForMessage();
+        // Returns once the iopub and heartbeat threads are listening (a stop sent before that could hang).
         void start();
+        bool waitForIopubWelcome(std::chrono::milliseconds timeout);
 
         // Returns once a message may be waiting on iopub, shell, control or
         // stdin, or after `timeout` -- for a thread that drains them all

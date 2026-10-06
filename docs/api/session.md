@@ -183,7 +183,7 @@ Replaces the kernel process under the **same session id** — recovers a crashed
 
 ### `stop(): Promise<void>`
 
-Sends the kernel `shutdown_request{restart: false}` through the supervisor, waits for the process to exit (force-killed after ~2 s if it does not), waits up to 250 ms for the `shutdown_reply` to be observable, closes the socket and emits `'stopped'`. Idempotent. Pending work rejects (`Queue cleared`, `Session stopped`).
+Sends the kernel `shutdown_request{restart: false}` through the supervisor, waits for the process to exit (force-killed after 2 s when the kernel did not answer the request -- it is stuck; one that answered is ending on its own and is given up to 12 s), waits up to 250 ms for the `shutdown_reply` to be observable, closes the socket and emits `'stopped'`. Idempotent. Pending work rejects (`Queue cleared`, `Session stopped`).
 
 ### `kill(): void`
 

@@ -28,6 +28,8 @@ namespace adrastea
 
         void connect();
         void start();
+        // Whether the kernel has confirmed this client's output subscription (iopub_welcome) within `timeout`
+        bool waitForIopubWelcome(std::chrono::milliseconds timeout);
         void stopChannels();
 
         void sendOnShell(Message msg);

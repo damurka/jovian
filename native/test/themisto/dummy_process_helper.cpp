@@ -11,6 +11,7 @@
 // until killed (for testing isAlive()==true while running and kill()
 // actually terminating it).
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <thread>
@@ -29,6 +30,19 @@ int main(int argc, char** argv)
     {
         if (std::strcmp(argv[i], "--key") == 0 && std::strcmp(argv[i + 1], "quick-exit") == 0)
         {
+            return 0;
+        }
+        // "--key child-keeps-pipe": a child that inherits this process's output pipe outlives it by 20 s, as a
+        // kernel's R system() call can. KernelProcess::kill() must not wait for the pipe's end of file then.
+        if (std::strcmp(argv[i], "--key") == 0 && std::strcmp(argv[i + 1], "child-keeps-pipe") == 0)
+        {
+#ifdef _WIN32
+            std::system("start /b ping -n 20 127.0.0.1 > NUL");
+#else
+            std::system("sleep 20 &");
+#endif
+            std::cout << "child started\n";
+            std::cout.flush();
             return 0;
         }
     }

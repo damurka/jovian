@@ -418,23 +418,14 @@ namespace themisto
         session->client->connect();
         session->client->start();
 
-        // client->start() spawns ClientZmqImpl's iopub/heartbeat threads
-        // (client_zmq_impl.cpp) but returns as soon as they're constructed,
-        // not once they've reached their own listening loops. Those loops
-        // are what ClientMessenger::stopChannels() (client_messenger.cpp)
-        // signals via a REQ/REP "stop" round trip -- if stopSession() runs
-        // fast enough after this (e.g. a session stopped almost immediately
-        // after creation, with little else happening in between), the
-        // "stop" REQ can be sent before the REP side is listening, and
-        // ClientMessenger::stopChannels() then blocks forever on a reply
-        // that was never going to come (found via
-        // test/session_registry_test.cpp: an intermittent hang, present
-        // only on fast create-then-stop sequences). No readiness signal
-        // exists to wait on instead; this settle delay is a pragmatic
-        // mitigation for a startup race in shared client code, not a fix
-        // to it -- a real fix belongs in ClientIopub/ClientHeartbeat
-        // themselves (e.g. signaling readiness before entering their loop).
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        // client->start() returns once its iopub and heartbeat threads listen (a stop sent before that used to
+        // hang). The output channel is joined for certain once the kernel has answered the subscription with
+        // its iopub_welcome: waited for, so that the first cell's output is never published before this client
+        // hears it. A kernel that sends no welcome (not every Jupyter kernel does) is given half a second.
+        if (!session->client->waitForIopubWelcome(std::chrono::milliseconds(options.kernelType == "jupyter" ? 500 : 5000)))
+        {
+            std::cerr << "[themisto] session " << id << ": no iopub_welcome from the kernel; its first output may be missed" << std::endl;
+        }
 
         std::weak_ptr<Session> weakSession = session;
         session->client->registerKernelStatusListener([weakSession](bool dead) {
@@ -499,6 +490,7 @@ namespace themisto
         // expects exactly these keys -- reusing it outright instead of
         // writing a second parser.
         auto relay = [session](const char* channel, const adrastea::Message& msg) {
+            if (msg.header().value("msg_type", "") == "shutdown_reply") session->answeredShutdown = true;
             json envelope = {
                 { "type", "message" },
                 { "channel", channel },
@@ -835,6 +827,7 @@ namespace themisto
             // From here the process exiting is expected -- pollLoop()'s
             // OS-level watchdog must not report it as a crash.
             session->expectingExit = true;
+            session->answeredShutdown = false;
 
             json shutHeader = adrastea::makeHeader("shutdown_request", "client_user", id);
             json shutContent = { { "restart", restart } };
@@ -855,7 +848,9 @@ namespace themisto
         // inside e.g. shiny::runApp() never gets to process the request
         // (the interpreter thread is stuck), so force-kill after the grace
         // window is the normal path for it, not a sign anything's wrong.
-        for (int i = 0; i < 20 && session->process && session->process->isAlive(); ++i)
+        // A kernel that answered the request is ending on its own (saving, closing what it had open): it gets
+        // up to 10 s more; one that did not answer within 2 s is stuck and gets no more.
+        for (int i = 0; session->process && session->process->isAlive() && (i < 20 || (session->answeredShutdown && i < 120)); ++i)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }

@@ -30,7 +30,7 @@ const session = await manager.createSession({
 
 1. The client asks the supervisor to stop the session (`DELETE /sessions/:id`).
 2. The supervisor sends the kernel a real Jupyter `shutdown_request` with `restart: false` on the control channel.
-3. It waits up to about **2 seconds** for the kernel to exit by itself, force-killing it if it does not (a kernel busy inside `shiny::runApp()` never gets to process the request — force-kill is the normal path there, not a fault).
+3. It waits for the kernel to exit by itself: up to **2 seconds** when the kernel has not answered the request (it is stuck -- a kernel busy inside `shiny::runApp()` never gets to process it, and force-kill is the normal path there, not a fault), up to **12 seconds** once it has answered (it is ending on its own: saving, closing what it had open). Then it is force-killed.
 4. The kernel's `shutdown_reply` (and its iopub `shutdown` message) reach your `Session` and are emitted as the `'shutdown_reply'` event; then `'stopped'` fires.
 
 An orderly stop is **never** reported as a crash (`'exit'` is not emitted). A stopped session is gone from the supervisor; `restart()` on it throws.

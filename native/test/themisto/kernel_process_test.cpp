@@ -122,6 +122,24 @@ TEST(KernelProcessTest, IsAliveBecomesFalseAfterTheProcessExitsOnItsOwn)
     EXPECT_TRUE(exited);
 }
 
+TEST(KernelProcessTest, KillDoesNotWaitForAChildThatKeepsTheOutputPipeOpen)
+{
+    // A child the kernel started (R's system()) inherits the kernel's output pipe and may outlive it: the pump
+    // reading that pipe then never sees its end of file. kill() must still return promptly -- it used to join
+    // the pump, and so wait for the child.
+    KernelProcessOptions options;
+    options.kernelExePath = THEMISTO_TEST_DUMMY_PROCESS_EXE;
+    options.key = "child-keeps-pipe";
+    KernelProcess process(options);
+    process.start();
+    ASSERT_TRUE(waitFor([&] { return !process.isAlive(); }, 5000)) << "the helper itself exits at once";
+
+    const auto started = std::chrono::steady_clock::now();
+    process.kill();
+    const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+    EXPECT_LT(took, 3000) << "kill() waited for the child (" << took << " ms)";
+}
+
 TEST(KernelProcessTest, KillIsSafeToCallOnAnAlreadyExitedProcess)
 {
     // Guards against the exact class of bug fixed elsewhere in this session

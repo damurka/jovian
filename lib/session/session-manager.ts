@@ -303,9 +303,8 @@ export class Session extends EventEmitter {
                 return id;
             }
         };
-        this.queue = new ExecutionQueue(wsAddon, this, options.queueSize, this.logger, () => {
-            void this.interrupt();
-        });
+        // answered (or given up on, after its own timeout) before the queue sends the next cell
+        this.queue = new ExecutionQueue(wsAddon, this, options.queueSize, this.logger, () => this.interrupt());
 
         this.readyPromise = this.connect();
     }
@@ -1353,10 +1352,19 @@ export class SessionManager {
             await this.stopAll();
             return;
         }
-        await Promise.all([...this.sessions].map((session) => session.disconnect()));
-        this.sessions.clear();
+        // The manager's own sessions -- the packages sessions of its installs and the helper R processes -- are
+        // nobody's to attach to later: stopped, not left running in the supervisor.
+        const packages = [...this.packagesSessions.values()];
+        this.packagesSessions.clear();
+        await Promise.all(packages.map(async (entry) => {
+            if (entry.idle) clearTimeout(entry.idle);
+            const session = await entry.session.catch(() => undefined);
+            await session?.stop().catch(() => undefined);
+        }));
         await Promise.all([...this.rHelpers.values()].map((helper) => helper.stop()));
         this.rHelpers.clear();
+        await Promise.all([...this.sessions].filter((session) => !session.isStopped).map((session) => session.disconnect()));
+        this.sessions.clear();
     }
 
     /** Creates a new R session in its own OS process and waits for it to be ready. */

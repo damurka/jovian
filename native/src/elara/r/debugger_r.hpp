@@ -95,7 +95,11 @@ namespace elara
         bool m_browsed = false;
         std::string m_locationPath;  // where R is, from its last "debug at file#line:"
         int m_locationLine = 0;
-        std::deque<std::pair<std::function<adrastea::json()>, std::promise<adrastea::json>*>> m_jobs;
+        // Work for R's thread, each with the promise its asker waits on: shared, since the asker may have given
+        // up waiting (onRThread()'s timeout) before R's thread gets to it, and a promise it had on its stack
+        // would be gone by then.
+        using Job = std::pair<std::function<adrastea::json()>, std::shared_ptr<std::promise<adrastea::json>>>;
+        std::deque<Job> m_jobs;
 
         // variablesReference -> the frame environment or object (preserved), while stopped
         std::map<int, void*> m_references;

@@ -10,6 +10,8 @@
 #include <stdexcept>
 #include <system_error>
 #include <vector>
+#include <condition_variable>
+#include <mutex>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -17,6 +19,7 @@
 #include <psapi.h>
 #else
 #include <cerrno>
+#include <poll.h>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
@@ -249,49 +252,79 @@ namespace themisto
     {
         m_running = true;
         std::string label = outputPumpLabel(m_options.kernelExePath);
+        // The pump reads until the pipe's end of file (the kernel ended and nothing else holds its end), or,
+        // once kill() clears m_running, until what is already in the pipe is read: it never blocks in a read
+        // that only a child of the kernel's could end. A line is written as soon as it is complete.
+        auto relay = [label](std::string& carry) {
+            std::size_t pos;
+            while ((pos = carry.find('\n')) != std::string::npos)
+            {
+                std::cerr << "[" << label << "] " << carry.substr(0, pos) << std::endl;
+                carry.erase(0, pos + 1);
+            }
+        };
+        auto ended = [this]() {
+            std::lock_guard<std::mutex> lock(m_pumpMutex);
+            m_pumpExited = true;
+            m_pumpEnded.notify_all();
+        };
+        {
+            std::lock_guard<std::mutex> lock(m_pumpMutex);
+            m_pumpExited = false;
+        }
 #ifdef _WIN32
         HANDLE handle = static_cast<HANDLE>(readHandle);
-        m_outputThread = std::thread([this, handle, label]() {
+        m_outputThread = std::thread([this, handle, label, relay, ended]() {
             char buffer[4096];
             std::string carry;
-            DWORD bytesRead = 0;
-            while (m_running && ReadFile(handle, buffer, sizeof(buffer), &bytesRead, nullptr) && bytesRead > 0)
+            for (;;)
             {
-                carry.append(buffer, bytesRead);
-                std::size_t pos;
-                while ((pos = carry.find('\n')) != std::string::npos)
+                DWORD available = 0;
+                if (!PeekNamedPipe(handle, nullptr, 0, nullptr, &available, nullptr)) break; // end of file
+                if (available > 0)
                 {
-                    std::cerr << "[" << label << "] " << carry.substr(0, pos) << std::endl;
-                    carry.erase(0, pos + 1);
+                    DWORD bytesRead = 0;
+                    if (!ReadFile(handle, buffer, sizeof(buffer), &bytesRead, nullptr) || bytesRead == 0) break;
+                    carry.append(buffer, bytesRead);
+                    relay(carry);
+                    continue;
                 }
+                if (!m_running) break;
+                Sleep(10);
             }
             if (!carry.empty())
             {
                 std::cerr << "[" << label << "] " << carry << std::endl;
             }
             CloseHandle(handle);
+            ended();
         });
 #else
         int fd = static_cast<int>(reinterpret_cast<intptr_t>(readHandle));
-        m_outputThread = std::thread([this, fd, label]() {
+        m_outputThread = std::thread([this, fd, label, relay, ended]() {
             char buffer[4096];
             std::string carry;
-            ssize_t bytesRead;
-            while (m_running && (bytesRead = read(fd, buffer, sizeof(buffer))) > 0)
+            for (;;)
             {
-                carry.append(buffer, static_cast<std::size_t>(bytesRead));
-                std::size_t pos;
-                while ((pos = carry.find('\n')) != std::string::npos)
+                pollfd item{ fd, POLLIN, 0 };
+                int ready = poll(&item, 1, m_running ? 250 : 0);
+                if (ready > 0)
                 {
-                    std::cerr << "[" << label << "] " << carry.substr(0, pos) << std::endl;
-                    carry.erase(0, pos + 1);
+                    ssize_t bytesRead = read(fd, buffer, sizeof(buffer));
+                    if (bytesRead <= 0) break; // end of file, or an error
+                    carry.append(buffer, static_cast<std::size_t>(bytesRead));
+                    relay(carry);
+                    continue;
                 }
+                if (ready < 0 && errno != EINTR) break;
+                if (!m_running) break;
             }
             if (!carry.empty())
             {
                 std::cerr << "[" << label << "] " << carry << std::endl;
             }
             close(fd);
+            ended();
         });
 #endif
     }
@@ -456,17 +489,27 @@ namespace themisto
 
     void KernelProcess::kill()
     {
-        m_running = false;
         if (m_processHandle)
         {
             TerminateProcess(static_cast<HANDLE>(m_processHandle), 1);
             CloseHandle(static_cast<HANDLE>(m_processHandle));
             m_processHandle = nullptr;
         }
-        if (m_outputThread.joinable())
+        endOutputPump();
+    }
+
+    // The last of the kernel's output is relayed, not dropped: the pump is given a moment to reach the pipe's end
+    // of file (the kernel's end closed with it), and told to stop only if that does not come -- a child of the
+    // kernel's that inherited the pipe (R's system(), say) keeps it open for as long as it lives.
+    void KernelProcess::endOutputPump()
+    {
+        if (!m_outputThread.joinable()) return;
         {
-            m_outputThread.join();
+            std::unique_lock<std::mutex> lock(m_pumpMutex);
+            m_pumpEnded.wait_for(lock, std::chrono::seconds(1), [this] { return m_pumpExited; });
         }
+        m_running = false;
+        m_outputThread.join();
     }
 
     std::string KernelProcess::describeStatus() const
@@ -739,17 +782,17 @@ namespace themisto
 
     void KernelProcess::kill()
     {
-        m_running = false;
         if (m_processId > 0)
         {
-            ::kill(m_processId, SIGKILL);
-            waitpidCached(0); // blocking; a no-op if already reaped (e.g. isAlive() got there first)
+            // Not after it was reaped (isAlive() may have been first): the pid may be another process's by now.
+            if (!m_reaped)
+            {
+                ::kill(m_processId, SIGKILL);
+                waitpidCached(0);
+            }
             m_processId = -1;
         }
-        if (m_outputThread.joinable())
-        {
-            m_outputThread.join();
-        }
+        endOutputPump();
     }
 
     std::string KernelProcess::describeStatus() const

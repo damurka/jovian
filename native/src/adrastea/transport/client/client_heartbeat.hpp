@@ -2,6 +2,8 @@
 #define ADRASTEA_HEARTBEAT_CLIENT_HPP
 
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <chrono>
 #include <cstddef>
 #include <functional>
@@ -28,6 +30,9 @@ namespace adrastea
 
         void run();
 
+        // Returns once run() has begun: a stop sent before that could wait for an answer that never came.
+        void waitUntilListening();
+
         void registerKernelStatusListener(const kernel_status_listener& l);
         void notifyKernelDead(bool status);
 
@@ -47,6 +52,9 @@ namespace adrastea
 
         std::string m_heartbeatEndPoint;
         bool m_requestStop;
+        std::mutex m_stateMutex;
+        std::condition_variable m_stateChanged;
+        bool m_listening = false;
 
         std::atomic<long long> m_lastRttMicros{ -1 };
         std::atomic<long long> m_lastPongMs{ -1 }; // steady_clock, ms since its epoch

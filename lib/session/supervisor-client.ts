@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'child_process';
-import { closeSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { createInterface } from 'readline';
 import { dirname, join } from 'path';
 import type { EngineOptions, SessionStatusInfo } from '../types/index.js';
@@ -183,17 +183,61 @@ export class SupervisorClient {
     }
 
     private async startOrFind(): Promise<SupervisorEndpoint> {
-        if (this.persistent) {
-            const known = readSupervisorState(this.persistent.stateFile);
-            if (known && await this.answers(known)) {
-                this.logger.info(`Reconnected to the supervisor (pid ${known.pid})`);
-                return known;
-            }
+        if (!this.persistent) return this.spawnSupervisor();
+
+        const stateFile = this.persistent.stateFile;
+        const known = readSupervisorState(stateFile);
+        if (known && await this.answers(known)) {
+            this.logger.info(`Reconnected to the supervisor (pid ${known.pid})`);
+            return known;
         }
-        if (this.persistent) mkdirSync(dirname(this.persistent.stateFile), { recursive: true });
-        const endpoint = await this.spawnSupervisor();
-        if (this.persistent) writeSupervisorState(this.persistent.stateFile, endpoint);
-        return endpoint;
+        mkdirSync(dirname(stateFile), { recursive: true });
+
+        // One process starts the supervisor; another that finds it being started waits for its state file,
+        // instead of starting a second one. The lock is a file made exclusively beside the state file; one
+        // left by a starter that died (older than a minute) is taken over.
+        const lockFile = `${stateFile}.lock`;
+        const release = this.takeStartLock(lockFile);
+        try {
+            if (!release) {
+                for (let waited = 0; waited < 15_000; waited += 250) {
+                    await new Promise((resolve) => setTimeout(resolve, 250));
+                    const theirs = readSupervisorState(stateFile);
+                    if (theirs && await this.answers(theirs)) {
+                        this.logger.info(`Connected to the supervisor another process started (pid ${theirs.pid})`);
+                        return theirs;
+                    }
+                }
+                throw new Error(`Another process is starting the supervisor (${lockFile}) but it has not come up`);
+            }
+            // started by another process while this one waited for the lock
+            const started = readSupervisorState(stateFile);
+            if (started && started.token !== known?.token && await this.answers(started)) {
+                return started;
+            }
+            const endpoint = await this.spawnSupervisor();
+            writeSupervisorState(stateFile, endpoint);
+            return endpoint;
+        } finally {
+            release?.();
+        }
+    }
+
+    // Takes the start lock: what releases it, or undefined when another process holds it.
+    private takeStartLock(lockFile: string): (() => void) | undefined {
+        try {
+            closeSync(openSync(lockFile, 'wx'));
+            return () => { try { unlinkSync(lockFile); } catch { /* gone already */ } };
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+            try {
+                if (Date.now() - statSync(lockFile).mtimeMs > 60_000) {
+                    unlinkSync(lockFile);
+                    return this.takeStartLock(lockFile);
+                }
+            } catch { /* the lock went between the look and the removal: someone holds a fresh one */ }
+            return undefined;
+        }
     }
 
     // Whether a recorded supervisor is still there and takes its token.
