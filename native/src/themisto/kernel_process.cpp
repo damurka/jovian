@@ -329,6 +329,20 @@ namespace themisto
 #endif
     }
 
+    // The last of the kernel's output is relayed, not dropped: the pump is given a moment to reach the pipe's end
+    // of file (the kernel's end closed with it), and told to stop only if that does not come -- a child of the
+    // kernel's that inherited the pipe (R's system(), say) keeps it open for as long as it lives.
+    void KernelProcess::endOutputPump()
+    {
+        if (!m_outputThread.joinable()) return;
+        {
+            std::unique_lock<std::mutex> lock(m_pumpMutex);
+            m_pumpEnded.wait_for(lock, std::chrono::seconds(1), [this] { return m_pumpExited; });
+        }
+        m_running = false;
+        m_outputThread.join();
+    }
+
 #ifdef _WIN32
     void KernelProcess::start()
     {
@@ -496,20 +510,6 @@ namespace themisto
             m_processHandle = nullptr;
         }
         endOutputPump();
-    }
-
-    // The last of the kernel's output is relayed, not dropped: the pump is given a moment to reach the pipe's end
-    // of file (the kernel's end closed with it), and told to stop only if that does not come -- a child of the
-    // kernel's that inherited the pipe (R's system(), say) keeps it open for as long as it lives.
-    void KernelProcess::endOutputPump()
-    {
-        if (!m_outputThread.joinable()) return;
-        {
-            std::unique_lock<std::mutex> lock(m_pumpMutex);
-            m_pumpEnded.wait_for(lock, std::chrono::seconds(1), [this] { return m_pumpExited; });
-        }
-        m_running = false;
-        m_outputThread.join();
     }
 
     std::string KernelProcess::describeStatus() const
