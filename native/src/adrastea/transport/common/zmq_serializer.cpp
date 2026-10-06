@@ -1,3 +1,5 @@
+#include <cstdint>
+#include <cstring>
 #include "zmq_serializer.hpp"
 #include "adrastea/json.hpp"
 #include <stdexcept>
@@ -85,8 +87,82 @@ namespace adrastea
             }
         }
 
-        std::tuple<json, json, json, json, buffer_sequence>  deserializeMessageBase(zmq::multipart_t& wire_msg,
-            const Authentication& auth)
+        // Whether a text is valid UTF-8 with no control character in it (so: on one line). JSON text that passes
+        // can be put inside another JSON text, and sent in a WebSocket text frame, as it is. A text that fails is
+        // not wrong, only parsed and written again as before: JSON may have newlines and tabs between its tokens.
+        bool isOneLineOfUtf8(const unsigned char* p, std::size_t n)
+        {
+            std::size_t i = 0;
+            while (i < n)
+            {
+                // eight bytes at a time while they are ASCII and none is below 0x20
+                while (i + 8 <= n)
+                {
+                    std::uint64_t v;
+                    std::memcpy(&v, p + i, 8);
+                    if ((v & 0x8080808080808080ull) != 0 || ((v - 0x2020202020202020ull) & ~v & 0x8080808080808080ull) != 0)
+                    {
+                        break;
+                    }
+                    i += 8;
+                }
+                if (i >= n)
+                {
+                    break;
+                }
+                const unsigned char c = p[i];
+                if (c < 0x20)
+                {
+                    return false;
+                }
+                if (c < 0x80)
+                {
+                    ++i;
+                    continue;
+                }
+                std::size_t length;
+                std::uint32_t code, smallest;
+                if ((c & 0xE0) == 0xC0) { length = 2; code = c & 0x1Fu; smallest = 0x80; }
+                else if ((c & 0xF0) == 0xE0) { length = 3; code = c & 0x0Fu; smallest = 0x800; }
+                else if ((c & 0xF8) == 0xF0) { length = 4; code = c & 0x07u; smallest = 0x10000; }
+                else { return false; }
+                if (i + length > n)
+                {
+                    return false;
+                }
+                for (std::size_t k = 1; k < length; ++k)
+                {
+                    const unsigned char next = p[i + k];
+                    if ((next & 0xC0) != 0x80)
+                    {
+                        return false;
+                    }
+                    code = (code << 6) | (next & 0x3Fu);
+                }
+                // overlong forms, the surrogates, and beyond Unicode
+                if (code < smallest || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF))
+                {
+                    return false;
+                }
+                i += length;
+            }
+            return true;
+        }
+
+        struct MessageParts
+        {
+            json header;
+            json parent_header;
+            json metadata;
+            json content;
+            std::string content_text; // in place of content, when it was deferred
+            bool content_deferred = false;
+            buffer_sequence buffers;
+        };
+
+        MessageParts deserializeMessageBase(zmq::multipart_t& wire_msg,
+            const Authentication& auth,
+            bool defer_large_content)
         {
             // Popping an empty multipart hands back an invalid message that
             // ZeroMQ asserts on (aborting the process) the moment it is read.
@@ -105,7 +181,13 @@ namespace adrastea
             parseZmqMessage(header, j_header);
             parseZmqMessage(parent_header, j_parent_header);
             parseZmqMessage(metadata, j_metadata);
-            parseZmqMessage(content, j_content);
+            const bool deferred = defer_large_content
+                && content.size() >= ZmqSerializer::kDeferredContentBytes
+                && isOneLineOfUtf8(content.data<const unsigned char>(), content.size());
+            if (!deferred)
+            {
+                parseZmqMessage(content, j_content);
+            }
 
             buffer_sequence buffers;
             while (!wire_msg.empty())
@@ -126,13 +208,18 @@ namespace adrastea
                 throw std::runtime_error("ERROR: Signatures don't match");
             }
 
-            return {
-                std::move(j_header),
-                std::move(j_parent_header),
-                std::move(j_metadata),
-                std::move(j_content),
-                std::move(buffers)
-            };
+            MessageParts parts;
+            parts.header = std::move(j_header);
+            parts.parent_header = std::move(j_parent_header);
+            parts.metadata = std::move(j_metadata);
+            parts.content = std::move(j_content);
+            parts.buffers = std::move(buffers);
+            if (deferred)
+            {
+                parts.content_text.assign(content.data<const char>(), content.size());
+                parts.content_deferred = true;
+            }
+            return parts;
         }
 
         void serializeTopic(const PubMessage& msg, zmq::multipart_t& wire_msg)
@@ -177,18 +264,24 @@ namespace adrastea
     }
 
     Message ZmqSerializer::deserialize(zmq::multipart_t& wire_msg,
-        const Authentication& auth)
+        const Authentication& auth,
+        bool defer_large_content)
     {
         Message::guid_list zmq_id = deserializeZmqId(wire_msg);
-        auto [header, parent_header, metadata, content, buffers] = deserializeMessageBase(wire_msg, auth);
-        return Message(
+        MessageParts parts = deserializeMessageBase(wire_msg, auth, defer_large_content);
+        Message msg(
             std::move(zmq_id),
-            std::move(header),
-            std::move(parent_header),
-            std::move(metadata),
-            std::move(content),
-            std::move(buffers)
+            std::move(parts.header),
+            std::move(parts.parent_header),
+            std::move(parts.metadata),
+            std::move(parts.content),
+            std::move(parts.buffers)
         );
+        if (parts.content_deferred)
+        {
+            msg.deferContent(std::move(parts.content_text));
+        }
+        return msg;
     }
 
     zmq::multipart_t ZmqSerializer::serializeIopub(PubMessage&& msg,
@@ -202,17 +295,23 @@ namespace adrastea
     }
 
     PubMessage ZmqSerializer::deserializeIopub(zmq::multipart_t& wire_msg,
-        const Authentication& auth)
+        const Authentication& auth,
+        bool defer_large_content)
     {
         std::string topic = deserializeTopic(wire_msg);
-        auto [header, parent_header, metadata, content, buffers] = deserializeMessageBase(wire_msg, auth);
-        return PubMessage(topic,
-            std::move(header),
-            std::move(parent_header),
-            std::move(metadata),
-            std::move(content),
-            std::move(buffers)
+        MessageParts parts = deserializeMessageBase(wire_msg, auth, defer_large_content);
+        PubMessage msg(topic,
+            std::move(parts.header),
+            std::move(parts.parent_header),
+            std::move(parts.metadata),
+            std::move(parts.content),
+            std::move(parts.buffers)
         );
+        if (parts.content_deferred)
+        {
+            msg.deferContent(std::move(parts.content_text));
+        }
+        return msg;
     }
 
     void ZmqSerializer::serializeZmqId(const Message::guid_list& ids, zmq::multipart_t& wire_msg)

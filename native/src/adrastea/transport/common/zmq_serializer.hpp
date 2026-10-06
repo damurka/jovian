@@ -17,15 +17,22 @@ namespace adrastea
             const Authentication& auth,
             json::error_handler_t error_handler = json::error_handler_t::strict);
 
+        // defer_large_content: a content frame of kDeferredContentBytes or more is kept as its text and parsed
+        // only if something reads content() (Message::contentText()), provided it is one line of valid UTF-8.
+        // For a supervisor, which passes a kernel's messages on and has no use for what a large one holds.
         static Message deserialize(zmq::multipart_t& wire_msg,
-            const Authentication& auth);
+            const Authentication& auth,
+            bool defer_large_content = false);
 
         static zmq::multipart_t serializeIopub(PubMessage&& msg,
             const Authentication& auth,
             json::error_handler_t error_handler = json::error_handler_t::strict);
 
         static PubMessage deserializeIopub(zmq::multipart_t& wire_msg,
-            const Authentication& auth);
+            const Authentication& auth,
+            bool defer_large_content = false);
+
+        static constexpr std::size_t kDeferredContentBytes = 64 * 1024;
 
 
         static void serializeZmqId(const Message::guid_list& ids, zmq::multipart_t& wire_msg);

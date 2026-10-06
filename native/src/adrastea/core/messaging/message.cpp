@@ -26,6 +26,26 @@ namespace adrastea
     {
     }
 
+    void MessageBase::deferContent(std::string text)
+    {
+        m_contentText = std::move(text);
+        m_hasContentText = true;
+        m_contentDeferred = true;
+        m_content = json();
+    }
+
+    void MessageBase::parseDeferredContent() const
+    {
+        m_contentDeferred = false;
+        // as the serializer parses a frame: comments ignored, and a text that is not JSON is an error object
+        m_content = json::parse(m_contentText, nullptr, false, true);
+        if (m_content.is_discarded())
+        {
+            m_content = json::object();
+            m_content["error"] = "JSON parse error: the message's content is not JSON";
+        }
+    }
+
     Message::Message(
         const guid_list& zmq_id,
         json header,

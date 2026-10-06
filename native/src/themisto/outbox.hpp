@@ -120,8 +120,15 @@ namespace themisto
                 {
                     if (abandoned()) return;
                     if (!frame.empty() && frame.size() + text.size() + 1 > kFrameBytes) flush();
-                    if (!frame.empty()) frame += '\n';
-                    frame += text;
+                    if (frame.empty())
+                    {
+                        frame = std::move(text); // a frame of one message (every large one) is that message, not a copy
+                    }
+                    else
+                    {
+                        frame += '\n';
+                        frame += text;
+                    }
                 }
                 flush();
             }

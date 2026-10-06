@@ -1399,6 +1399,74 @@ TEST_F(SessionRegistryTest, ShutdownRequestSentDuringAnExecutionIsHandledAfterIt
     EXPECT_EQ(executeReply->at("content").at("status"), "ok");
 }
 
+TEST_F(SessionRegistryTest, ALargeOutputIsRelayedWholeAsOneLineOfJson)
+{
+    // A large message's content is passed on as the text the kernel sent, not parsed and written again
+    // (MessageBase::contentText()): the frame must still be one line of JSON holding all of it, with what is
+    // not ASCII and what JSON escapes (the newline, the quote, the backslash) intact.
+    SessionOptions options;
+    options.rHome = m_rHome;
+
+    std::string error;
+    std::string id = m_registry->createSession(options, error);
+    ASSERT_FALSE(id.empty()) << "createSession failed: " << error;
+    auto session = m_registry->getSession(id);
+    ASSERT_TRUE(session != nullptr);
+
+    std::mutex mutex;
+    std::vector<std::string> frames;
+    {
+        std::lock_guard<std::mutex> lock(session->callbackMutex);
+        session->onMessage = [&](const std::string& text) {
+            std::lock_guard<std::mutex> guard(mutex);
+            frames.push_back(text);
+        };
+    }
+
+    ASSERT_TRUE(m_registry->sendExecute(id, "big-1",
+        "cat(strrep('x', 2e6), '\\n', intToUtf8(c(233, 8364, 128512)), ' \"quoted\" back\\\\slash', sep = '')",
+        json::object()));
+
+    std::string text;
+    bool sawLargeFrame = false;
+    ASSERT_TRUE(waitFor([&]() {
+        std::lock_guard<std::mutex> guard(mutex);
+        text.clear();
+        bool idle = false;
+        for (const std::string& frame : frames)
+        {
+            if (frame.find('\n') != std::string::npos)
+            {
+                ADD_FAILURE() << "a frame of more than one line";
+                return true;
+            }
+            json message = json::parse(frame, nullptr, false);
+            if (message.is_discarded())
+            {
+                ADD_FAILURE() << "a frame that is not JSON (" << frame.size() << " bytes)";
+                return true;
+            }
+            if (message.value("parent_msg_id", "") != "big-1") continue;
+            if (message.value("msg_type", "") == "stream")
+            {
+                text += message.at("content").value("text", "");
+                sawLargeFrame = sawLargeFrame || frame.size() > 1000000;
+            }
+            idle = idle || (message.value("msg_type", "") == "status" && message.at("content").value("execution_state", "") == "idle");
+        }
+        return idle;
+    }, kTimeoutMs)) << "the cell never finished";
+
+    EXPECT_TRUE(sawLargeFrame) << "the output arrived in small pieces: this no longer tests a large message";
+    EXPECT_EQ(text, std::string(2000000, 'x') + "\n\xC3\xA9\xE2\x82\xAC\xF0\x9F\x98\x80 \"quoted\" back\\slash");
+
+    {
+        std::lock_guard<std::mutex> lock(session->callbackMutex);
+        session->onMessage = nullptr;
+    }
+    m_registry->stopSession(id);
+}
+
 TEST_F(SessionRegistryTest, SessionJsonReportsALiveHeartbeatEvenWhileTheKernelIsBusy)
 {
     SessionOptions options;

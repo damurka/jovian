@@ -109,7 +109,7 @@ namespace themisto
         std::atomic<SessionStatus> status{ SessionStatus::Starting };
 
         std::mutex callbackMutex;
-        std::function<void(const std::string&)> onMessage;
+        std::function<void(std::string)> onMessage; // by value: a frame can be megabytes, and is moved on
         std::function<void(const std::string&)> onKernelExit;
         // Which relay connection set the two callbacks above (guarded by
         // callbackMutex): a connection that closes clears them only if they
@@ -135,7 +135,7 @@ namespace themisto
 
         ~Session();
 
-        void emitMessage(const std::string& jsonText);
+        void emitMessage(std::string jsonText);
         void emitKernelExit(const std::string& reason);
     };
 

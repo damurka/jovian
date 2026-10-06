@@ -22,7 +22,18 @@ namespace adrastea
 		const json& header() const { return m_header; }
 		const json& parentHeader() const { return m_parentHeader; }
 		const json& metadata() const { return m_metadata; }
-		const json& content() const { return m_content; }
+		// Parsed on first use when the message was given its content as text (deferContent()).
+		const json& content() const { if (m_contentDeferred) { parseDeferredContent(); } return m_content; }
+
+		// The content's JSON text exactly as it was received, or nullptr when the message was not given it. The
+		// text is on one line and valid UTF-8 (deferContent()'s caller has checked), so it can be put inside
+		// another JSON text as it is: how a supervisor passes a large message on without parsing 10 MB to write
+		// the same 10 MB again.
+		const std::string* contentText() const { return m_hasContentText ? &m_contentText : nullptr; }
+
+		// The content as text, parsed only if something reads content(). For a caller that has checked the text
+		// is one line of valid UTF-8; what it holds beyond that is the sender's (the kernel signed it).
+		void deferContent(std::string text);
 
 		const buffer_sequence& buffers() const& { return m_buffers; }
 		buffer_sequence&& buffers()&& { return std::move(m_buffers); }
@@ -41,10 +52,15 @@ namespace adrastea
 
 	private:
 
+		void parseDeferredContent() const;
+
 		json m_header;
 		json m_parentHeader;
 		json m_metadata;
-		json m_content;
+		mutable json m_content;
+		mutable bool m_contentDeferred = false;
+		bool m_hasContentText = false;
+		std::string m_contentText;
 		buffer_sequence m_buffers;
 	};
 
